@@ -16,6 +16,11 @@ app.use(cors({
     origin: (origin, callback) => {
         // Allow requests with no origin (mobile apps, curl, etc.)
         if (!origin) return callback(null, true);
+
+        // In production allow if wildcard
+        if (allowedOrigins.includes('*')) {
+            return callback(null, true);
+        }
         
         // In development, allow any localhost port
         if (process.env.NODE_ENV === 'development' && origin.startsWith('http://localhost:')) {
