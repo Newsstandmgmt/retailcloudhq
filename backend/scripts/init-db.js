@@ -13,13 +13,39 @@ const bcrypt = require('bcrypt');
 const fs = require('fs');
 const path = require('path');
 
-const pool = new Pool({
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    database: process.env.DB_NAME || 'retail_management',
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'postgres',
-});
+const buildPoolConfig = () => {
+    if (process.env.DATABASE_URL) {
+        const ssl =
+            process.env.DB_SSL === 'false'
+                ? false
+                : {
+                      rejectUnauthorized: process.env.DB_SSL_STRICT === 'true',
+                  };
+
+        return {
+            connectionString: process.env.DATABASE_URL,
+            ssl,
+        };
+    }
+
+    const config = {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 5432,
+        database: process.env.DB_NAME || 'retail_management',
+        user: process.env.DB_USER || 'postgres',
+        password: process.env.DB_PASSWORD || 'postgres',
+    };
+
+    if (process.env.DB_SSL === 'true') {
+        config.ssl = {
+            rejectUnauthorized: process.env.DB_SSL_STRICT === 'true',
+        };
+    }
+
+    return config;
+};
+
+const pool = new Pool(buildPoolConfig());
 
 async function initDatabase() {
     const client = await pool.connect();
