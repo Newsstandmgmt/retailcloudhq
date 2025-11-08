@@ -1,0 +1,30 @@
+{
+  "lottery": {
+    "entry_date": "Date",
+    "retailer_number": "Retailer Number",
+    "location_name": "Location Name",
+    "balance_forward": "Balance Forward",
+    "draw_sales": "Draw Sales",
+    "draw_cancels": "Draw Cancels",
+    "draw_promos": "Draw Promos",
+    "draw_comm": "Draw Comm",
+    "draw_pays": "Draw Pays",
+    "vch_iss": "VCH ISS",
+    "vch_rd": "VCH RD",
+    "webcash_iss": "WebCash ISS",
+    "draw_adj": "Draw Adj",
+    "draw_due": "Draw Due",
+    "scratch_offs_sales": "Scratch-Offs Sales",
+    "scratch_offs_rtrns": "Scratch-Offs Rtrns",
+    "scratch_offs_comm": "Scratch-Offs Comm",
+    "scratch_offs_prms": "Scratch-Offs Prms",
+    "scratch_offs_pays": "Scratch-Offs Pays",
+    "scratch_offs_adj": "Scratch-Offs Adj",
+    "scratch_offs_due": "Scratch-Offs Due",
+    "card_trans": "Card Trans",
+    "gift_cards": "Gift Cards",
+    "prepaid": "Prepaid",
+    "total_due": "Total Due"
+  }
+}
+
