@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Backfill legacy schemas that may be missing the role column
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS role VARCHAR(50);
+
+UPDATE users
+SET role = COALESCE(role, 'employee');
+
+-- Ensure we maintain the NOT NULL guarantee for role
+ALTER TABLE users
+    ALTER COLUMN role SET NOT NULL;
+
 -- Store table
 CREATE TABLE IF NOT EXISTS stores (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
