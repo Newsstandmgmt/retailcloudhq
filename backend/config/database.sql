@@ -49,6 +49,35 @@ ALTER TABLE users
     ALTER COLUMN first_name SET NOT NULL,
     ALTER COLUMN last_name SET NOT NULL;
 
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+-- Ensure updated_at columns exist on all tables using the update_updated_at_column trigger
+DO $$
+DECLARE
+    tbl text;
+BEGIN
+    FOREACH tbl IN ARRAY ARRAY[
+        'stores',
+        'daily_revenue',
+        'daily_lottery',
+        'daily_cash_flow',
+        'daily_cogs',
+        'monthly_utilities',
+        'monthly_operating_expenses',
+        'license_fees',
+        'customers',
+        'suppliers'
+    ]
+    LOOP
+        EXECUTE format(
+            'ALTER TABLE %I ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;',
+            tbl
+        );
+    END LOOP;
+END;
+$$;
+
 -- Store table
 CREATE TABLE IF NOT EXISTS stores (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
