@@ -361,6 +361,7 @@ DROP TRIGGER IF EXISTS update_customers_updated_at ON customers;
 CREATE TRIGGER update_customers_updated_at BEFORE UPDATE ON customers
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_suppliers_updated_at ON suppliers;
 CREATE TRIGGER update_suppliers_updated_at BEFORE UPDATE ON suppliers
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
