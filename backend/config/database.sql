@@ -321,33 +321,43 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_stores_updated_at ON stores;
 CREATE TRIGGER update_stores_updated_at BEFORE UPDATE ON stores
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_daily_revenue_updated_at ON daily_revenue;
 CREATE TRIGGER update_daily_revenue_updated_at BEFORE UPDATE ON daily_revenue
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_daily_lottery_updated_at ON daily_lottery;
 CREATE TRIGGER update_daily_lottery_updated_at BEFORE UPDATE ON daily_lottery
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_daily_cash_flow_updated_at ON daily_cash_flow;
 CREATE TRIGGER update_daily_cash_flow_updated_at BEFORE UPDATE ON daily_cash_flow
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_daily_cogs_updated_at ON daily_cogs;
 CREATE TRIGGER update_daily_cogs_updated_at BEFORE UPDATE ON daily_cogs
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_monthly_utilities_updated_at ON monthly_utilities;
 CREATE TRIGGER update_monthly_utilities_updated_at BEFORE UPDATE ON monthly_utilities
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_monthly_operating_expenses_updated_at ON monthly_operating_expenses;
 CREATE TRIGGER update_monthly_operating_expenses_updated_at BEFORE UPDATE ON monthly_operating_expenses
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_license_fees_updated_at ON license_fees;
 CREATE TRIGGER update_license_fees_updated_at BEFORE UPDATE ON license_fees
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_customers_updated_at ON customers;
 CREATE TRIGGER update_customers_updated_at BEFORE UPDATE ON customers
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
