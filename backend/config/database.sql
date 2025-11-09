@@ -4,6 +4,23 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Utility function for updated_at triggers (safe on legacy tables)
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = TG_TABLE_SCHEMA
+          AND table_name = TG_TABLE_NAME
+          AND column_name = 'updated_at'
+    ) THEN
+        NEW.updated_at = CURRENT_TIMESTAMP;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE 'plpgsql';
+
 -- ============================================
 -- USER MANAGEMENT TABLES
 -- ============================================
@@ -51,32 +68,6 @@ ALTER TABLE users
 
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-
--- Ensure updated_at columns exist on all tables using the update_updated_at_column trigger
-DO $$
-DECLARE
-    tbl text;
-BEGIN
-    FOREACH tbl IN ARRAY ARRAY[
-        'stores',
-        'daily_revenue',
-        'daily_lottery',
-        'daily_cash_flow',
-        'daily_cogs',
-        'monthly_utilities',
-        'monthly_operating_expenses',
-        'license_fees',
-        'customers',
-        'suppliers'
-    ]
-    LOOP
-        EXECUTE format(
-            'ALTER TABLE %I ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;',
-            tbl
-        );
-    END LOOP;
-END;
-$$;
 
 -- Store table
 CREATE TABLE IF NOT EXISTS stores (
@@ -342,13 +333,32 @@ CREATE INDEX IF NOT EXISTS idx_customers_store_id ON customers(store_id);
 -- TRIGGERS FOR UPDATED_AT
 -- ============================================
 
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
+-- Ensure tables that rely on update_updated_at_column have updated_at column
+DO $$
+DECLARE
+    tbl TEXT;
 BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
+    FOREACH tbl IN ARRAY ARRAY[
+        'users',
+        'stores',
+        'daily_revenue',
+        'daily_lottery',
+        'daily_cash_flow',
+        'daily_cogs',
+        'monthly_utilities',
+        'monthly_operating_expenses',
+        'license_fees',
+        'customers',
+        'suppliers'
+    ]
+    LOOP
+        EXECUTE FORMAT(
+            'ALTER TABLE %I ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;',
+            tbl
+        );
+    END LOOP;
 END;
-$$ language 'plpgsql';
+$$;
 
 DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users

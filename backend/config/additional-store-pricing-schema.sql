@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS manager_access_pricing (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE manager_access_pricing
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
 -- Insert default manager access pricing (if not exists)
 INSERT INTO manager_access_pricing (price_per_store_per_month, is_active)
 VALUES (9.99, true)
