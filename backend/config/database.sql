@@ -34,6 +34,21 @@ SET role = COALESCE(role, 'employee');
 ALTER TABLE users
     ALTER COLUMN role SET NOT NULL;
 
+-- Backfill legacy instances to include first_name / last_name columns
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS first_name VARCHAR(100);
+
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS last_name VARCHAR(100);
+
+UPDATE users
+SET first_name = COALESCE(first_name, ''),
+    last_name = COALESCE(last_name, '');
+
+ALTER TABLE users
+    ALTER COLUMN first_name SET NOT NULL,
+    ALTER COLUMN last_name SET NOT NULL;
+
 -- Store table
 CREATE TABLE IF NOT EXISTS stores (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
