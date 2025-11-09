@@ -8,7 +8,13 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const { query } = require('../config/database');
 
 async function runMigration() {
-    const migrationFile = path.join(__dirname, '../config/state-lottery-config-schema.sql');
+    const relativePath = process.argv[2] || 'config/state-lottery-config-schema.sql';
+    const migrationFile = path.join(__dirname, '..', relativePath);
+    
+    if (!fs.existsSync(migrationFile)) {
+        console.error('❌ Migration file not found:', migrationFile);
+        process.exit(1);
+    }
     
     console.log('📄 Reading migration file:', migrationFile);
     console.log('🔌 Connecting as:', process.env.DB_USER || 'postgres');
