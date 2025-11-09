@@ -1,14 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DeviceInfo from 'react-native-device-info';
-
-// Update this to your backend URL
-// Get your machine's IP: ifconfig (Mac/Linux) or ipconfig (Windows)
-// For Android Emulator: use 10.0.2.2 instead of localhost
-// For physical device: use your computer's actual IP (e.g., 172.20.10.3)
-const API_BASE_URL = __DEV__ 
-  ? 'http://10.1.10.120:3000' // Update this to your actual IP address
-  : 'https://your-production-url.com';
+import { getApiBaseUrl } from '../config/api';
 
 // Get stored device ID - with better persistence
 const getDeviceId = async (): Promise<string> => {
@@ -47,7 +40,7 @@ const deviceAuthAPI = {
   verifyDevice: async () => {
     try {
       const deviceId = await getDeviceId();
-      const response = await axios.get(`${API_BASE_URL}/api/device-auth/verify/${deviceId}`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/device-auth/verify/${deviceId}`, {
         timeout: 5000, // 5 second timeout
       });
       return response.data;
@@ -65,7 +58,7 @@ const deviceAuthAPI = {
   login: async (pin: string) => {
     try {
       const deviceId = await getDeviceId();
-      const response = await axios.post(`${API_BASE_URL}/api/device-auth/login`, {
+      const response = await axios.post(`${getApiBaseUrl()}/api/device-auth/login`, {
         device_id: deviceId,
         pin,
       }, {

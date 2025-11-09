@@ -1,12 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DeviceInfo from 'react-native-device-info';
-
-// Update this to your backend URL
-// For development, use your computer's IP address (e.g., http://192.168.1.100:3000)
-const API_BASE_URL = __DEV__
-  ? 'http://10.1.10.120:3000' // Update this to your actual IP address
-  : 'https://your-production-url.com';
+import { getApiBaseUrl } from '../config/api';
 
 // Get stored device ID
 const getDeviceId = async (): Promise<string> => {
@@ -29,7 +24,7 @@ const mobileDevicesAPI = {
       model: DeviceInfo.getModel(),
     };
 
-    const response = await axios.post(`${API_BASE_URL}/api/mobile-devices/register`, {
+    const response = await axios.post(`${getApiBaseUrl()}/api/mobile-devices/register`, {
       code,
       device_id: deviceId,
       device_name: deviceName,
@@ -55,7 +50,7 @@ const mobileDevicesAPI = {
     }
 
     const response = await axios.get(
-      `${API_BASE_URL}/api/mobile-devices/device/${deviceId}`,
+      `${getApiBaseUrl()}/api/mobile-devices/device/${deviceId}`,
       { headers }
     );
 
@@ -74,7 +69,7 @@ const mobileDevicesAPI = {
     const token = await AsyncStorage.getItem('auth_token');
 
     await axios.put(
-      `${API_BASE_URL}/api/mobile-devices/device/${deviceId}`,
+      `${getApiBaseUrl()}/api/mobile-devices/device/${deviceId}`,
       {
         ...data,
         last_seen_at: new Date().toISOString(),

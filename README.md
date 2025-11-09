@@ -1,178 +1,171 @@
 # RetailCloudHQ
 
-A comprehensive, self-hosted retail operations platform designed to replace Excel-based tracking with a modern, automated, web-based solution.
+RetailCloudHQ is an end-to-end retail operations platform that unifies multi-store management, financial tracking, lottery reconciliation, handheld inventory, and scheduling tools into a single workflow. The repository is organised as a monorepo that powers the web admin portal, public REST API, and companion Android app.
 
-## 🎯 Project Overview
+## Monorepo Overview
 
-This system digitizes and enhances all retail business operations including:
-- Multi-location store management
-- Complete financial tracking (revenue, expenses, lottery, cash flow)
-- Hierarchical user management (Super Admin → Admin → Manager → Employee)
-- Real-time dashboards and reporting
-- Customer management
-- Automated calculations and data validation
-
-## 🏗️ Architecture
-
-### Technology Stack
-- **Frontend**: React.js (to be implemented)
-- **Backend**: Node.js + Express
-- **Database**: PostgreSQL
-- **Authentication**: JWT with role-based access control
-- **Deployment**: Docker on Synology NAS (planned)
-
-### Project Structure
 ```
-retailcloudhq/
-├── backend/          # Node.js/Express API server
-│   ├── config/       # Database configuration
-│   ├── middleware/   # Auth middleware
-│   ├── models/       # Data models
-│   ├── routes/       # API routes
-│   └── scripts/      # Utility scripts
-├── frontend/         # React web application
-├── RetailCloudHQApp/ # React Native handheld app
-└── docs/             # Documentation
+RetailCloudHQ/
+├── backend/                # Node.js + Express REST API backed by PostgreSQL
+│   ├── config/             # SQL migrations, schema definitions, connection helpers
+│   ├── middleware/         # Auth, audit logging, and error instrumentation
+│   ├── models/             # Query builders and data access helpers
+│   ├── routes/             # REST endpoints grouped by domain
+│   ├── services/           # Google Sheets sync, notifications, reports, schedulers
+│   └── scripts/            # Database bootstrap and maintenance tooling
+├── frontend/               # React 19 + Vite admin console with Tailwind UI
+│   ├── src/components/     # Reusable UI widgets (tables, forms, layouts)
+│   ├── src/pages/          # Feature dashboards (revenue, lottery, billing, etc.)
+│   ├── src/contexts/       # Auth + store selection providers
+│   └── src/services/       # Axios API client covering every backend route
+├── RetailCloudHQApp/       # React Native 0.73 handheld inventory/lottery app
+│   ├── android/ios/        # Native platform projects
+│   └── src/                # TypeScript screens, navigation, offline helpers
+└── docs/                   # Deep-dive setup guides and integration playbooks
 ```
 
-## 🚀 Quick Start
+## Technology Stack
 
-### Prerequisites
-- Node.js (v14+)
-- PostgreSQL (v12+)
-- npm or yarn
+- **Core backend:** Node 18+, Express 4, PostgreSQL 14+, JWT auth, cron-based schedulers, Google APIs.
+- **Web frontend:** React 19, Vite, Tailwind CSS, React Router, Recharts, Axios.
+- **Mobile client:** React Native 0.73 (Android-first), AsyncStorage, Vision Camera (barcode), axios.
+- **Automation & integrations:** Google Sheets ingestion, Gmail monitoring, recurring expense engine, notification service, audit logging, XLSX import/export.
+- **Deployment target:** Railway (API + Postgres) and Netlify (frontend). Production relies on `VITE_API_URL=https://retailcloudhq-production.up.railway.app` and `CORS_ORIGIN=https://retailcloudhq.netlify.app`.
 
-### Backend Setup
+## Feature Highlights
 
-1. **Navigate to backend directory:**
+- **Hierarchical user & store management:** Super Admin → Admin → Manager → Employee roles with scoped data access and device registrations.
+- **Financial operations:** Daily revenue, lottery (instant/draw), cash-on-hand, bank deposits, payroll, utilities, operating expenses, COGS, and journal entries.
+- **Inventory & purchasing:** Product catalog, inventory orders, vendor invoices, barcode-ready handheld workflows, customer tabs, credit cards, and bank management.
+- **Billing & subscriptions:** Store subscriptions, feature pricing, invoices, payment history, notifications, and license tracking with document uploads.
+- **Automation:** Google Sheets ingestion, Gmail parsing for lottery results, scheduled recurring expenses, notification digests, audit logging and reporting exports.
+- **Observability:** Structured JSON error logging to `backend/logs/errors.json`, `/health` endpoint, and admin UI dashboards.
+
+## Prerequisites
+
+- Node.js 18+ (required for React 19 and React Native toolchains)
+- npm (or pnpm/yarn) for dependency management
+- PostgreSQL 14+ with a database named `retail_management`
+- Android Studio + JDK 17 (only if you plan to run the mobile app)
+- Optional: Google Cloud service account with Sheets API access, Gmail API credentials
+
+## Local Development
+
+### 1. Backend API
+
+1. Install dependencies:
    ```bash
    cd backend
-   ```
-
-2. **Install dependencies:**
-   ```bash
    npm install
    ```
-
-3. **Set up environment:**
-   Create a `.env` file:
+2. Create environment variables (`create-env.sh` provides a starter template tailored for macOS usernames):
+   ```bash
+   ./create-env.sh  # or craft your own .env
+   ```
+   Essential keys:
    ```env
    NODE_ENV=development
    PORT=3000
+
    DB_HOST=localhost
    DB_PORT=5432
    DB_NAME=retail_management
    DB_USER=postgres
    DB_PASSWORD=your_password
-   JWT_SECRET=your-secret-key
-   JWT_EXPIRE=7d
-   CORS_ORIGIN=http://localhost:3001
-   ```
 
-4. **Create database:**
+   JWT_SECRET=generate-a-long-random-string
+   JWT_EXPIRE=7d
+
+   CORS_ORIGIN=http://localhost:5173
+   ENABLE_GOOGLE_SHEETS_SYNC=true
+   ENABLE_EMAIL_MONITOR=false
+   ```
+3. Prepare the database:
    ```bash
    createdb retail_management
-   ```
-
-5. **Initialize database:**
-   ```bash
    node scripts/init-db.js
    ```
+   The init script seeds base roles, default settings, and (optionally) a Super Admin user when `SUPER_ADMIN_*` variables are set.
+4. Run the API:
+   ```bash
+   npm run dev     # nodemon-backed hot reload
+   # or
+   npm start       # production mode
+   ```
+   The server exposes `/` and `/health` for quick smoke tests. Background cron jobs (Google Sheets sync, recurring expenses, notifications) start automatically unless disabled via env.
 
-6. **Start server:**
+#### Useful backend scripts
+
+- `node scripts/run-migration.js` – apply targeted SQL migrations stored in `config`.
+- `node scripts/verify-db.js` – inspect schema health and connection.
+- `node scripts/add-license-management-feature.js` and `add-audit-logs.js` – seed advanced feature toggles.
+
+### 2. Web Frontend (Vite + React)
+
+1. Install dependencies:
+   ```bash
+   cd frontend
+   npm install
+   ```
+2. Configure environment:
+   ```env
+   # frontend/.env
+   VITE_API_URL=http://localhost:3000
+   ```
+3. Run the dev server:
    ```bash
    npm run dev
    ```
+   The admin console lives at `http://localhost:5173`. Authentication, store context, and all feature pages rely on the API client inside `src/services/api.js`.
+4. Lint/build:
+   ```bash
+   npm run lint
+   npm run build
+   ```
 
-The API will be available at `http://localhost:3000`
+### 3. React Native Handheld App
 
-## 📊 Features
+1. Install dependencies:
+   ```bash
+   cd RetailCloudHQApp
+   npm install
+   ```
+2. Configure API base URL in `src/api/mobileDevicesAPI.ts` (development defaults to your LAN IP on port 3000). Ensure the backend `HOST` env is `0.0.0.0` for device access.
+3. Start Metro and launch on Android:
+   ```bash
+   npm start        # Metro bundler
+   npm run android  # requires emulator or device + USB debugging
+   ```
+   The app supports device registration (paired with admin-generated codes), live permission sync, locking, and inventory workflows. See `docs/ANDROID_APP_SETUP.md` for deeper instructions.
 
-### Financial Tracking
-- **Revenue**: Total cash, credit card, online sales, newspaper sales, etc.
-- **Lottery**: Daily lottery tracking, commissions, bank deposits
-- **Cash Flow**: Beginning/ending cash, payroll, daily cash
-- **COGS**: Cost of goods sold, cigarette rebates
-- **Utilities**: Monthly utility expenses (electric, internet, security, etc.)
-- **Operating Expenses**: Payroll, fees, meals, parking, etc.
-- **License Fees**: Annual license tracking
+## Data & Integrations
 
-### User Management
-- **Super Admin**: Complete system control
-- **Admin**: Manage stores and users under them
-- **Manager**: Store-specific operations
-- **Employee**: Basic data entry
+- **Database schema:** Complete definitions live in `backend/config/database.sql` with supplemental migrations in the same directory.
+- **Google Sheets ingestion:** Configure store-level credentials using the API (`/api/google-sheets`) and supply service account JSON via env or file path. Scheduler pulls hourly/daily depending on per-store settings.
+- **Gmail lottery monitor:** When `ENABLE_EMAIL_MONITOR=true`, the cron defined in `services/emailMonitorCron.js` polls linked mailbox accounts to automate lottery report ingestion.
+- **Recurring expenses:** `services/recurringExpensesService.js` generates expenses daily at 3 AM (America/New_York) and exposes manual triggers via `/api/recurring-expenses/process`.
+- **Notifications:** Alerts for overdue invoices, payment reminders, device lock statuses, etc., are generated nightly at 4 AM and surfaced in the admin UI (`/notifications` routes).
 
-### Store Management
-- Multi-store support
-- Store assignments
-- Employee management per store
-- Store-specific data isolation
+## Deployment Notes
 
-## 📝 API Documentation
+- **Backend (Railway):**
+  - Set `CORS_ORIGIN=https://retailcloudhq.netlify.app` (comma-separate additional origins).
+  - Run `node scripts/init-db.js` after provisioning the managed PostgreSQL instance.
+  - Configure optional vars: `ENABLE_GOOGLE_SHEETS_SYNC`, `ENABLE_EMAIL_MONITOR`, `GOOGLE_APPLICATION_CREDENTIALS`, `SMTP_*` (if email dispatch is enabled).
+- **Frontend (Netlify):**
+  - Build command: `npm run build`
+  - Publish directory: `dist`
+  - Required env: `VITE_API_URL=https://retailcloudhq-production.up.railway.app`
+- **Mobile:** Update `API_BASE_URL` to point at Railway (or internal reverse proxy) before generating a release APK with `./gradlew assembleRelease`.
 
-See `backend/README.md` for complete API documentation.
+## Documentation & Further Reading
 
-## 🔐 Security
+- `backend/README.md` – exhaustive API surfaces, auth flows, and role matrix.
+- `docs/QUICK_START.md` – onboarding checklist covering backend + frontend deployment.
+- `docs/FRONTEND_INTEGRATION_SETUP.md` – device registration UX and end-to-end mobile handshake.
+- `docs/ANDROID_APP_SETUP.md` – React Native environment, barcode scanning, and permission management.
 
-- JWT-based authentication
-- Password hashing with bcrypt
-- Role-based access control
-- Store-level data isolation
-- CORS protection
-- Helmet.js security headers
+## License & Support
 
-## 🗄️ Database Schema
-
-All tables are defined in `backend/config/database.sql`. Key tables include:
-- `users` - User accounts with roles
-- `stores` - Store information
-- `daily_revenue` - Daily revenue entries
-- `daily_lottery` - Daily lottery entries
-- `daily_cash_flow` - Cash flow tracking
-- `daily_cogs` - Cost of goods sold
-- `monthly_utilities` - Monthly utility expenses
-- `monthly_operating_expenses` - Operating expenses
-- `license_fees` - Annual license fees
-- `customers` - Customer database
-- `user_store_assignments` - User-store relationships
-
-## 🛠️ Development Roadmap
-
-### Phase 1: Foundation ✅
-- [x] Database schema
-- [x] Authentication system
-- [x] API routes
-- [x] Models and middleware
-
-### Phase 2: Frontend (In Progress)
-- [ ] React application setup
-- [ ] Authentication UI
-- [ ] Dashboard
-- [ ] Data entry forms
-
-### Phase 3: Advanced Features
-- [ ] Reporting and analytics
-- [ ] Data export
-- [ ] Automated calculations
-- [ ] Notifications
-
-### Phase 4: Deployment
-- [ ] Docker containerization
-- [ ] Synology NAS deployment
-- [ ] SSL setup
-- [ ] Backup automation
-
-## 📖 Documentation
-
-- [Backend API Documentation](backend/README.md)
-- [Database Schema](backend/config/database.sql)
-
-## 🤝 Contributing
-
-This is a private project for internal use. For questions or issues, contact the development team.
-
-## 📄 License
-
-Proprietary - Internal use only
+RetailCloudHQ is proprietary and intended for internal use only. For questions, reach out to the RetailCloudHQ engineering team.
 

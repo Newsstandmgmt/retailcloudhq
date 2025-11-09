@@ -1,15 +1,11 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// Update this to your backend URL
-const API_BASE_URL = __DEV__
-  ? 'http://10.1.10.120:3000' // Update this to your actual IP address
-  : 'https://your-production-url.com';
+import { getApiBaseUrl } from '../config/api';
 
 const authAPI = {
   // Login
   login: async (email: string, password: string) => {
-    const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
+    const response = await axios.post(`${getApiBaseUrl()}/api/auth/login`, {
       email,
       password,
     });

@@ -16,6 +16,7 @@ import { productsAPI } from '../api/productsAPI';
 import { ordersAPI } from '../api/ordersAPI';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { getApiBaseApiUrl } from '../config/api';
 
 interface SyncStatus {
   isOnline: boolean;
@@ -371,9 +372,7 @@ class SyncService {
   // Execute a sync operation
   private async executeSyncOperation(operation: any): Promise<void> {
     const token = await AsyncStorage.getItem('auth_token');
-    const baseURL = __DEV__ 
-      ? 'http://10.1.10.120:3000/api' // Update this to match your API
-      : 'https://your-production-url.com/api';
+    const baseURL = getApiBaseApiUrl();
 
     const config: any = {
       method: operation.method,

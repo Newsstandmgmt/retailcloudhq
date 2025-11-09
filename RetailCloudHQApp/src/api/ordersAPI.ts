@@ -1,9 +1,6 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const API_BASE_URL = __DEV__ 
-  ? 'http://10.1.10.120:3000/api' // Update this to your actual IP address
-  : 'https://your-production-url.com/api';
+import { getApiBaseApiUrl } from '../config/api';
 
 const getAuthToken = async () => {
   try {
@@ -16,7 +13,7 @@ const getAuthToken = async () => {
 };
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: getApiBaseApiUrl(),
   timeout: 10000,
 });
 

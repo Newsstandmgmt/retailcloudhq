@@ -104,8 +104,8 @@ async function initDatabase() {
                 [
                     process.env.SUPER_ADMIN_EMAIL,
                     password_hash,
-                    process.env.SUPER_ADMIN_FIRST_NAME || 'Super',
-                    process.env.SUPER_ADMIN_LAST_NAME || 'Admin',
+                    process.env.SUPER_ADMIN_FIRST_NAME || 'Mit',
+                    process.env.SUPER_ADMIN_LAST_NAME || 'Patel',
                     'super_admin'
                 ]
             );

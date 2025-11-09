@@ -197,7 +197,7 @@ export default function ProductManagementScreen({ navigation }: any) {
         errorMessage = 'Unable to connect to the server. Please check:\n\n' +
           '1. Backend server is running\n' +
           '2. Device is on the same network\n' +
-          '3. IP address is correct (10.1.10.120:3000)';
+          '3. API URL is reachable (https://retailcloudhq-production.up.railway.app)';
       } else if (error.response?.status === 401) {
         errorTitle = 'Authentication Error';
         errorMessage = 'Your session has expired. Please log in again.';

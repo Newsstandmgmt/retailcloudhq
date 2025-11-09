@@ -6,10 +6,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DeviceInfo from 'react-native-device-info';
-
-const API_BASE_URL = __DEV__ 
-  ? 'http://10.1.10.120:3000' // Update this to your actual IP address
-  : 'https://your-production-url.com';
+import { getApiBaseUrl } from '../config/api';
 
 interface ErrorReport {
   timestamp: string;
@@ -325,7 +322,7 @@ class ErrorReporter {
 
   private async sendErrorReport(errorReport: ErrorReport) {
     try {
-      await axios.post(`${API_BASE_URL}/api/errors/report`, errorReport, {
+      await axios.post(`${getApiBaseUrl()}/api/errors/report`, errorReport, {
         timeout: 5000,
         headers: {
           'Content-Type': 'application/json',
