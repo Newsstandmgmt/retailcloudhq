@@ -62,7 +62,12 @@ const authorize = (...allowedRoles) => {
 // Middleware to check if user can access a specific store
 const canAccessStore = async (req, res, next) => {
     try {
-        const storeId = req.params.storeId || req.params.id || req.body.store_id || req.query.store_id;
+        const storeId =
+            req.params.storeId ||
+            req.params.id ||
+            req.body.store_id ||
+            req.query.store_id ||
+            req.query.storeId;
         
         if (!storeId) {
             return res.status(400).json({ error: 'Store ID is required.' });
