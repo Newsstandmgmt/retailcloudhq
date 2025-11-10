@@ -22,8 +22,20 @@ DB_PASSWORD=
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
 JWT_EXPIRE=7d
 
+# Encryption key for securing tokens (generate a 64-character hex string)
+ENCRYPTION_KEY=
+
 # CORS Configuration
 CORS_ORIGIN=http://localhost:3001
+
+# Square POS Integration
+SQUARE_CLIENT_ID=sq0idp-ZV8MyJ4H-8zOyiXLEELwPw
+SQUARE_CLIENT_SECRET=EAAAl-Z_KVjM4YqpgHqBqSkAtRY5PpNlbjCnyUUcpz3dnZyJDRmyT1d45TT8HKLD
+SQUARE_REDIRECT_URI=https://retailcloudhq-production.up.railway.app/api/square/oauth/callback
+SQUARE_SCOPES="PAYMENTS_READ SETTLEMENTS_READ"
+SQUARE_ENVIRONMENT=production
+SQUARE_DEFAULT_TIMEZONE=America/New_York
+SQUARE_STATE_SECRET=AE6387EA76E8F8087659B05C39EFB0A55DC3A5F702AAF0C51CAD8B92943B9BE6
 
 # Optional: Create super admin during initialization
 SUPER_ADMIN_EMAIL=patelmit101@gmail.com
