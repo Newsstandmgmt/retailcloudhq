@@ -4,9 +4,24 @@ const SquareDailySales = require('../models/SquareDailySales');
 const DailyRevenue = require('../models/DailyRevenue');
 const Store = require('../models/Store');
 
-const DEFAULT_SCOPES = process.env.SQUARE_SCOPES || 'PAYMENTS_READ SETTLEMENTS_READ';
-const DEFAULT_TIMEZONE = process.env.SQUARE_DEFAULT_TIMEZONE || 'America/New_York';
-const STATE_SECRET = process.env.SQUARE_STATE_SECRET || (process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex'));
+function getEnv(name, fallback) {
+    const raw = process.env[name];
+    if (raw === undefined || raw === null) {
+        return fallback;
+    }
+    const trimmed = String(raw).trim();
+    if (
+        (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+        (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ) {
+        return trimmed.slice(1, -1);
+    }
+    return trimmed;
+}
+
+const DEFAULT_SCOPES = getEnv('SQUARE_SCOPES', 'PAYMENTS_READ SETTLEMENTS_READ');
+const DEFAULT_TIMEZONE = getEnv('SQUARE_DEFAULT_TIMEZONE', 'America/New_York');
+const STATE_SECRET = getEnv('SQUARE_STATE_SECRET', getEnv('ENCRYPTION_KEY', crypto.randomBytes(32).toString('hex')));
 
 const ensureFetch = async (...args) => {
     if (typeof fetch === 'function') {
@@ -17,7 +32,7 @@ const ensureFetch = async (...args) => {
 };
 
 function getSquareBaseUrl() {
-    const env = (process.env.SQUARE_ENVIRONMENT || 'production').toLowerCase();
+    const env = getEnv('SQUARE_ENVIRONMENT', 'production').toLowerCase();
     return env === 'sandbox' ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
 }
 
@@ -77,8 +92,8 @@ async function fetchJson(url, options = {}) {
 async function exchangeCodeForTokens(code) {
     const url = `${getSquareBaseUrl()}/oauth2/token`;
     const body = {
-        client_id: process.env.SQUARE_CLIENT_ID,
-        client_secret: process.env.SQUARE_CLIENT_SECRET,
+        client_id: getEnv('SQUARE_CLIENT_ID'),
+        client_secret: getEnv('SQUARE_CLIENT_SECRET'),
         code,
         grant_type: 'authorization_code',
     };
@@ -123,8 +138,8 @@ async function refreshAccessToken(connection) {
     }
     const url = `${getSquareBaseUrl()}/oauth2/token`;
     const body = {
-        client_id: process.env.SQUARE_CLIENT_ID,
-        client_secret: process.env.SQUARE_CLIENT_SECRET,
+        client_id: getEnv('SQUARE_CLIENT_ID'),
+        client_secret: getEnv('SQUARE_CLIENT_SECRET'),
         grant_type: 'refresh_token',
         refresh_token: connection.refresh_token,
     };
@@ -287,7 +302,9 @@ async function syncDailySales(storeId, salesDate, options = {}) {
 
 module.exports = {
     getOAuthUrl: (storeId, userId, locationHint = null) => {
-        if (!process.env.SQUARE_CLIENT_ID || !process.env.SQUARE_REDIRECT_URI) {
+        const clientId = getEnv('SQUARE_CLIENT_ID');
+        const redirectUri = getEnv('SQUARE_REDIRECT_URI');
+        if (!clientId || !redirectUri) {
             throw new Error('Square client configuration is missing');
         }
         const state = generateState({
@@ -297,11 +314,11 @@ module.exports = {
             timestamp: Date.now(),
         });
         const params = new URLSearchParams({
-            client_id: process.env.SQUARE_CLIENT_ID,
+            client_id: clientId,
             scope: DEFAULT_SCOPES,
             session: 'false',
             state,
-            redirect_uri: process.env.SQUARE_REDIRECT_URI,
+            redirect_uri: redirectUri,
         });
         return `${getSquareBaseUrl()}/oauth2/authorize?${params.toString()}`;
     },
