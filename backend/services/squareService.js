@@ -82,13 +82,39 @@ async function exchangeCodeForTokens(code) {
         code,
         grant_type: 'authorization_code',
     };
-    return fetchJson(url, {
+    const response = await ensureFetch(url, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
     });
+    const text = await response.text();
+    let json = {};
+    try {
+        json = text ? JSON.parse(text) : {};
+    } catch (error) {
+        throw new Error(`Square token response was not valid JSON: ${text}`);
+    }
+    if (!response.ok) {
+        const message =
+            json?.errors?.map(err => err.detail || err.message).join('; ') ||
+            response.statusText ||
+            `Square token exchange failed with status ${response.status}`;
+        const error = new Error(message);
+        error.status = response.status;
+        error.response = json;
+        throw error;
+    }
+    if (json.error || json.errors) {
+        const message =
+            json.error_description ||
+            json?.errors?.map(err => err.detail || err.message).join('; ') ||
+            'Square OAuth returned an error';
+        const error = new Error(message);
+        error.status = response.status || 400;
+        error.response = json;
+        throw error;
+    }
+    return json;
 }
 
 async function refreshAccessToken(connection) {
