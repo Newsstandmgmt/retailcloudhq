@@ -438,8 +438,25 @@ class InventoryOrder {
         }
 
         const currentItem = item.rows[0];
-        const deliveredQty = quantityDelivered !== null ? parseInt(quantityDelivered) : currentItem.quantity;
-        const newDeliveredQty = (currentItem.quantity_delivered || 0) + deliveredQty;
+        const alreadyDelivered = parseInt(currentItem.quantity_delivered || 0);
+        const totalQuantity = parseInt(currentItem.quantity || 0);
+        const remainingQuantity = totalQuantity - alreadyDelivered;
+
+        let deliveredQty = quantityDelivered !== null ? parseInt(quantityDelivered) : remainingQuantity;
+
+        if (isNaN(deliveredQty) || deliveredQty <= 0) {
+            throw new Error('Delivered quantity must be greater than 0');
+        }
+
+        if (remainingQuantity <= 0) {
+            throw new Error('This order item has already been fully delivered');
+        }
+
+        if (deliveredQty > remainingQuantity) {
+            deliveredQty = remainingQuantity;
+        }
+
+        const newDeliveredQty = alreadyDelivered + deliveredQty;
 
         let status = 'delivered';
         if (newDeliveredQty < currentItem.quantity) {
@@ -481,7 +498,95 @@ class InventoryOrder {
             }
         }
 
-        return result.rows[0];
+        return {
+            item: result.rows[0],
+            deliveredQuantity: deliveredQty,
+            remainingQuantity: Math.max(totalQuantity - newDeliveredQty, 0)
+        };
+    }
+
+    static async getPendingItemsForInvoice(storeId, { vendorName = null, includeAll = false } = {}) {
+        let sql = `
+            SELECT 
+                oi.id AS order_item_id,
+                o.id AS order_id,
+                o.order_id AS order_number,
+                o.created_at AS order_date,
+                oi.product_id,
+                COALESCE(p.full_product_name, oi.product_name) AS product_name,
+                oi.variant,
+                oi.supplier,
+                oi.quantity AS quantity_ordered,
+                COALESCE(oi.quantity_delivered, 0) AS quantity_delivered,
+                (oi.quantity - COALESCE(oi.quantity_delivered, 0)) AS quantity_pending,
+                oi.status,
+                p.cost_price,
+                p.quantity_per_pack,
+                p.sell_price_per_piece,
+                p.cost_per_unit,
+                p.profit_margin,
+                p.vape_tax,
+                p.product_id AS product_sku
+            FROM inventory_order_items oi
+            JOIN inventory_orders o ON o.id = oi.order_id
+            LEFT JOIN products p ON p.id = oi.product_id
+            WHERE o.store_id = $1
+              AND o.status != 'cancelled'
+              AND oi.status IN ('pending', 'partially_delivered')
+              AND (oi.quantity - COALESCE(oi.quantity_delivered, 0)) > 0
+        `;
+
+        const params = [storeId];
+        let paramIndex = 2;
+
+        if (!includeAll && vendorName) {
+            sql += ` AND (
+                COALESCE(oi.supplier, '') ILIKE $${paramIndex}
+                OR COALESCE(p.supplier, '') ILIKE $${paramIndex}
+            )`;
+            params.push(`%${vendorName}%`);
+            paramIndex++;
+        }
+
+        sql += ` ORDER BY o.created_at ASC`;
+
+        const result = await query(sql, params);
+
+        return result.rows.map(row => {
+            const quantityOrdered = parseFloat(row.quantity_ordered || 0);
+            const quantityDelivered = parseFloat(row.quantity_delivered || 0);
+            const quantityPending = parseFloat(row.quantity_pending || 0);
+            const costPrice = parseFloat(row.cost_price || 0);
+            const quantityPerPack = parseFloat(row.quantity_per_pack || 1);
+            const sellPrice = parseFloat(row.sell_price_per_piece || 0);
+
+            const revenuePerPack = sellPrice * quantityPerPack;
+            const costSubtotalPending = quantityPending * costPrice;
+
+            return {
+                order_item_id: row.order_item_id,
+                order_id: row.order_id,
+                order_number: row.order_number,
+                order_date: row.order_date,
+                product_id: row.product_id,
+                product_name: row.product_name,
+                product_sku: row.product_sku,
+                variant: row.variant,
+                supplier: row.supplier,
+                quantity_ordered: quantityOrdered,
+                quantity_delivered: quantityDelivered,
+                quantity_pending: quantityPending,
+                status: row.status,
+                cost_price: costPrice,
+                quantity_per_pack: quantityPerPack,
+                sell_price_per_piece: sellPrice,
+                cost_per_unit: parseFloat(row.cost_per_unit || 0),
+                profit_margin: parseFloat(row.profit_margin || 0),
+                revenue_per_pack: revenuePerPack,
+                pending_cost_subtotal: costSubtotalPending,
+                vape_tax: row.vape_tax || false
+            };
+        });
     }
 
     // Cancel order

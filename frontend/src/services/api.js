@@ -732,13 +732,17 @@ export const auditLogsAPI = {
 };
 
 // Billing API
+const getInvoicesRequest = (filters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.status) params.append('status', filters.status);
+  if (filters.store_id) params.append('store_id', filters.store_id);
+  const query = params.toString();
+  return api.get(`/api/billing/invoices${query ? `?${query}` : ''}`);
+};
+
 export const billingAPI = {
-  getInvoices: (filters = {}) => {
-    const params = new URLSearchParams();
-    if (filters.status) params.append('status', filters.status);
-    if (filters.store_id) params.append('store_id', filters.store_id);
-    return api.get(`/api/billing/invoices?${params.toString()}`);
-  },
+  getAll: getInvoicesRequest,
+  getInvoices: getInvoicesRequest,
   getInvoice: (invoiceId) => api.get(`/api/billing/invoices/${invoiceId}`),
   createInvoice: (data) => api.post('/api/billing/invoices', data),
   updateInvoice: (invoiceId, data) => api.put(`/api/billing/invoices/${invoiceId}`, data),
@@ -789,11 +793,31 @@ export const inventoryOrdersAPI = {
   removeItem: (itemId) => {
     return api.delete(`/api/inventory-orders/items/${itemId}`);
   },
-  markItemDelivered: (itemId, quantityDelivered = null) => {
-    return api.post(`/api/inventory-orders/items/${itemId}/delivered`, { quantity_delivered: quantityDelivered });
+  markItemDelivered: (itemId, data = null) => {
+    let payload = {};
+    if (data === null || data === undefined) {
+      payload = {};
+    } else if (typeof data === 'number') {
+      payload = { quantity_delivered: data };
+    } else if (typeof data === 'object') {
+      payload = { ...data };
+    } else {
+      payload = { quantity_delivered: data };
+    }
+    return api.post(`/api/inventory-orders/items/${itemId}/delivered`, payload);
   },
   cancelOrder: (orderId) => {
     return api.post(`/api/inventory-orders/${orderId}/cancel`);
+  },
+  getPendingItemsForInvoice: (storeId, params = {}) => {
+    const searchParams = new URLSearchParams();
+    if (params.vendorId) searchParams.append('vendor_id', params.vendorId);
+    if (params.includeAll) searchParams.append('include_all', 'true');
+    const query = searchParams.toString();
+    const url = query
+      ? `/api/inventory-orders/store/${storeId}/pending-items?${query}`
+      : `/api/inventory-orders/store/${storeId}/pending-items`;
+    return api.get(url);
   },
 };
 

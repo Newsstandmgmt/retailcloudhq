@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../contexts/StoreContext';
 import { useAuth } from '../contexts/AuthContext';
-import { purchaseInvoicesAPI, banksAPI, creditCardsAPI, productsAPI } from '../services/api';
+import { purchaseInvoicesAPI, banksAPI, creditCardsAPI, productsAPI, inventoryOrdersAPI } from '../services/api';
 
 const PurchasePayments = () => {
   const { selectedStore } = useStore();
@@ -51,6 +51,13 @@ const PurchasePayments = () => {
   const [products, setProducts] = useState([]);
   const [selectedProducts, setSelectedProducts] = useState([]); // For product selection
   const [calculatingRevenue, setCalculatingRevenue] = useState(false);
+
+  // Pending inventory order items for revenue calculation
+  const [pendingOrderItems, setPendingOrderItems] = useState([]);
+  const [pendingItemsLoading, setPendingItemsLoading] = useState(false);
+  const [pendingItemsError, setPendingItemsError] = useState('');
+  const [includeAllPendingItems, setIncludeAllPendingItems] = useState(false);
+  const [pendingDeliveryQuantities, setPendingDeliveryQuantities] = useState({});
   
   // Edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -119,6 +126,18 @@ const PurchasePayments = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [filters.period, filters.vendor, filters.filterType, filters.dateRange.start, filters.dateRange.end]);
+
+  useEffect(() => {
+    if (showRevenueCalculationModal && selectedStore) {
+      loadPendingOrderItems();
+    }
+  }, [showRevenueCalculationModal, selectedStore]);
+
+  useEffect(() => {
+    if (showRevenueCalculationModal && selectedStore) {
+      loadPendingOrderItems();
+    }
+  }, [invoiceForm.vendor_id, includeAllPendingItems]);
 
   const getDateRangeForPeriod = (period, customDateRange = null) => {
     const today = new Date();
@@ -410,6 +429,161 @@ const PurchasePayments = () => {
     } catch (error) {
       console.error('Error loading products:', error);
     }
+  };
+
+  const loadPendingOrderItems = async () => {
+    if (!selectedStore) return;
+    try {
+      setPendingItemsLoading(true);
+      setPendingItemsError('');
+      const params = {};
+      if (includeAllPendingItems) {
+        params.includeAll = true;
+      } else if (invoiceForm.vendor_id) {
+        params.vendorId = invoiceForm.vendor_id;
+      }
+      const response = await inventoryOrdersAPI.getPendingItemsForInvoice(selectedStore.id, params);
+      const items = response.data.items || [];
+      setPendingOrderItems(items);
+      const quantitiesMap = {};
+      items.forEach(item => {
+        quantitiesMap[item.order_item_id] = item.quantity_pending;
+      });
+      setPendingDeliveryQuantities(quantitiesMap);
+    } catch (error) {
+      console.error('Error loading pending order items:', error);
+      setPendingItemsError(error.response?.data?.error || error.message || 'Failed to load pending orders');
+      setPendingOrderItems([]);
+      setPendingDeliveryQuantities({});
+    } finally {
+      setPendingItemsLoading(false);
+    }
+  };
+
+  const handlePendingQuantityChange = (itemId, value) => {
+    setPendingDeliveryQuantities(prev => ({
+      ...prev,
+      [itemId]: value
+    }));
+  };
+
+  const handleAddPendingItemToInvoice = async (pendingItem) => {
+    if (!selectedStore) return;
+    const rawValue = pendingDeliveryQuantities[pendingItem.order_item_id];
+    const quantity = parseFloat(rawValue);
+    if (!quantity || quantity <= 0) {
+      alert('Please enter a quantity greater than 0.');
+      return;
+    }
+    if (quantity > pendingItem.quantity_pending) {
+      alert('Delivered quantity cannot exceed pending quantity.');
+      return;
+    }
+
+    try {
+      const response = await inventoryOrdersAPI.markItemDelivered(pendingItem.order_item_id, {
+        quantity_delivered: quantity,
+        attach_to_invoice: true
+      });
+      const { item, delivered_quantity, remaining_quantity, invoice_item, product } = response.data;
+
+      if (invoice_item) {
+        setInvoiceForm(prev => {
+          const existingIndex = prev.invoice_items.findIndex(i => i.product_id === invoice_item.product_id);
+          let updatedItems;
+          if (existingIndex >= 0) {
+            updatedItems = [...prev.invoice_items];
+            const existingItem = updatedItems[existingIndex];
+            updatedItems[existingIndex] = {
+              ...existingItem,
+              quantity: (parseFloat(existingItem.quantity) || 0) + parseFloat(invoice_item.quantity || 0),
+              unit_cost: parseFloat(invoice_item.unit_cost || existingItem.unit_cost || 0)
+            };
+          } else {
+            updatedItems = [
+              ...prev.invoice_items,
+              {
+                product_id: invoice_item.product_id,
+                quantity: parseFloat(invoice_item.quantity || 0),
+                unit_cost: parseFloat(invoice_item.unit_cost || 0),
+                vape_tax_paid: invoice_item.vape_tax_paid || false
+              }
+            ];
+          }
+          return {
+            ...prev,
+            invoice_items: updatedItems,
+            revenue_calculation_method: prev.revenue_calculation_method === 'none'
+              ? 'product_selection'
+              : prev.revenue_calculation_method
+          };
+        });
+
+        // Ensure the product is available in the selection list
+        if (product) {
+          setProducts(prev => {
+            if (prev.find(p => p.id === product.id)) {
+              return prev;
+            }
+            return [
+              ...prev,
+              {
+                id: product.id,
+                full_product_name: product.full_product_name,
+                product_name: product.full_product_name,
+                variant: product.variant,
+                quantity_per_pack: product.quantity_per_pack,
+                cost_price: product.cost_price,
+                sell_price_per_piece: product.sell_price_per_piece,
+                supplier: product.supplier,
+                profit_margin: product.profit_margin
+              }
+            ];
+          });
+        }
+
+        setTimeout(() => {
+          calculateInvoiceAmount(true);
+          calculateExpectedRevenue();
+        }, 200);
+      }
+
+      setPendingOrderItems(prev =>
+        prev
+          .map(orderItem =>
+            orderItem.order_item_id === pendingItem.order_item_id
+              ? {
+                  ...orderItem,
+                  quantity_delivered: (orderItem.quantity_delivered || 0) + (delivered_quantity || quantity),
+                  quantity_pending: remaining_quantity
+                }
+              : orderItem
+          )
+          .filter(orderItem => orderItem.quantity_pending > 0)
+      );
+
+      setPendingDeliveryQuantities(prev => {
+        const updated = { ...prev };
+        if (remaining_quantity > 0) {
+          updated[pendingItem.order_item_id] = remaining_quantity;
+        } else {
+          delete updated[pendingItem.order_item_id];
+        }
+        return updated;
+      });
+
+      alert('Order item delivered and added to cost calculation.');
+    } catch (error) {
+      console.error('Error delivering pending item:', error);
+      alert(error.response?.data?.error || error.message || 'Failed to mark order item as delivered');
+    }
+  };
+
+  const handleCloseRevenueModal = () => {
+    setShowRevenueCalculationModal(false);
+    setPendingOrderItems([]);
+    setPendingDeliveryQuantities({});
+    setPendingItemsError('');
   };
 
   // Calculate invoice amount (cost) from invoice_items
@@ -2826,7 +3000,7 @@ const PurchasePayments = () => {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-gray-900">Revenue Calculation</h2>
                 <button
-                  onClick={() => setShowRevenueCalculationModal(false)}
+                  onClick={handleCloseRevenueModal}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2886,6 +3060,112 @@ const PurchasePayments = () => {
                       )}
                     </div>
                   </div>
+                </div>
+
+                {/* Pending Order Items */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">Pending Order Items</h3>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Pull items from handheld orders that are still pending delivery and add them directly to this invoice.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center text-sm text-gray-700 gap-2">
+                        <input
+                          type="checkbox"
+                          checked={includeAllPendingItems}
+                          onChange={(e) => setIncludeAllPendingItems(e.target.checked)}
+                        />
+                        Show all vendors
+                      </label>
+                      <button
+                        type="button"
+                        onClick={loadPendingOrderItems}
+                        className="text-sm px-3 py-1 border border-gray-300 rounded-md hover:bg-gray-100"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                  </div>
+
+                  {pendingItemsError && (
+                    <div className="mb-3 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded">
+                      {pendingItemsError}
+                    </div>
+                  )}
+
+                  {pendingItemsLoading ? (
+                    <div className="text-sm text-gray-600">Loading pending order items...</div>
+                  ) : pendingOrderItems.length === 0 ? (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+                      No pending order items found{invoiceForm.vendor_id && !includeAllPendingItems ? ` for the selected vendor.` : '.'}
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                      {pendingOrderItems.map((item) => {
+                        const quantityValue = pendingDeliveryQuantities[item.order_item_id] ?? item.quantity_pending;
+                        return (
+                          <div
+                            key={item.order_item_id}
+                            className="border border-gray-200 rounded-lg p-3 bg-white shadow-sm"
+                          >
+                            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                              <div className="flex-1">
+                                <div className="text-sm font-semibold text-gray-900">
+                                  {item.product_name}
+                                  {item.variant ? (
+                                    <span className="ml-2 text-xs font-medium text-gray-500">
+                                      Variant: {item.variant}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="mt-1 text-xs text-gray-500 space-y-1">
+                                  <div>
+                                    Order #{item.order_number} • {new Date(item.order_date).toLocaleDateString()} • Supplier:{' '}
+                                    {item.supplier || 'N/A'}
+                                  </div>
+                                  <div>
+                                    Ordered: {item.quantity_ordered} • Delivered: {item.quantity_delivered} • Pending:{' '}
+                                    <span className="font-medium text-[#2d8659]">{item.quantity_pending}</span>
+                                  </div>
+                                  <div>
+                                    Cost/pack: ${parseFloat(item.cost_price || 0).toFixed(2)} • Revenue/pack:{' '}
+                                    ${parseFloat(item.revenue_per_pack || 0).toFixed(2)}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="flex flex-col text-sm">
+                                  <label className="text-gray-600 mb-1">Deliver quantity</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max={item.quantity_pending}
+                                    step="1"
+                                    value={quantityValue}
+                                    onChange={(e) => handlePendingQuantityChange(item.order_item_id, e.target.value)}
+                                    className="w-24 border border-gray-300 rounded-md px-2 py-1 text-center focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
+                                  />
+                                  <span className="text-xs text-gray-500 mt-1">
+                                    Pending: {item.quantity_pending}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddPendingItemToInvoice(item)}
+                                  className="px-3 py-2 bg-[#2d8659] text-white text-sm rounded-md hover:bg-[#256348] transition-colors"
+                                >
+                                  Add to Cost
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Product Selection for Revenue Calculation */}
@@ -3026,7 +3306,7 @@ const PurchasePayments = () => {
               <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
                 <button
                   type="button"
-                  onClick={() => setShowRevenueCalculationModal(false)}
+                  onClick={handleCloseRevenueModal}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Cancel
@@ -3038,7 +3318,7 @@ const PurchasePayments = () => {
                     if (invoiceForm.invoice_items.length > 0 && calculatedInvoiceAmount !== null) {
                       calculateInvoiceAmount();
                     }
-                    setShowRevenueCalculationModal(false);
+                    handleCloseRevenueModal();
                   }}
                   className="px-4 py-2 bg-[#2d8659] text-white rounded-lg hover:bg-[#256b49]"
                 >

@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS users (
     role VARCHAR(50) NOT NULL CHECK (role IN ('super_admin', 'admin', 'manager', 'employee')),
     phone VARCHAR(20),
     is_active BOOLEAN DEFAULT true,
+    must_change_password BOOLEAN DEFAULT false,
     created_by UUID REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -72,6 +73,18 @@ ALTER TABLE users
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
 
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT false;
+
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
+
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id);
+
+UPDATE users
+SET must_change_password = COALESCE(must_change_password, false);
+
 -- Store table
 CREATE TABLE IF NOT EXISTS stores (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -82,12 +95,40 @@ CREATE TABLE IF NOT EXISTS stores (
     state VARCHAR(50),
     zip_code VARCHAR(20),
     phone VARCHAR(20),
+    template_id UUID REFERENCES store_templates(id),
+    lottery_retailer_id VARCHAR(100),
     admin_id UUID REFERENCES users(id), -- Admin who manages this store
     manager_id UUID REFERENCES users(id), -- Manager assigned to this store
+    created_by UUID REFERENCES users(id),
     is_active BOOLEAN DEFAULT true,
+    deleted_at TIMESTAMP,
+    cash_drawer_type VARCHAR(50),
+    register_starting_cash JSONB DEFAULT '[]'::jsonb,
+    enable_newspaper_sales BOOLEAN DEFAULT false,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE stores
+    ADD COLUMN IF NOT EXISTS template_id UUID REFERENCES store_templates(id);
+
+ALTER TABLE stores
+    ADD COLUMN IF NOT EXISTS lottery_retailer_id VARCHAR(100);
+
+ALTER TABLE stores
+    ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id);
+
+ALTER TABLE stores
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+
+ALTER TABLE stores
+    ADD COLUMN IF NOT EXISTS cash_drawer_type VARCHAR(50);
+
+ALTER TABLE stores
+    ADD COLUMN IF NOT EXISTS register_starting_cash JSONB DEFAULT '[]'::jsonb;
+
+ALTER TABLE stores
+    ADD COLUMN IF NOT EXISTS enable_newspaper_sales BOOLEAN DEFAULT false;
 
 -- User-Store assignments (for employees who can work at multiple stores)
 CREATE TABLE IF NOT EXISTS user_store_assignments (

@@ -1,7 +1,9 @@
 const express = require('express');
 const InventoryOrder = require('../models/InventoryOrder');
 const Product = require('../models/Product');
+const Vendor = require('../models/Vendor');
 const { authenticate, canAccessStore, authorize } = require('../middleware/auth');
+const { auditLogger } = require('../middleware/auditLogger');
 
 const router = express.Router();
 
@@ -68,6 +70,33 @@ router.get('/store/:storeId', canAccessStore, authorize('admin', 'super_admin', 
     } catch (error) {
         console.error('Get orders error:', error);
         res.status(500).json({ error: 'Failed to fetch orders' });
+    }
+});
+
+// Get pending items for revenue calculation / invoices
+router.get('/store/:storeId/pending-items', canAccessStore, authorize('admin', 'super_admin', 'manager'), async (req, res) => {
+    try {
+        const { vendor_id, include_all } = req.query;
+        let vendorName = null;
+
+        const includeAll = include_all === 'true';
+
+        if (vendor_id && !includeAll) {
+            const vendor = await Vendor.findById(vendor_id);
+            if (vendor && vendor.name) {
+                vendorName = vendor.name;
+            }
+        }
+
+        const items = await InventoryOrder.getPendingItemsForInvoice(req.params.storeId, {
+            vendorName,
+            includeAll
+        });
+
+        res.json({ items });
+    } catch (error) {
+        console.error('Get pending inventory order items error:', error);
+        res.status(500).json({ error: 'Failed to fetch pending inventory order items' });
     }
 });
 
@@ -187,14 +216,65 @@ router.delete('/items/:itemId', authorize('admin', 'super_admin', 'manager'), as
 });
 
 // Mark item as delivered (admin/manager only)
-router.post('/items/:itemId/delivered', authorize('admin', 'super_admin', 'manager'), async (req, res) => {
+router.post(
+    '/items/:itemId/delivered',
+    authorize('admin', 'super_admin', 'manager'),
+    auditLogger({
+        actionType: 'update',
+        entityType: 'inventory_order_item',
+        getEntityId: (req) => req.params.itemId,
+        getDescription: (req) => {
+            const qty = req.body?.quantity_delivered;
+            return `Marked inventory order item ${req.params.itemId} as delivered${qty ? ` (qty: ${qty})` : ''}`;
+        },
+        logRequestBody: true
+    }),
+    async (req, res) => {
     try {
-        const { quantity_delivered } = req.body;
-        const item = await InventoryOrder.markItemDelivered(
+        const { quantity_delivered, attach_to_invoice } = req.body;
+        const {
+            item,
+            deliveredQuantity,
+            remainingQuantity
+        } = await InventoryOrder.markItemDelivered(
             req.params.itemId,
             quantity_delivered
         );
-        res.json({ item, message: 'Item marked as delivered' });
+
+        let invoiceItem = null;
+        let productDetails = null;
+
+        if (attach_to_invoice) {
+            const product = await Product.findById(item.product_id);
+            if (product) {
+                const unitCost = parseFloat(product.cost_price || 0);
+                invoiceItem = {
+                    product_id: product.id,
+                    quantity: deliveredQuantity,
+                    unit_cost: unitCost,
+                    vape_tax_paid: false
+                };
+                productDetails = {
+                    id: product.id,
+                    full_product_name: product.full_product_name || product.product_name,
+                    variant: item.variant,
+                    quantity_per_pack: product.quantity_per_pack,
+                    cost_price: product.cost_price,
+                    sell_price_per_piece: product.sell_price_per_piece,
+                    supplier: product.supplier,
+                    profit_margin: product.profit_margin
+                };
+            }
+        }
+
+        res.json({
+            item,
+            delivered_quantity: deliveredQuantity,
+            remaining_quantity: remainingQuantity,
+            invoice_item: invoiceItem,
+            product: productDetails,
+            message: remainingQuantity > 0 ? 'Item marked as partially delivered' : 'Item marked as delivered'
+        });
     } catch (error) {
         console.error('Mark delivered error:', error);
         res.status(500).json({ error: error.message || 'Failed to mark item as delivered' });

@@ -58,15 +58,6 @@ CREATE INDEX IF NOT EXISTS idx_products_upc ON products(upc);
 CREATE INDEX IF NOT EXISTS idx_products_product_id ON products(product_id);
 CREATE INDEX IF NOT EXISTS idx_products_active ON products(store_id, is_active) WHERE deleted_at IS NULL;
 
--- Add columns to purchase_invoices for revenue calculation
-ALTER TABLE purchase_invoices 
-ADD COLUMN IF NOT EXISTS expected_revenue DECIMAL(10, 2),
-ADD COLUMN IF NOT EXISTS revenue_calculation_method VARCHAR(50), -- 'manual', 'product_selection', 'auto_calculate'
-ADD COLUMN IF NOT EXISTS invoice_items JSONB; -- Stores selected products with quantities for revenue calculation
-
--- Create index for invoice_items
-CREATE INDEX IF NOT EXISTS idx_purchase_invoices_items ON purchase_invoices USING GIN (invoice_items);
-
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_products_updated_at()
 RETURNS TRIGGER AS $$
@@ -88,7 +79,4 @@ COMMENT ON COLUMN products.full_product_name IS 'Auto-generated full product nam
 COMMENT ON COLUMN products.cost_per_unit IS 'Auto-calculated cost per unit (cost_price / quantity_per_pack)';
 COMMENT ON COLUMN products.profit_per_unit IS 'Auto-calculated profit per unit (sell_price_per_piece - cost_per_unit)';
 COMMENT ON COLUMN products.profit_margin IS 'Auto-calculated profit margin percentage';
-COMMENT ON COLUMN purchase_invoices.expected_revenue IS 'Expected revenue from this invoice based on product sales';
-COMMENT ON COLUMN purchase_invoices.revenue_calculation_method IS 'Method used to calculate revenue: manual, product_selection, or auto_calculate';
-COMMENT ON COLUMN purchase_invoices.invoice_items IS 'JSON array of products with quantities for revenue calculation';
 
