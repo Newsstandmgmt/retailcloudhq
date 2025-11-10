@@ -834,6 +834,8 @@ export const squareAPI = {
   disconnect: (storeId) => api.post(`/api/square/disconnect/${storeId}`),
   syncDailySales: (storeId, date) =>
     api.post(`/api/square/sync-daily-sales`, { store_id: storeId, date }),
+  syncDailySalesBulk: (date) =>
+    api.post(`/api/square/sync-daily-sales/bulk`, { date }),
 };
 
 export const mobileDevicesAPI = {

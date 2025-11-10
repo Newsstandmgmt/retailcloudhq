@@ -4,11 +4,12 @@ import { useStore } from '../../contexts/StoreContext';
 import { googleSheetsAPI } from '../../services/api';
 import LotteryEmailSettings from '../lottery/LotteryEmailSettings';
 import ColumnMappingEditor from './ColumnMappingEditor';
+import SquareIntegrationSettings from './SquareIntegrationSettings';
 
 const Integrations = () => {
   const { user } = useAuth();
   const { selectedStore } = useStore();
-  const [activeTab, setActiveTab] = useState('google-sheets');
+  const [activeTab, setActiveTab] = useState('square');
 
   if (!selectedStore) {
     return (
@@ -19,6 +20,7 @@ const Integrations = () => {
   }
 
   const tabs = [
+    { id: 'square', label: 'Square POS', icon: '💳' },
     { id: 'google-sheets', label: 'Google Sheets', icon: '📊' },
     { id: 'gmail', label: 'Gmail', icon: '📧' },
   ];
@@ -28,7 +30,9 @@ const Integrations = () => {
       <div className="mb-6">
         <h2 className="text-xl font-semibold text-gray-900 mb-2">Integrations</h2>
         <p className="text-gray-600">
-          Connect external services to automatically import data into your store. Configure Google Sheets for data import or Gmail for lottery report emails.
+          Connect external services to automatically import data into your store. Link your Square POS
+          account for credit card sales, configure Google Sheets for data imports, or connect Gmail for
+          lottery report emails.
         </p>
       </div>
 
@@ -55,6 +59,9 @@ const Integrations = () => {
 
         {/* Content */}
         <div className="p-6">
+          {activeTab === 'square' && (
+            <SquareIntegrationSettings storeId={selectedStore.id} />
+          )}
           {activeTab === 'google-sheets' && (
             <GoogleSheetsIntegration storeId={selectedStore.id} />
           )}
