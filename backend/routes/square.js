@@ -3,6 +3,7 @@ const SquareConnection = require('../models/SquareConnection');
 const SquareDailySales = require('../models/SquareDailySales');
 const DailyRevenue = require('../models/DailyRevenue');
 const SquareService = require('../services/squareService');
+const AdminConfig = require('../models/AdminConfig');
 const { authenticate, authorize, canAccessStore } = require('../middleware/auth');
 const { auditLogger } = require('../middleware/auditLogger');
 
@@ -189,6 +190,65 @@ router.post(
         } catch (error) {
             console.error('Square sync daily sales error:', error);
             res.status(500).json({ error: error.message || 'Failed to sync Square sales' });
+        }
+    }
+);
+
+router.post(
+    '/sync-daily-sales/bulk',
+    authenticate,
+    authorize('admin', 'super_admin'),
+    async (req, res) => {
+        try {
+            const { date } = req.body || {};
+            const syncDate = date || new Date().toISOString().slice(0, 10);
+            const stores = await AdminConfig.getAccessibleStores(req.user.id, req.user.role, null, true);
+
+            if (!stores || stores.length === 0) {
+                return res.status(200).json({
+                    message: 'No stores available to sync for this user.',
+                    results: [],
+                    date: syncDate,
+                });
+            }
+
+            const results = [];
+
+            for (const store of stores) {
+                try {
+                    const totals = await SquareService.syncDailySales(store.id, syncDate, { enteredBy: req.user.id });
+                    results.push({
+                        store_id: store.id,
+                        store_name: store.name,
+                        status: 'success',
+                        totals,
+                    });
+                } catch (error) {
+                    results.push({
+                        store_id: store.id,
+                        store_name: store.name,
+                        status: 'error',
+                        message: error.message || 'Failed to sync Square sales',
+                    });
+                }
+            }
+
+            const successCount = results.filter((r) => r.status === 'success').length;
+            const summary = {
+                processed: results.length,
+                successful: successCount,
+                failed: results.length - successCount,
+            };
+
+            res.json({
+                message: `Processed ${results.length} store(s).`,
+                date: syncDate,
+                summary,
+                results,
+            });
+        } catch (error) {
+            console.error('Square bulk sync error:', error);
+            res.status(500).json({ error: error.message || 'Failed to sync Square sales for stores.' });
         }
     }
 );
