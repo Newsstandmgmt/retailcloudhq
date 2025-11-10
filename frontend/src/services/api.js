@@ -821,6 +821,21 @@ export const inventoryOrdersAPI = {
   },
 };
 
+export const squareAPI = {
+  getConnectUrl: (storeId, locationId) => {
+    const params = new URLSearchParams();
+    params.append('storeId', storeId);
+    if (locationId) params.append('locationId', locationId);
+    return api.get(`/api/square/connect-url?${params.toString()}`);
+  },
+  getStatus: (storeId) => api.get(`/api/square/status/${storeId}`),
+  setLocation: (storeId, locationId) =>
+    api.post(`/api/square/location/${storeId}`, { location_id: locationId }),
+  disconnect: (storeId) => api.post(`/api/square/disconnect/${storeId}`),
+  syncDailySales: (storeId, date) =>
+    api.post(`/api/square/sync-daily-sales`, { store_id: storeId, date }),
+};
+
 export const mobileDevicesAPI = {
   // Register device with code (public, no auth)
   register: (code, deviceId, deviceName, metadata) => {

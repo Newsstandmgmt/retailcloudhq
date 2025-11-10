@@ -14,7 +14,7 @@
  * - Daily business report with net sales calculation
  */
 import { useState, useEffect } from 'react';
-import { revenueAPI, storesAPI, customerTabsAPI, banksAPI } from '../services/api';
+import { revenueAPI, storesAPI, customerTabsAPI, banksAPI, squareAPI } from '../services/api';
 import { useStore } from '../contexts/StoreContext';
 import CustomerTabManager from '../components/customerTabs/CustomerTabManager';
 import DailyBusinessReport from '../components/revenue/DailyBusinessReport';
@@ -40,6 +40,10 @@ const Revenue = () => {
     total_cash: '',
     business_credit_card: '',
     credit_card_transaction_fees: '',
+    square_gross_card_sales: '',
+    square_card_fees: '',
+    square_net_card_sales: '',
+    square_synced_at: null,
     online_sales: '',
     online_net: '',
     total_instant: '',
@@ -72,6 +76,13 @@ const Revenue = () => {
   const [businessBankDepositAmount, setBusinessBankDepositAmount] = useState('');
   const [lotteryBankDepositAmount, setLotteryBankDepositAmount] = useState('');
   const [cashOnHand, setCashOnHand] = useState({ businessCashOnHand: 0, lotteryCashOnHand: 0 });
+  const [squareStatus, setSquareStatus] = useState({ connected: false });
+  const [squareLoading, setSquareLoading] = useState(false);
+  const [squareActionLoading, setSquareActionLoading] = useState(false);
+  const [squareSyncing, setSquareSyncing] = useState(false);
+  const [squareError, setSquareError] = useState('');
+  const [squareMessage, setSquareMessage] = useState('');
+  const [selectedSquareLocation, setSelectedSquareLocation] = useState('');
 
   // Check URL params on mount - this should run first to set the date before data loads
   useEffect(() => {
@@ -135,6 +146,44 @@ const Revenue = () => {
     }
   }, [selectedStore]);
 
+useEffect(() => {
+  if (selectedStore) {
+    loadSquareStatus();
+  } else {
+    setSquareStatus({ connected: false });
+    setSelectedSquareLocation('');
+  }
+}, [selectedStore]);
+
+useEffect(() => {
+  if (squareStatus?.connection?.location_id) {
+    setSelectedSquareLocation(squareStatus.connection.location_id);
+  } else if (squareStatus?.connection?.available_locations?.length === 1) {
+    setSelectedSquareLocation(squareStatus.connection.available_locations[0].id);
+  }
+}, [squareStatus]);
+
+const loadSquareStatus = async () => {
+  if (!selectedStore) return;
+  try {
+    setSquareLoading(true);
+    setSquareError('');
+    setSquareMessage('');
+    const response = await squareAPI.getStatus(selectedStore);
+    const data = response.data || {};
+    setSquareStatus(data);
+    if (data?.connection?.location_id) {
+      setSelectedSquareLocation(data.connection.location_id);
+    }
+  } catch (error) {
+    console.error('Error loading Square status:', error);
+    setSquareError(error.response?.data?.error || error.message || 'Failed to load Square status.');
+    setSquareStatus({ connected: false });
+  } finally {
+    setSquareLoading(false);
+  }
+};
+
   const loadBanks = async () => {
     if (!selectedStore) return;
     try {
@@ -144,6 +193,105 @@ const Revenue = () => {
       console.error('Error loading banks:', error);
     }
   };
+
+const handleConnectSquare = async () => {
+  if (!selectedStore) return;
+  try {
+    setSquareActionLoading(true);
+    setSquareMessage('');
+    setSquareError('');
+    const response = await squareAPI.getConnectUrl(selectedStore, selectedSquareLocation || undefined);
+    const url = response.data?.url;
+    if (!url) {
+      throw new Error('Unable to retrieve Square connection URL.');
+    }
+    window.open(url, '_blank', 'width=600,height=720');
+    setSquareMessage('Square authorization window opened. Complete the connection, then click Refresh.');
+  } catch (error) {
+    console.error('Error starting Square connection:', error);
+    setSquareError(error.response?.data?.error || error.message || 'Failed to start Square connection.');
+  } finally {
+    setSquareActionLoading(false);
+  }
+};
+
+const handleRefreshSquareStatus = async () => {
+  await loadSquareStatus();
+};
+
+const handleSetSquareLocation = async () => {
+  if (!selectedStore || !selectedSquareLocation) return;
+  try {
+    setSquareActionLoading(true);
+    setSquareMessage('');
+    setSquareError('');
+    await squareAPI.setLocation(selectedStore, selectedSquareLocation);
+    setSquareMessage('Square location saved.');
+    await loadSquareStatus();
+  } catch (error) {
+    console.error('Error updating Square location:', error);
+    setSquareError(error.response?.data?.error || error.message || 'Failed to update Square location.');
+  } finally {
+    setSquareActionLoading(false);
+  }
+};
+
+const handleDisconnectSquare = async () => {
+  if (!selectedStore) return;
+  try {
+    setSquareActionLoading(true);
+    setSquareMessage('');
+    setSquareError('');
+    await squareAPI.disconnect(selectedStore);
+    setSquareMessage('Square disconnected for this store.');
+    await loadSquareStatus();
+  } catch (error) {
+    console.error('Error disconnecting Square:', error);
+    setSquareError(error.response?.data?.error || error.message || 'Failed to disconnect Square.');
+  } finally {
+    setSquareActionLoading(false);
+  }
+};
+
+const handleSyncSquareSales = async () => {
+  if (!selectedStore || !selectedDate) return;
+  try {
+    setSquareSyncing(true);
+    setSquareMessage('');
+    setSquareError('');
+    const response = await squareAPI.syncDailySales(selectedStore, selectedDate);
+    const dailyRevenue = response.data?.daily_revenue;
+    const totals = response.data?.totals;
+    if (dailyRevenue) {
+      setFormData(prev => ({
+        ...prev,
+        business_credit_card: dailyRevenue.business_credit_card ?? prev.business_credit_card,
+        credit_card_transaction_fees: dailyRevenue.credit_card_transaction_fees ?? prev.credit_card_transaction_fees,
+        square_gross_card_sales: dailyRevenue.square_gross_card_sales ?? totals?.gross_card_sales ?? prev.square_gross_card_sales,
+        square_card_fees: dailyRevenue.square_card_fees ?? totals?.card_fees ?? prev.square_card_fees,
+        square_net_card_sales: dailyRevenue.square_net_card_sales ?? totals?.net_card_sales ?? prev.square_net_card_sales,
+        square_synced_at: dailyRevenue.square_synced_at || new Date().toISOString(),
+      }));
+    } else if (totals) {
+      setFormData(prev => ({
+        ...prev,
+        business_credit_card: totals.gross_card_sales ?? prev.business_credit_card,
+        credit_card_transaction_fees: totals.card_fees ?? prev.credit_card_transaction_fees,
+        square_gross_card_sales: totals.gross_card_sales ?? prev.square_gross_card_sales,
+        square_card_fees: totals.card_fees ?? prev.square_card_fees,
+        square_net_card_sales: totals.net_card_sales ?? prev.square_net_card_sales,
+        square_synced_at: new Date().toISOString(),
+      }));
+    }
+    setSquareMessage('Square totals imported successfully.');
+    await loadRevenueData(true);
+  } catch (error) {
+    console.error('Error syncing Square sales:', error);
+    setSquareError(error.response?.data?.error || error.message || 'Failed to sync Square sales.');
+  } finally {
+    setSquareSyncing(false);
+  }
+};
 
   
   useEffect(() => {
@@ -291,6 +439,10 @@ const Revenue = () => {
               formDataUpdate.total_cash = 0;
               formDataUpdate.business_credit_card = 0;
               formDataUpdate.credit_card_transaction_fees = 0;
+              formDataUpdate.square_gross_card_sales = 0;
+              formDataUpdate.square_card_fees = 0;
+              formDataUpdate.square_net_card_sales = 0;
+              formDataUpdate.square_synced_at = null;
               formDataUpdate.online_sales = 0;
               formDataUpdate.online_net = 0;
               formDataUpdate.total_instant = 0;
@@ -332,6 +484,10 @@ const Revenue = () => {
             sales_tax_amount: '',
             business_credit_card: '',
             credit_card_transaction_fees: '',
+            square_gross_card_sales: '',
+            square_card_fees: '',
+            square_net_card_sales: '',
+            square_synced_at: null,
             online_sales: '',
             online_net: '',
             total_instant: '',
@@ -378,6 +534,10 @@ const Revenue = () => {
         newFormData.total_cash = 0;
         newFormData.business_credit_card = 0;
         newFormData.credit_card_transaction_fees = 0;
+        newFormData.square_gross_card_sales = 0;
+        newFormData.square_card_fees = 0;
+        newFormData.square_net_card_sales = 0;
+        newFormData.square_synced_at = null;
         newFormData.online_sales = 0;
         newFormData.online_net = 0;
         newFormData.total_instant = 0;
@@ -485,6 +645,10 @@ const Revenue = () => {
         total_cash: isStoreClosed ? 0 : (data.total_cash || 0),
         business_credit_card: isStoreClosed ? 0 : (data.business_credit_card || 0),
         credit_card_transaction_fees: isStoreClosed ? 0 : (data.credit_card_transaction_fees || 0),
+        square_gross_card_sales: isStoreClosed ? 0 : (data.square_gross_card_sales || 0),
+        square_card_fees: isStoreClosed ? 0 : (data.square_card_fees || 0),
+        square_net_card_sales: isStoreClosed ? 0 : (data.square_net_card_sales || 0),
+        square_synced_at: isStoreClosed ? null : (data.square_synced_at || null),
         online_sales: isStoreClosed ? 0 : (data.online_sales || 0),
         online_net: isStoreClosed ? 0 : (data.online_net || 0),
         total_instant: isStoreClosed ? 0 : (data.total_instant || 0),
@@ -573,6 +737,14 @@ const Revenue = () => {
     { key: 'lottery_credit_card', label: 'Lottery Card Trans', required: false },
   ];
 
+  const availableSquareLocations = squareStatus?.connection?.available_locations || [];
+  const selectedLocationName =
+    availableSquareLocations.find(loc => loc.id === squareStatus?.connection?.location_id)?.name || '';
+  const lastSquareSync =
+    squareStatus?.connection?.last_synced_at ||
+    currentRevenueData?.square_synced_at ||
+    formData.square_synced_at;
+
   return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-6">
@@ -626,6 +798,140 @@ const Revenue = () => {
             </span>
           </label>
         </div>
+
+        {selectedStore && (
+          <div className="mt-6 border border-gray-200 rounded-lg p-4 bg-gray-50">
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900">Square POS Integration</h3>
+                <p className="text-sm text-gray-600">
+                  Import credit card sales and fees directly from Square for this store.
+                </p>
+                {squareError && (
+                  <div className="mt-3 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded">
+                    {squareError}
+                  </div>
+                )}
+                {squareMessage && !squareError && (
+                  <div className="mt-3 bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded">
+                    {squareMessage}
+                  </div>
+                )}
+                <div className="mt-3 text-sm text-gray-700">
+                  {squareLoading ? (
+                    <span>Loading Square status...</span>
+                  ) : squareStatus.connected ? (
+                    <>
+                      <div className="font-semibold text-green-700 flex items-center gap-2">
+                        <span className="inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
+                        Connected to Square
+                      </div>
+                      <div className="mt-2 text-gray-600 space-y-1">
+                        <div>Account ID: {squareStatus.connection?.account_id || '—'}</div>
+                        <div>Merchant ID: {squareStatus.connection?.merchant_id || '—'}</div>
+                        <div>
+                          Location:{' '}
+                          {squareStatus.connection?.location_id
+                            ? `${selectedLocationName || squareStatus.connection.location_id}`
+                            : 'Not selected'}
+                        </div>
+                        <div>
+                          Last Sync:{' '}
+                          {lastSquareSync
+                            ? new Date(lastSquareSync).toLocaleString()
+                            : 'Not yet synced'}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <span className="text-gray-600">
+                      Square has not been connected for this store. Connect to import daily credit card sales.
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 w-full md:w-auto">
+                <button
+                  type="button"
+                  onClick={handleConnectSquare}
+                  disabled={squareActionLoading || squareLoading}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {squareStatus.connected ? 'Reconnect Square' : 'Connect Square'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRefreshSquareStatus}
+                  disabled={squareLoading}
+                  className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-50"
+                >
+                  Refresh Status
+                </button>
+                {squareStatus.connected && (
+                  <button
+                    type="button"
+                    onClick={handleDisconnectSquare}
+                    disabled={squareActionLoading}
+                    className="px-4 py-2 border border-red-300 text-red-600 rounded-md hover:bg-red-50 disabled:opacity-50"
+                  >
+                    Disconnect Square
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {squareStatus.connected && availableSquareLocations.length > 0 && (
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Square Location
+                </label>
+                <div className="flex flex-col md:flex-row gap-2 md:items-center">
+                  <select
+                    value={selectedSquareLocation || ''}
+                    onChange={(e) => setSelectedSquareLocation(e.target.value)}
+                    className="w-full md:w-72 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="">Select a Square location</option>
+                    {availableSquareLocations.map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.name || location.id}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleSetSquareLocation}
+                    disabled={!selectedSquareLocation || squareActionLoading}
+                    className="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-900 disabled:opacity-50"
+                  >
+                    Save Location
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  Select which Square location should be used when importing card sales for this store.
+                </p>
+              </div>
+            )}
+
+            {squareStatus.connected && (
+              <div className="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="text-sm text-gray-600">
+                  Use the button below to pull credit card sales and fees for{' '}
+                  {new Date(selectedDate).toLocaleDateString()}.
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSyncSquareSales}
+                  disabled={squareSyncing}
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                >
+                  {squareSyncing ? 'Syncing…' : 'Sync Square Card Totals'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
 
       {selectedStore && (
@@ -722,6 +1028,41 @@ const Revenue = () => {
                   </div>
                 ))}
               </div>
+              {squareStatus.connected && (
+                <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-medium text-gray-700">Square Card Totals</div>
+                      <div className="text-xs text-gray-500">
+                        Last synced:{' '}
+                        {formData.square_synced_at
+                          ? new Date(formData.square_synced_at).toLocaleString()
+                          : 'Not yet synced'}
+                      </div>
+                    </div>
+                    <div className="flex flex-col md:flex-row gap-4 text-sm text-gray-700">
+                      <div>
+                        <div className="font-semibold text-gray-900">
+                          ${parseFloat(formData.square_gross_card_sales || 0).toFixed(2)}
+                        </div>
+                        <div className="text-xs text-gray-500">Gross Card Sales</div>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-gray-900">
+                          ${parseFloat(formData.square_card_fees || 0).toFixed(2)}
+                        </div>
+                        <div className="text-xs text-gray-500">Card Fees</div>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-gray-900">
+                          ${parseFloat(formData.square_net_card_sales || 0).toFixed(2)}
+                        </div>
+                        <div className="text-xs text-gray-500">Net Card Sales</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Customer Tab Section - Auto-pulled from customer tab data */}

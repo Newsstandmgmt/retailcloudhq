@@ -174,6 +174,18 @@ CREATE TABLE IF NOT EXISTS daily_revenue (
     UNIQUE(store_id, entry_date)
 );
 
+ALTER TABLE daily_revenue
+    ADD COLUMN IF NOT EXISTS square_gross_card_sales NUMERIC(14, 2) DEFAULT 0;
+
+ALTER TABLE daily_revenue
+    ADD COLUMN IF NOT EXISTS square_card_fees NUMERIC(14, 2) DEFAULT 0;
+
+ALTER TABLE daily_revenue
+    ADD COLUMN IF NOT EXISTS square_net_card_sales NUMERIC(14, 2) DEFAULT 0;
+
+ALTER TABLE daily_revenue
+    ADD COLUMN IF NOT EXISTS square_synced_at TIMESTAMP;
+
 -- ============================================
 -- LOTTERY TRACKING TABLES
 -- ============================================
@@ -447,6 +459,51 @@ CREATE TRIGGER update_customers_updated_at BEFORE UPDATE ON customers
 DROP TRIGGER IF EXISTS update_suppliers_updated_at ON suppliers;
 CREATE TRIGGER update_suppliers_updated_at BEFORE UPDATE ON suppliers
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- SQUARE POS INTEGRATION
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS square_connections (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    store_id UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+    account_id VARCHAR(100),
+    merchant_id VARCHAR(100),
+    location_id VARCHAR(100),
+    available_locations JSONB DEFAULT '[]'::jsonb,
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at TIMESTAMP,
+    scopes TEXT[],
+    is_active BOOLEAN DEFAULT true,
+    last_synced_at TIMESTAMP,
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (store_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_square_connections_store ON square_connections(store_id);
+CREATE INDEX IF NOT EXISTS idx_square_connections_location ON square_connections(location_id);
+
+CREATE TABLE IF NOT EXISTS square_daily_sales (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    store_id UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+    square_connection_id UUID REFERENCES square_connections(id) ON DELETE SET NULL,
+    sales_date DATE NOT NULL,
+    gross_card_sales NUMERIC(14, 2) DEFAULT 0,
+    card_fees NUMERIC(14, 2) DEFAULT 0,
+    net_card_sales NUMERIC(14, 2) DEFAULT 0,
+    currency VARCHAR(10),
+    raw_payload JSONB,
+    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (store_id, sales_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_square_daily_sales_store_date ON square_daily_sales(store_id, sales_date);
+CREATE INDEX IF NOT EXISTS idx_square_daily_sales_connection ON square_daily_sales(square_connection_id);
 
 -- Audit Logs Schema
 -- This table tracks all user activities and system changes for compliance and security

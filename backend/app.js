@@ -108,6 +108,7 @@ app.use('/api/cash-drawer-calculation', require('./routes/cashDrawerCalculation'
 app.use('/api/mobile-devices', require('./routes/mobileDevices'));
 app.use('/api/customer-tabs', require('./routes/customerTabs'));
 app.use('/api/errors', require('./routes/errors'));
+app.use('/api/square', require('./routes/square'));
 
 // 404 handler
 app.use((req, res) => {

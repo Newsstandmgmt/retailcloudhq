@@ -42,6 +42,10 @@ class DailyRevenue {
             weekly_lottery_commission,
             thirteen_week_average,
             weekly_lottery_due,
+            square_gross_card_sales,
+            square_card_fees,
+            square_net_card_sales,
+            square_synced_at,
             entered_by,
             notes,
             store_closed = false
@@ -70,6 +74,10 @@ class DailyRevenue {
         const sanitizedWeeklyLotteryCommission = isStoreClosed ? null : sanitizeOptionalNumeric(weekly_lottery_commission);
         const sanitizedThirteenWeekAverage = isStoreClosed ? null : sanitizeOptionalNumeric(thirteen_week_average);
         const sanitizedWeeklyLotteryDue = isStoreClosed ? null : sanitizeOptionalNumeric(weekly_lottery_due);
+        const sanitizedSquareGross = isStoreClosed ? 0 : sanitizeNumeric(square_gross_card_sales, 0);
+        const sanitizedSquareFees = isStoreClosed ? 0 : sanitizeNumeric(square_card_fees, 0);
+        const sanitizedSquareNet = isStoreClosed ? 0 : sanitizeNumeric(square_net_card_sales, 0);
+        const sanitizedSquareSyncedAt = isStoreClosed ? null : (square_synced_at ? new Date(square_synced_at) : null);
         
         // Build update clause - only update fields that are explicitly provided in revenueData
         // This allows POS/CC data to update only credit card fields without overwriting other data
@@ -78,7 +86,8 @@ class DailyRevenue {
             'total_cash', 'cash_adjustment', 'business_credit_card', 'credit_card_transaction_fees',
             'online_sales', 'online_net', 'total_instant', 'total_instant_adjustment', 'instant_pay',
             'lottery_credit_card', 'sales_tax_amount', 'newspaper_sold', 'elias_newspaper',
-            'sam_newspaper', 'customer_tab', 'other_cash_expense',
+            'sam_newspaper', 'customer_tab', 'other_cash_expense', 'square_gross_card_sales',
+            'square_card_fees', 'square_net_card_sales',
             'calculated_business_cash', 'calculated_lottery_owed',
             'weekly_lottery_commission', 'thirteen_week_average', 'weekly_lottery_due'
         ];
@@ -109,6 +118,9 @@ class DailyRevenue {
         }
         if (revenueData.hasOwnProperty('is_lottery_bank_deposit')) {
             updateFields.push(`is_lottery_bank_deposit = EXCLUDED.is_lottery_bank_deposit`);
+        }
+        if (revenueData.hasOwnProperty('square_synced_at')) {
+            updateFields.push(`square_synced_at = EXCLUDED.square_synced_at`);
         }
         
         // Handle store_closed field
@@ -143,13 +155,15 @@ class DailyRevenue {
                 'store_id', 'entry_date', 'total_cash', 'cash_adjustment', 'business_credit_card',
                 'credit_card_transaction_fees', 'online_sales', 'online_net', 'total_instant',
                 'total_instant_adjustment', 'instant_pay', 'lottery_credit_card', 'sales_tax_amount',
-                'newspaper_sold', 'elias_newspaper', 'sam_newspaper', 'customer_tab', 'other_cash_expense'
+                'newspaper_sold', 'elias_newspaper', 'sam_newspaper', 'customer_tab', 'other_cash_expense',
+                'square_gross_card_sales', 'square_card_fees', 'square_net_card_sales'
             ];
             const insertValues = [
                 storeId, entryDate, sanitizedTotalCash, sanitizedCashAdjustment, sanitizedBusinessCreditCard,
                 sanitizedCreditCardFees, sanitizedOnlineSales, sanitizedOnlineNet, sanitizedTotalInstant,
                 sanitizedInstantAdjustment, sanitizedInstantPay, sanitizedLotteryCreditCard, sanitizedSalesTax,
-                sanitizedNewspaperSold, sanitizedEliasNewspaper, sanitizedSamNewspaper, sanitizedCustomerTab, sanitizedOtherCashExpense
+                sanitizedNewspaperSold, sanitizedEliasNewspaper, sanitizedSamNewspaper, sanitizedCustomerTab,
+                sanitizedOtherCashExpense, sanitizedSquareGross, sanitizedSquareFees, sanitizedSquareNet
             ];
             
             if (hasCalculatedBusinessCash) {
@@ -207,6 +221,19 @@ class DailyRevenue {
             if (hasWeeklyLotteryDue && revenueData.hasOwnProperty('weekly_lottery_due')) {
                 insertFields.push('weekly_lottery_due');
                 insertValues.push(sanitizedWeeklyLotteryDue);
+            }
+            
+            const squareSyncedCheck = await query(`
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'daily_revenue' 
+                AND column_name = 'square_synced_at'
+            `);
+            const hasSquareSyncedAt = squareSyncedCheck.rows.some(r => r.column_name === 'square_synced_at');
+            
+            if (hasSquareSyncedAt) {
+                insertFields.push('square_synced_at');
+                insertValues.push(sanitizedSquareSyncedAt);
             }
             
             // Check if store_closed column exists
