@@ -827,6 +827,14 @@ export const inventoryOrdersAPI = {
   },
 };
 
+export const crossStorePaymentsAPI = {
+  create: (data) => api.post('/api/cross-store-payments', data),
+  list: (params = {}) => api.get('/api/cross-store-payments', { params }),
+  getById: (paymentId) => api.get(`/api/cross-store-payments/${paymentId}`),
+  updateAllocationReimbursement: (allocationId, data) =>
+    api.post(`/api/cross-store-payments/allocations/${allocationId}/reimbursement`, data),
+};
+
 export const squareAPI = {
   getConnectUrl: (storeId, locationId) => {
     const params = new URLSearchParams();

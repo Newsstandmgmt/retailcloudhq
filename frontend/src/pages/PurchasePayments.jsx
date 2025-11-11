@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../contexts/StoreContext';
 import { useAuth } from '../contexts/AuthContext';
-import { purchaseInvoicesAPI, banksAPI, creditCardsAPI, productsAPI, inventoryOrdersAPI } from '../services/api';
+import { purchaseInvoicesAPI, banksAPI, creditCardsAPI, productsAPI, inventoryOrdersAPI, crossStorePaymentsAPI } from '../services/api';
 
 const PurchasePayments = () => {
-  const { selectedStore } = useStore();
+  const { selectedStore, stores } = useStore();
   const { user } = useAuth();
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -22,6 +22,30 @@ const PurchasePayments = () => {
   const [vendors, setVendors] = useState([]);
   const [banks, setBanks] = useState([]);
   const [creditCards, setCreditCards] = useState([]);
+  const [crossStorePayments, setCrossStorePayments] = useState([]);
+  const [crossStoreLoading, setCrossStoreLoading] = useState(false);
+  const [crossStoreError, setCrossStoreError] = useState('');
+  const [showCrossStoreModal, setShowCrossStoreModal] = useState(false);
+  const [crossStoreSubmitting, setCrossStoreSubmitting] = useState(false);
+  const [updatingAllocationId, setUpdatingAllocationId] = useState(null);
+  const [crossStoreForm, setCrossStoreForm] = useState({
+    source_store_id: '',
+    payment_date: new Date().toISOString().split('T')[0],
+    payment_method: 'bank',
+    payment_reference: '',
+    paid_to: '',
+    amount: '',
+    notes: '',
+    allocations: [],
+  });
+  const crossStorePaymentMethods = [
+    { value: 'bank', label: 'Bank Transfer' },
+    { value: 'card', label: 'Store Credit Card' },
+    { value: 'check', label: 'Check' },
+    { value: 'cash', label: 'Cash' },
+    { value: 'ach', label: 'ACH' },
+    { value: 'other', label: 'Other' },
+  ];
   
   // Invoice form state
   const [invoiceForm, setInvoiceForm] = useState({
@@ -101,6 +125,11 @@ const PurchasePayments = () => {
       loadBanks();
       loadCreditCards();
       loadProducts();
+      loadCrossStorePayments(selectedStore.id);
+      setCrossStoreForm((prev) => ({
+        ...prev,
+        source_store_id: selectedStore.id,
+      }));
     }
   }, [selectedStore]);
   
@@ -458,6 +487,220 @@ const PurchasePayments = () => {
     } finally {
       setPendingItemsLoading(false);
     }
+  };
+
+  const loadCrossStorePayments = async (storeId) => {
+    if (!storeId) return;
+    try {
+      setCrossStoreLoading(true);
+      const response = await crossStorePaymentsAPI.list({
+        store_id: storeId,
+        role: 'all',
+        limit: 100,
+      });
+      setCrossStorePayments(response.data.payments || []);
+      setCrossStoreError('');
+    } catch (error) {
+      console.error('Error loading cross-store payments:', error);
+      setCrossStoreError(error.response?.data?.error || 'Failed to load cross-store payments.');
+    } finally {
+      setCrossStoreLoading(false);
+    }
+  };
+
+  const resetCrossStoreForm = (defaultSourceStoreId) => {
+    const sourceId = defaultSourceStoreId || selectedStore?.id || '';
+    const defaultTarget = stores.find((store) => store.id !== sourceId);
+    setCrossStoreForm({
+      source_store_id: sourceId,
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_method: 'bank',
+      payment_reference: '',
+      paid_to: '',
+      amount: '',
+      notes: '',
+      allocations: [
+        {
+          target_store_id: defaultTarget ? defaultTarget.id : '',
+          allocated_amount: '',
+          memo: '',
+          target_type: 'manual',
+          reimbursement_required: true,
+          reimbursement_note: '',
+        },
+      ],
+    });
+  };
+
+  const handleOpenCrossStoreModal = () => {
+    resetCrossStoreForm(selectedStore?.id);
+    setShowCrossStoreModal(true);
+  };
+
+  const handleCloseCrossStoreModal = () => {
+    setShowCrossStoreModal(false);
+    resetCrossStoreForm(selectedStore?.id);
+  };
+
+  const handleAddCrossStoreAllocation = () => {
+    setCrossStoreForm((prev) => ({
+      ...prev,
+      allocations: [
+        ...prev.allocations,
+        {
+          target_store_id: '',
+          allocated_amount: '',
+          memo: '',
+          target_type: 'manual',
+          reimbursement_required: true,
+          reimbursement_note: '',
+        },
+      ],
+    }));
+  };
+
+  const handleUpdateCrossStoreAllocation = (index, field, value) => {
+    setCrossStoreForm((prev) => {
+      const updated = [...prev.allocations];
+      let newValue = value;
+      if (field === 'reimbursement_required') {
+        newValue = !!value;
+      }
+      updated[index] = {
+        ...updated[index],
+        [field]: newValue,
+      };
+      return {
+        ...prev,
+        allocations: updated,
+      };
+    });
+  };
+
+  const handleRemoveCrossStoreAllocation = (index) => {
+    setCrossStoreForm((prev) => ({
+      ...prev,
+      allocations: prev.allocations.filter((_, allocIndex) => allocIndex !== index),
+    }));
+  };
+
+  const crossStoreAllocatedTotal = crossStoreForm.allocations.reduce((sum, alloc) => {
+    const rawValue = alloc.allocated_amount ?? alloc.amount ?? '';
+    const amount = parseFloat(rawValue);
+    if (!Number.isFinite(amount)) {
+      return sum;
+    }
+    return sum + amount;
+  }, 0);
+
+  const handleSubmitCrossStorePayment = async (event) => {
+    event.preventDefault();
+
+    if (!crossStoreForm.source_store_id) {
+      alert('Please select the source store for this payment.');
+      return;
+    }
+
+    const totalPaymentAmount = parseFloat(crossStoreForm.amount);
+    if (!Number.isFinite(totalPaymentAmount) || totalPaymentAmount <= 0) {
+      alert('Please enter a valid total payment amount.');
+      return;
+    }
+
+    if (!crossStoreForm.payment_method) {
+      alert('Please select a payment method.');
+      return;
+    }
+
+    if (!crossStoreForm.payment_date) {
+      alert('Please select a payment date.');
+      return;
+    }
+
+    if (!crossStoreForm.allocations.length) {
+      alert('Add at least one store allocation.');
+      return;
+    }
+
+    if (Math.abs(totalPaymentAmount - crossStoreAllocatedTotal) > 0.01) {
+      alert('Allocated amounts must match the total payment amount.');
+      return;
+    }
+
+    for (const allocation of crossStoreForm.allocations) {
+      if (!allocation.target_store_id) {
+        alert('Each allocation must have a target store selected.');
+        return;
+      }
+      const allocationAmount = parseFloat(allocation.allocated_amount ?? allocation.amount);
+      if (!Number.isFinite(allocationAmount) || allocationAmount <= 0) {
+        alert('Each allocation must have a valid amount.');
+        return;
+      }
+    }
+
+    try {
+      setCrossStoreSubmitting(true);
+      await crossStorePaymentsAPI.create({
+        source_store_id: crossStoreForm.source_store_id,
+        payment_date: crossStoreForm.payment_date,
+        payment_method: crossStoreForm.payment_method,
+        payment_reference: crossStoreForm.payment_reference || null,
+        amount: totalPaymentAmount,
+        currency: 'USD',
+        paid_to: crossStoreForm.paid_to || null,
+        notes: crossStoreForm.notes || null,
+        allocations: crossStoreForm.allocations.map((allocation) => ({
+          target_store_id: allocation.target_store_id,
+          amount: parseFloat(allocation.allocated_amount ?? allocation.amount),
+          memo: allocation.memo || null,
+          target_type: allocation.target_type || null,
+          reimbursement_required: allocation.reimbursement_required !== false,
+          reimbursement_note: allocation.reimbursement_note || null,
+        })),
+      });
+
+      alert('Cross-store payment recorded successfully.');
+      setShowCrossStoreModal(false);
+      const refreshStoreId = crossStoreForm.source_store_id || selectedStore?.id;
+      resetCrossStoreForm(refreshStoreId);
+      if (refreshStoreId) {
+        loadCrossStorePayments(refreshStoreId);
+      }
+    } catch (error) {
+      console.error('Error creating cross-store payment:', error);
+      alert(error.response?.data?.error || 'Failed to create cross-store payment.');
+    } finally {
+      setCrossStoreSubmitting(false);
+    }
+  };
+
+  const handleUpdateAllocationStatus = async (allocationId, updates, successMessage = 'Reimbursement status updated.') => {
+    if (!selectedStore) return;
+    try {
+      setUpdatingAllocationId(allocationId);
+      await crossStorePaymentsAPI.updateAllocationReimbursement(allocationId, updates);
+      await loadCrossStorePayments(selectedStore.id);
+      alert(successMessage);
+    } catch (error) {
+      console.error('Error updating reimbursement status:', error);
+      alert(error.response?.data?.error || 'Failed to update reimbursement status.');
+    } finally {
+      setUpdatingAllocationId(null);
+    }
+  };
+
+  const formatCurrency = (value) => {
+    const number = parseFloat(value);
+    if (!Number.isFinite(number)) {
+      return '$0.00';
+    }
+    return number.toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   };
 
   const handlePendingQuantityChange = (itemId, value) => {
@@ -945,6 +1188,27 @@ const PurchasePayments = () => {
   // Get display records (invoices + payment records)
   const displayRecords = getDisplayRecords();
 
+  const pendingReimbursements = crossStorePayments.flatMap((payment) =>
+    (payment.allocations || []).filter(
+      (allocation) =>
+        allocation.reimbursement_required !== false &&
+        allocation.reimbursement_status === 'pending'
+    )
+  );
+
+  const pendingReimbursementAmount = pendingReimbursements.reduce((sum, allocation) => {
+    const amount = parseFloat(allocation.allocated_amount);
+    if (!Number.isFinite(amount)) {
+      return sum;
+    }
+    return sum + amount;
+  }, 0);
+
+  const totalPaymentAmountNumber = parseFloat(crossStoreForm.amount);
+  const differenceAmount =
+    (Number.isFinite(totalPaymentAmountNumber) ? totalPaymentAmountNumber : 0) - crossStoreAllocatedTotal;
+  const differenceWithinTolerance = Math.abs(differenceAmount) < 0.01;
+
   const filteredInvoices = displayRecords.filter(record => {
     if (!searchTerm) return true;
     const searchLower = searchTerm.toLowerCase();
@@ -980,6 +1244,17 @@ const PurchasePayments = () => {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Purchase & Payments</h1>
         <div className="flex gap-3">
+          {(user?.role === 'admin' || user?.role === 'super_admin') && (stores || []).filter(store => store.is_active !== false && !store.deleted_at).length > 1 && (
+            <button
+              onClick={handleOpenCrossStoreModal}
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.1 0-2 .9-2 2v7h4v-7c0-1.1-.9-2-2-2zm0-5a3 3 0 013 3v1h3a2 2 0 012 2v2.268a2 2 0 01-.586 1.414l-1.828 1.828A2 2 0 0117 15.732V17a2 2 0 01-2 2h-6a2 2 0 01-2-2v-1.268a2 2 0 01-.586-1.414L4.586 12.682A2 2 0 014 11.268V9a2 2 0 012-2h3V6a3 3 0 013-3z" />
+              </svg>
+              Cross-Store Payment
+            </button>
+          )}
           <button
             onClick={() => setShowAddInvoiceModal(true)}
             className="px-4 py-2 bg-[#2d8659] text-white rounded-lg hover:bg-[#256b49] transition-colors flex items-center gap-2"
@@ -1000,6 +1275,241 @@ const PurchasePayments = () => {
           </button>
         </div>
       </div>
+
+      {(user?.role === 'admin' || user?.role === 'super_admin') && selectedStore && (
+        <div className="bg-white rounded-lg shadow p-4 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Cross-Store Payments</h2>
+              <p className="text-sm text-gray-500">
+                Payments recorded from {selectedStore.name} and allocations to other stores you manage.
+              </p>
+            </div>
+            <button
+              onClick={() => loadCrossStorePayments(selectedStore.id)}
+              className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={crossStoreLoading}
+            >
+              <svg className={`w-4 h-4 ${crossStoreLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0119 5" />
+              </svg>
+              Refresh
+            </button>
+          </div>
+        {pendingReimbursements.length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
+            <span className="font-medium text-orange-700">
+              {pendingReimbursements.length} pending reimbursement{pendingReimbursements.length === 1 ? '' : 's'}
+            </span>
+            <span className="text-gray-600">
+              Pending amount: {formatCurrency(pendingReimbursementAmount)}
+            </span>
+          </div>
+        )}
+          {crossStoreError && (
+            <div className="mb-3 text-sm text-red-600">
+              {crossStoreError}
+            </div>
+          )}
+          {crossStoreLoading ? (
+            <div className="py-6 text-center text-sm text-gray-500">Loading cross-store payments...</div>
+          ) : crossStorePayments.length === 0 ? (
+            <div className="py-6 text-center text-sm text-gray-500">
+              No cross-store payments recorded for this store yet.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium text-gray-600">Payment Date</th>
+                    <th className="px-4 py-2 text-left font-medium text-gray-600">Source Store</th>
+                    <th className="px-4 py-2 text-left font-medium text-gray-600">Payment Details</th>
+                    <th className="px-4 py-2 text-left font-medium text-gray-600">Allocations</th>
+                    <th className="px-4 py-2 text-right font-medium text-gray-600">Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {crossStorePayments.map((payment) => (
+                    <tr key={payment.id}>
+                      <td className="px-4 py-3 align-top text-gray-700">
+                        <div className="font-medium">{new Date(payment.payment_date).toLocaleDateString()}</div>
+                        <div className="text-xs text-gray-500">
+                          {payment.created_at ? new Date(payment.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="font-medium text-gray-900">{payment.source_store_name || 'Source Store'}</div>
+                        {payment.paid_to && <div className="text-xs text-gray-500">Paid to: {payment.paid_to}</div>}
+                      </td>
+                      <td className="px-4 py-3 align-top text-gray-700">
+                        <div className="font-medium capitalize">{payment.payment_method.replace(/_/g, ' ')}</div>
+                        {payment.payment_reference && (
+                          <div className="text-xs text-gray-500">Ref: {payment.payment_reference}</div>
+                        )}
+                        {payment.notes && (
+                          <div className="text-xs text-gray-500 mt-1 line-clamp-2">{payment.notes}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="space-y-3">
+                          {payment.allocations && payment.allocations.length > 0 ? (
+                            payment.allocations.map((allocation) => {
+                              const reimbursementRequired = allocation.reimbursement_required !== false;
+                              const status = allocation.reimbursement_status || (reimbursementRequired ? 'pending' : 'not_required');
+                              const isPending = reimbursementRequired && status === 'pending';
+                              const isCompleted = reimbursementRequired && status === 'completed';
+                              const statusLabel = !reimbursementRequired
+                                ? 'Not Required'
+                                : isCompleted
+                                  ? 'Reimbursed'
+                                  : 'Pending';
+                              const statusClass = !reimbursementRequired
+                                ? 'bg-gray-100 text-gray-600'
+                                : isCompleted
+                                  ? 'bg-green-100 text-green-700'
+                                  : 'bg-orange-100 text-orange-700';
+                              const reimbursedDate = allocation.reimbursed_at
+                                ? new Date(allocation.reimbursed_at).toLocaleDateString()
+                                : null;
+                              const reimbursedTime = allocation.reimbursed_at
+                                ? new Date(allocation.reimbursed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                : null;
+
+                              return (
+                                <div key={allocation.id} className="border border-gray-200 rounded-md bg-white p-3 shadow-sm">
+                                  <div className="flex flex-wrap items-start justify-between gap-2">
+                                    <div>
+                                      <div className="font-medium text-gray-900">
+                                        {allocation.target_store_name || 'Target Store'}
+                                      </div>
+                                      {allocation.memo && (
+                                        <div className="text-xs text-gray-500 mt-1">
+                                          Note: {allocation.memo}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="text-right">
+                                      <div className="font-semibold text-gray-900">
+                                        {formatCurrency(allocation.allocated_amount)}
+                                      </div>
+                                      <div className="text-xs text-gray-500">Allocated</div>
+                                    </div>
+                                  </div>
+                                  <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+                                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 font-medium ${statusClass}`}>
+                                      {statusLabel}
+                                    </span>
+                                    {isCompleted && (
+                                      <span className="text-gray-500">
+                                        {allocation.reimbursed_amount
+                                          ? `Reimbursed ${formatCurrency(allocation.reimbursed_amount)}`
+                                          : 'Reimbursed'}
+                                        {reimbursedDate ? ` on ${reimbursedDate}` : ''}
+                                        {reimbursedTime ? ` at ${reimbursedTime}` : ''}
+                                      </span>
+                                    )}
+                                    {isPending && (
+                                      <span className="text-orange-600">
+                                        Awaiting reimbursement
+                                      </span>
+                                    )}
+                                    {!reimbursementRequired && (
+                                      <span className="text-gray-500">
+                                        No reimbursement required
+                                      </span>
+                                    )}
+                                  </div>
+                                  {allocation.reimbursement_note && (
+                                    <div className="mt-2 text-xs text-gray-500">
+                                      Reimbursement note: {allocation.reimbursement_note}
+                                    </div>
+                                  )}
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {isPending && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleUpdateAllocationStatus(
+                                            allocation.id,
+                                            { status: 'completed' },
+                                            'Reimbursement marked as completed.'
+                                          )
+                                        }
+                                        className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                        disabled={updatingAllocationId === allocation.id}
+                                      >
+                                        {updatingAllocationId === allocation.id ? 'Updating…' : 'Mark Reimbursed'}
+                                      </button>
+                                    )}
+                                    {isPending && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleUpdateAllocationStatus(
+                                            allocation.id,
+                                            { status: 'not_required' },
+                                            'Marked as not requiring reimbursement.'
+                                          )
+                                        }
+                                        className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                        disabled={updatingAllocationId === allocation.id}
+                                      >
+                                        {updatingAllocationId === allocation.id ? 'Updating…' : 'Mark Not Required'}
+                                      </button>
+                                    )}
+                                    {isCompleted && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleUpdateAllocationStatus(
+                                            allocation.id,
+                                            { status: 'pending' },
+                                            'Reimbursement marked as pending.'
+                                          )
+                                        }
+                                        className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                        disabled={updatingAllocationId === allocation.id}
+                                      >
+                                        {updatingAllocationId === allocation.id ? 'Updating…' : 'Mark Pending'}
+                                      </button>
+                                    )}
+                                    {!reimbursementRequired && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleUpdateAllocationStatus(
+                                            allocation.id,
+                                            { status: 'pending', reimbursement_required: true },
+                                            'Reimbursement requirement enabled and set to pending.'
+                                          )
+                                        }
+                                        className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                        disabled={updatingAllocationId === allocation.id}
+                                      >
+                                        {updatingAllocationId === allocation.id ? 'Updating…' : 'Require Reimbursement'}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="text-sm text-gray-500">No allocations.</div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 align-top text-right font-semibold text-gray-900">
+                        {formatCurrency(payment.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filters and Search Section */}
       <div className="bg-white rounded-lg shadow p-4 mb-4">
@@ -1990,6 +2500,288 @@ const PurchasePayments = () => {
                   className="px-6 py-2 bg-[#2d8659] text-white rounded-lg hover:bg-[#256b49] transition-colors"
                 >
                   Submit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Cross-Store Payment Modal */}
+      {showCrossStoreModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Record Cross-Store Payment</h2>
+                <p className="text-sm text-gray-500">
+                  Track payments made from one store that need to be allocated to other stores under your management.
+                </p>
+              </div>
+              <button onClick={handleCloseCrossStoreModal} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitCrossStorePayment} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Source Store</label>
+                  <select
+                    value={crossStoreForm.source_store_id}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setCrossStoreForm((prev) => ({
+                        ...prev,
+                        source_store_id: value,
+                        allocations: prev.allocations.map((allocation) => ({
+                          ...allocation,
+                          target_store_id: allocation.target_store_id === value ? '' : allocation.target_store_id,
+                        })),
+                      }));
+                    }}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  >
+                    <option value="">Select store</option>
+                    {(stores || [])
+                      .filter((store) => store.is_active !== false && !store.deleted_at)
+                      .map((store) => (
+                        <option key={store.id} value={store.id}>
+                          {store.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
+                  <input
+                    type="date"
+                    value={crossStoreForm.payment_date}
+                    onChange={(e) => setCrossStoreForm((prev) => ({ ...prev, payment_date: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
+                  <select
+                    value={crossStoreForm.payment_method}
+                    onChange={(e) => setCrossStoreForm((prev) => ({ ...prev, payment_method: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent capitalize"
+                  >
+                    {crossStorePaymentMethods.map((method) => (
+                      <option key={method.value} value={method.value}>
+                        {method.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Reference / Check No. <span className="text-xs text-gray-400">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={crossStoreForm.payment_reference}
+                    onChange={(e) => setCrossStoreForm((prev) => ({ ...prev, payment_reference: e.target.value }))}
+                    placeholder="e.g., Check #1234 or Card ending 4321"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Payee <span className="text-xs text-gray-400">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={crossStoreForm.paid_to}
+                    onChange={(e) => setCrossStoreForm((prev) => ({ ...prev, paid_to: e.target.value }))}
+                    placeholder="Vendor, credit card, or payee name"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Total Payment Amount</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={crossStoreForm.amount}
+                    onChange={(e) => setCrossStoreForm((prev) => ({ ...prev, amount: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Notes <span className="text-xs text-gray-400">(optional)</span>
+                </label>
+                <textarea
+                  value={crossStoreForm.notes}
+                  onChange={(e) => setCrossStoreForm((prev) => ({ ...prev, notes: e.target.value }))}
+                  rows={3}
+                  placeholder="Add context for this payment, e.g., 'Paid via Store A card for Store B & C inventory'"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-gray-900">Allocate to other stores</h3>
+                  <button
+                    type="button"
+                    onClick={handleAddCrossStoreAllocation}
+                    className="inline-flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Add Store Allocation
+                  </button>
+                </div>
+
+                {crossStoreForm.allocations.length === 0 ? (
+                  <div className="p-4 border border-dashed border-gray-300 rounded-md text-sm text-gray-500">
+                    Add at least one target store allocation.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {crossStoreForm.allocations.map((allocation, index) => {
+                      const availableStores = (stores || []).filter(
+                        (store) =>
+                          store.is_active !== false &&
+                          !store.deleted_at &&
+                          store.id !== crossStoreForm.source_store_id
+                      );
+                      return (
+                        <div
+                          key={index}
+                          className="border border-gray-200 rounded-lg p-4 bg-gray-50"
+                        >
+                          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+                            <div className="md:col-span-2">
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Target Store</label>
+                              <select
+                                value={allocation.target_store_id}
+                                onChange={(e) =>
+                                  handleUpdateCrossStoreAllocation(index, 'target_store_id', e.target.value)
+                                }
+                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                              >
+                                <option value="">Select store</option>
+                                {availableStores.map((store) => (
+                                  <option key={store.id} value={store.id}>
+                                    {store.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={allocation.allocated_amount}
+                                onChange={(e) =>
+                                  handleUpdateCrossStoreAllocation(index, 'allocated_amount', e.target.value)
+                                }
+                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                              />
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Notes <span className="text-xs text-gray-400">(optional)</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={allocation.memo}
+                                onChange={(e) => handleUpdateCrossStoreAllocation(index, 'memo', e.target.value)}
+                                placeholder="e.g., 'Invoice #123 for Store B'"
+                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                              />
+                            </div>
+                            <div className="md:col-span-5">
+                              <label className="inline-flex items-center text-sm text-gray-700">
+                                <input
+                                  type="checkbox"
+                                  checked={allocation.reimbursement_required !== false}
+                                  onChange={(e) =>
+                                    handleUpdateCrossStoreAllocation(index, 'reimbursement_required', e.target.checked)
+                                  }
+                                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                                />
+                                <span className="ml-2">Reimbursement required</span>
+                              </label>
+                              <p className="mt-1 text-xs text-gray-500">
+                                Uncheck if the paying store will absorb this expense and no reimbursement is expected.
+                              </p>
+                            </div>
+                            <div className="md:col-span-5">
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Reimbursement Note <span className="text-xs text-gray-400">(optional)</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={allocation.reimbursement_note || ''}
+                                onChange={(e) =>
+                                  handleUpdateCrossStoreAllocation(index, 'reimbursement_note', e.target.value)
+                                }
+                                placeholder="Add a note for the receiving store (optional)"
+                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                              />
+                            </div>
+                          </div>
+                          {crossStoreForm.allocations.length > 1 && (
+                            <div className="mt-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveCrossStoreAllocation(index)}
+                                className="text-sm text-red-600 hover:text-red-800"
+                              >
+                                Remove allocation
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-gray-200 pt-4">
+                <div className="text-sm text-gray-600">
+                  Allocated Total:{' '}
+                  <span className="font-semibold text-gray-900">{formatCurrency(crossStoreAllocatedTotal)}</span>
+                </div>
+                <div
+                  className={`text-sm font-semibold ${
+                    differenceWithinTolerance ? 'text-green-600' : 'text-orange-600'
+                  }`}
+                >
+                  Remaining Difference:{' '}
+                  {formatCurrency(differenceAmount)}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={handleCloseCrossStoreModal}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  disabled={crossStoreSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={crossStoreSubmitting}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {crossStoreSubmitting ? 'Saving...' : 'Save Cross-Store Payment'}
                 </button>
               </div>
             </form>

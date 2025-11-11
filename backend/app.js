@@ -94,6 +94,7 @@ app.use('/api/subscriptions', require('./routes/subscriptions'));
 app.use('/api/purchase-invoices', require('./routes/purchaseInvoices'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/inventory-orders', require('./routes/inventoryOrders'));
+app.use('/api/cross-store-payments', require('./routes/crossStorePayments'));
 app.use('/api/payroll', require('./routes/payroll'));
 app.use('/api/banks', require('./routes/banks'));
 app.use('/api/credit-cards', require('./routes/creditCards'));
