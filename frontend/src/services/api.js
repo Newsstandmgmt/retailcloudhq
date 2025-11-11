@@ -591,6 +591,12 @@ export const reportsAPI = {
     params.append('end_date', endDate);
     return api.get(`/api/reports/store/${storeId}/profit-loss?${params.toString()}`);
   },
+  getRevenueCalculation: (storeId, startDate, endDate) => {
+    const params = new URLSearchParams();
+    params.append('start_date', startDate);
+    params.append('end_date', endDate);
+    return api.get(`/api/reports/store/${storeId}/revenue-calculation?${params.toString()}`);
+  },
   getCashFlowDetailed: (storeId, startDate, endDate) => {
     const params = new URLSearchParams();
     params.append('start_date', startDate);

@@ -139,11 +139,220 @@ router.get('/store/:storeId/profit-loss', canAccessStore, async (req, res) => {
             [storeId, start_date, end_date]
         );
 
+        // Expected revenue from purchase invoices
+        let expectedRevenueResult;
+        try {
+            expectedRevenueResult = await query(
+                `SELECT 
+                    COUNT(*) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS invoice_count,
+                    COALESCE(SUM(expected_revenue), 0) AS total_expected,
+                    COALESCE(SUM(amount), 0) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS total_purchase_amount
+                 FROM purchase_invoices
+                 WHERE store_id = $1 
+                 AND purchase_date BETWEEN $2 AND $3`,
+                [storeId, start_date, end_date]
+            );
+        } catch (error) {
+            console.warn('Expected revenue query failed (non-blocking):', error.message);
+            expectedRevenueResult = { rows: [{ invoice_count: 0, total_expected: 0, total_purchase_amount: 0 }] };
+        }
+
         const totalRevenue = parseFloat(revenueResult.rows[0]?.total_revenue || 0);
         const totalExpenses = parseFloat(expensesResult.rows.reduce((sum, row) => sum + parseFloat(row.category_total || 0), 0));
         const totalCOGS = parseFloat(cogsResult.rows[0]?.total_cogs || 0);
         const grossProfit = totalRevenue - totalCOGS;
         const netProfit = grossProfit - totalExpenses;
+
+        const totalExpectedRevenue = parseFloat(expectedRevenueResult.rows[0]?.total_expected || 0);
+        const expectedInvoiceCount = parseInt(expectedRevenueResult.rows[0]?.invoice_count || 0);
+        const totalPurchaseAmount = parseFloat(expectedRevenueResult.rows[0]?.total_purchase_amount || 0);
+        const averageExpectedRevenue = expectedInvoiceCount > 0 ? totalExpectedRevenue / expectedInvoiceCount : 0;
+        const expectedDifference = totalRevenue - totalExpectedRevenue;
+        const expectedDifferencePercentage = totalExpectedRevenue !== 0 ? (expectedDifference / totalExpectedRevenue) * 100 : null;
+        const expectedRatio = totalExpectedRevenue !== 0 ? totalRevenue / totalExpectedRevenue : null;
+
+        const expectedRevenueSummary = {
+            total_expected: totalExpectedRevenue,
+            invoice_count: expectedInvoiceCount,
+            average_expected_per_invoice: averageExpectedRevenue,
+            total_purchase_amount: totalPurchaseAmount,
+            difference: expectedDifference,
+            difference_percentage: expectedDifferencePercentage,
+            actual_revenue: totalRevenue,
+            actual_to_expected_ratio: expectedRatio
+        };
+
+        // Enrich expected revenue summary with analytics (daily trends, vendor summary)
+        let expectedDailyTrends = [];
+        let expectedVendorSummary = [];
+        let expectedVarianceHighlights = null;
+
+        try {
+            const dailyExpectedResult = await query(
+                `SELECT 
+                    purchase_date AS date,
+                    COALESCE(SUM(expected_revenue), 0) AS expected_total
+                 FROM purchase_invoices
+                 WHERE store_id = $1
+                 AND purchase_date BETWEEN $2 AND $3
+                 AND expected_revenue IS NOT NULL
+                 GROUP BY purchase_date
+                 ORDER BY purchase_date`,
+                [storeId, start_date, end_date]
+            );
+
+            const vendorSummaryResult = await query(
+                `SELECT 
+                    COALESCE(vendor_name, 'Unknown') AS vendor_name,
+                    COUNT(*) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS invoice_count,
+                    COALESCE(SUM(expected_revenue), 0) AS total_expected,
+                    COALESCE(SUM(amount), 0) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS total_purchase_amount,
+                    COALESCE(AVG(expected_revenue), 0) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS avg_expected
+                 FROM purchase_invoices
+                 WHERE store_id = $1
+                 AND purchase_date BETWEEN $2 AND $3
+                 AND expected_revenue IS NOT NULL
+                 GROUP BY vendor_name
+                 ORDER BY total_expected DESC NULLS LAST`,
+                [storeId, start_date, end_date]
+            );
+
+            // Determine optional columns on daily_revenue to pull accurate actuals
+            let revenueColumnCheck = { rows: [] };
+            try {
+                revenueColumnCheck = await query(`
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'daily_revenue' 
+                    AND column_name IN ('calculated_business_cash', 'store_closed')
+                `);
+            } catch (checkError) {
+                revenueColumnCheck = { rows: [] };
+            }
+
+            const existingRevenueColumns = revenueColumnCheck.rows.map(r => r.column_name);
+            const hasCalculatedBusinessCash = existingRevenueColumns.includes('calculated_business_cash');
+            const hasStoreClosed = existingRevenueColumns.includes('store_closed');
+            const storeClosedFilter = hasStoreClosed ? 'AND (store_closed IS NULL OR store_closed = false)' : '';
+
+            let actualRevenueResult = { rows: [] };
+            try {
+                let actualRevenueQuery;
+                if (hasCalculatedBusinessCash) {
+                    actualRevenueQuery = `
+                        SELECT 
+                            entry_date,
+                            COALESCE(SUM(
+                                CASE 
+                                    WHEN calculated_business_cash IS NOT NULL AND calculated_business_cash > 0 
+                                    THEN calculated_business_cash
+                                    ELSE (
+                                        COALESCE(total_cash, 0) + 
+                                        COALESCE(business_credit_card, 0) - 
+                                        COALESCE(credit_card_transaction_fees, 0) + 
+                                        COALESCE(other_cash_expense, 0)
+                                    )
+                                END
+                            ), 0) as actual_revenue
+                        FROM daily_revenue
+                        WHERE store_id = $1
+                        AND entry_date BETWEEN $2 AND $3
+                        ${storeClosedFilter}
+                        GROUP BY entry_date
+                        ORDER BY entry_date
+                    `;
+                } else {
+                    actualRevenueQuery = `
+                        SELECT 
+                            entry_date,
+                            COALESCE(SUM(
+                                COALESCE(total_cash, 0) + 
+                                COALESCE(business_credit_card, 0) - 
+                                COALESCE(credit_card_transaction_fees, 0) + 
+                                COALESCE(other_cash_expense, 0)
+                            ), 0) as actual_revenue
+                        FROM daily_revenue
+                        WHERE store_id = $1
+                        AND entry_date BETWEEN $2 AND $3
+                        ${storeClosedFilter}
+                        GROUP BY entry_date
+                        ORDER BY entry_date
+                    `;
+                }
+                actualRevenueResult = await query(actualRevenueQuery, [storeId, start_date, end_date]);
+            } catch (actualError) {
+                console.warn('Actual revenue analytics query failed (non-blocking):', actualError.message);
+                actualRevenueResult = { rows: [] };
+            }
+
+            const dailyMap = new Map();
+            dailyExpectedResult.rows.forEach(row => {
+                dailyMap.set(row.date, { expected: parseFloat(row.expected_total || 0), actual: 0 });
+            });
+            actualRevenueResult.rows.forEach(row => {
+                const key = row.entry_date;
+                const actualValue = parseFloat(row.actual_revenue || 0);
+                if (dailyMap.has(key)) {
+                    dailyMap.get(key).actual = actualValue;
+                } else {
+                    dailyMap.set(key, { expected: 0, actual: actualValue });
+                }
+            });
+
+            expectedDailyTrends = Array.from(dailyMap.entries())
+                .sort((a, b) => new Date(a[0]) - new Date(b[0]))
+                .map(([date, values]) => ({
+                    date,
+                    expected: values.expected || 0,
+                    actual: values.actual || 0,
+                    difference: (values.actual || 0) - (values.expected || 0)
+                }));
+
+            expectedVendorSummary = vendorSummaryResult.rows.map(row => {
+                const count = parseInt(row.invoice_count || 0);
+                const expectedTotal = parseFloat(row.total_expected || 0);
+                const purchaseTotal = parseFloat(row.total_purchase_amount || 0);
+                const avgExpected = row.avg_expected !== undefined && row.avg_expected !== null
+                    ? parseFloat(row.avg_expected)
+                    : (count > 0 ? expectedTotal / count : 0);
+
+                return {
+                    vendor_name: row.vendor_name || 'Unknown',
+                    invoice_count: count,
+                    total_expected: expectedTotal,
+                    total_purchase_amount: purchaseTotal,
+                    average_expected_per_invoice: avgExpected
+                };
+            });
+
+            if (expectedDailyTrends.length > 0) {
+                const sortedByVariance = [...expectedDailyTrends].sort((a, b) => (b.difference || 0) - (a.difference || 0));
+                const bestDay = sortedByVariance[0];
+                const worstDay = sortedByVariance[sortedByVariance.length - 1];
+                expectedVarianceHighlights = {
+                    best_day: bestDay ? {
+                        date: bestDay.date,
+                        difference: bestDay.difference,
+                        expected: bestDay.expected,
+                        actual: bestDay.actual
+                    } : null,
+                    worst_day: worstDay ? {
+                        date: worstDay.date,
+                        difference: worstDay.difference,
+                        expected: worstDay.expected,
+                        actual: worstDay.actual
+                    } : null
+                };
+            }
+        } catch (analyticsError) {
+            console.warn('Expected revenue analytics enhancement failed (non-blocking):', analyticsError.message);
+        }
+
+        expectedRevenueSummary.daily_trends = expectedDailyTrends;
+        expectedRevenueSummary.vendor_summary = expectedVendorSummary;
+        if (expectedVarianceHighlights) {
+            expectedRevenueSummary.variance_highlights = expectedVarianceHighlights;
+        }
 
         res.json({
             period: { start_date, end_date },
@@ -166,7 +375,8 @@ router.get('/store/:storeId/profit-loss', canAccessStore, async (req, res) => {
                 }))
             },
             net_profit: netProfit,
-            margin_percentage: totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(2) : 0
+            margin_percentage: totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(2) : 0,
+            expected_revenue: expectedRevenueSummary
         });
     } catch (error) {
         console.error('Profit & Loss error:', error);
@@ -174,6 +384,289 @@ router.get('/store/:storeId/profit-loss', canAccessStore, async (req, res) => {
         res.status(500).json({ 
             error: 'Failed to generate Profit & Loss statement',
             details: error.message 
+        });
+    }
+});
+
+/**
+ * Revenue Calculation Report (Expected vs Actual)
+ * GET /api/reports/store/:storeId/revenue-calculation?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+ */
+router.get('/store/:storeId/revenue-calculation', canAccessStore, async (req, res) => {
+    try {
+        const { start_date, end_date } = req.query;
+        const storeId = req.params.storeId;
+
+        if (!start_date || !end_date) {
+            return res.status(400).json({ error: 'Start date and end date are required' });
+        }
+
+        // Ensure purchase_invoices table and expected_revenue column exist
+        let invoicesTableExists = true;
+        let expectedColumnExists = true;
+        try {
+            const tableCheck = await query(`
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_name = 'purchase_invoices'
+            `);
+            invoicesTableExists = tableCheck.rows.length > 0;
+        } catch (error) {
+            invoicesTableExists = false;
+        }
+
+        if (invoicesTableExists) {
+            try {
+                const columnCheck = await query(`
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'purchase_invoices'
+                    AND column_name = 'expected_revenue'
+                `);
+                expectedColumnExists = columnCheck.rows.length > 0;
+            } catch (error) {
+                expectedColumnExists = false;
+            }
+        }
+
+        if (!invoicesTableExists || !expectedColumnExists) {
+            return res.json({
+                period: { start_date, end_date },
+                summary: {
+                    total_expected: 0,
+                    total_actual: 0,
+                    difference: 0,
+                    difference_percentage: null,
+                    invoice_count: 0,
+                    average_expected_per_invoice: 0,
+                    total_purchase_amount: 0,
+                    actual_to_expected_ratio: null
+                },
+                daily_trends: [],
+                invoices: [],
+                vendors: []
+            });
+        }
+
+        // Fetch invoices with expected revenue
+        const invoicesResult = await query(
+            `SELECT 
+                id,
+                invoice_number,
+                purchase_date,
+                vendor_name,
+                amount,
+                expected_revenue,
+                revenue_calculation_method
+             FROM purchase_invoices
+             WHERE store_id = $1
+             AND purchase_date BETWEEN $2 AND $3
+             AND expected_revenue IS NOT NULL
+             ORDER BY purchase_date DESC, created_at DESC`,
+            [storeId, start_date, end_date]
+        );
+
+        // Expected revenue grouped by date
+        const dailyExpectedResult = await query(
+            `SELECT 
+                purchase_date AS date,
+                COALESCE(SUM(expected_revenue), 0) AS expected_total
+             FROM purchase_invoices
+             WHERE store_id = $1
+             AND purchase_date BETWEEN $2 AND $3
+             AND expected_revenue IS NOT NULL
+             GROUP BY purchase_date
+             ORDER BY purchase_date`,
+            [storeId, start_date, end_date]
+        );
+
+        // Vendor summary
+        const vendorSummaryResult = await query(
+            `SELECT 
+                COALESCE(vendor_name, 'Unknown') AS vendor_name,
+                COUNT(*) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS invoice_count,
+                COALESCE(SUM(expected_revenue), 0) AS total_expected,
+                COALESCE(SUM(amount), 0) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS total_purchase_amount,
+                COALESCE(AVG(expected_revenue), 0) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS avg_expected
+             FROM purchase_invoices
+             WHERE store_id = $1
+             AND purchase_date BETWEEN $2 AND $3
+             AND expected_revenue IS NOT NULL
+             GROUP BY vendor_name
+             ORDER BY total_expected DESC NULLS LAST`,
+            [storeId, start_date, end_date]
+        );
+
+        // Determine available columns on daily_revenue
+        let revenueColumnCheck = { rows: [] };
+        try {
+            revenueColumnCheck = await query(`
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'daily_revenue' 
+                AND column_name IN ('calculated_business_cash', 'store_closed')
+            `);
+        } catch (error) {
+            revenueColumnCheck = { rows: [] };
+        }
+
+        const existingRevenueColumns = revenueColumnCheck.rows.map(r => r.column_name);
+        const hasCalculatedBusinessCash = existingRevenueColumns.includes('calculated_business_cash');
+        const hasStoreClosed = existingRevenueColumns.includes('store_closed');
+        const storeClosedFilter = hasStoreClosed ? 'AND (store_closed IS NULL OR store_closed = false)' : '';
+
+        // Actual revenue grouped by date
+        let actualRevenueResult = { rows: [] };
+        try {
+            let actualRevenueQuery;
+            if (hasCalculatedBusinessCash) {
+                actualRevenueQuery = `
+                    SELECT 
+                        entry_date,
+                        COALESCE(SUM(
+                            CASE 
+                                WHEN calculated_business_cash IS NOT NULL AND calculated_business_cash > 0 
+                                THEN calculated_business_cash
+                                ELSE (
+                                    COALESCE(total_cash, 0) + 
+                                    COALESCE(business_credit_card, 0) - 
+                                    COALESCE(credit_card_transaction_fees, 0) + 
+                                    COALESCE(other_cash_expense, 0)
+                                )
+                            END
+                        ), 0) as actual_revenue
+                    FROM daily_revenue
+                    WHERE store_id = $1
+                    AND entry_date BETWEEN $2 AND $3
+                    ${storeClosedFilter}
+                    GROUP BY entry_date
+                    ORDER BY entry_date
+                `;
+            } else {
+                actualRevenueQuery = `
+                    SELECT 
+                        entry_date,
+                        COALESCE(SUM(
+                            COALESCE(total_cash, 0) + 
+                            COALESCE(business_credit_card, 0) - 
+                            COALESCE(credit_card_transaction_fees, 0) + 
+                            COALESCE(other_cash_expense, 0)
+                        ), 0) as actual_revenue
+                    FROM daily_revenue
+                    WHERE store_id = $1
+                    AND entry_date BETWEEN $2 AND $3
+                    ${storeClosedFilter}
+                    GROUP BY entry_date
+                    ORDER BY entry_date
+                `;
+            }
+            actualRevenueResult = await query(actualRevenueQuery, [storeId, start_date, end_date]);
+        } catch (error) {
+            console.warn('Actual revenue query failed (non-blocking):', error.message);
+            actualRevenueResult = { rows: [] };
+        }
+
+        const actualRevenueByDate = {};
+        let totalActualRevenue = 0;
+        actualRevenueResult.rows.forEach(row => {
+            const dateKey = row.entry_date;
+            const value = parseFloat(row.actual_revenue || 0);
+            actualRevenueByDate[dateKey] = value;
+            totalActualRevenue += value;
+        });
+
+        const invoiceDetails = invoicesResult.rows.map(invoice => {
+            const expected = parseFloat(invoice.expected_revenue || 0);
+            const purchaseAmount = parseFloat(invoice.amount || 0);
+            const actual = actualRevenueByDate[invoice.purchase_date] || 0;
+            const variance = actual - expected;
+            const variancePercentage = expected !== 0 ? (variance / expected) * 100 : null;
+
+            return {
+                id: invoice.id,
+                invoice_number: invoice.invoice_number,
+                purchase_date: invoice.purchase_date,
+                vendor_name: invoice.vendor_name || 'Unknown',
+                purchase_amount: purchaseAmount,
+                expected_revenue: expected,
+                actual_same_day_revenue: actual,
+                variance,
+                variance_percentage: variancePercentage,
+                revenue_calculation_method: invoice.revenue_calculation_method
+            };
+        });
+
+        const totalExpectedRevenue = invoiceDetails.reduce((sum, invoice) => sum + (invoice.expected_revenue || 0), 0);
+        const totalPurchaseAmount = invoiceDetails.reduce((sum, invoice) => sum + (invoice.purchase_amount || 0), 0);
+        const invoiceCount = invoiceDetails.length;
+        const averageExpectedPerInvoice = invoiceCount > 0 ? totalExpectedRevenue / invoiceCount : 0;
+        const difference = totalActualRevenue - totalExpectedRevenue;
+        const differencePercentage = totalExpectedRevenue !== 0 ? (difference / totalExpectedRevenue) * 100 : null;
+        const ratio = totalExpectedRevenue !== 0 ? totalActualRevenue / totalExpectedRevenue : null;
+
+        // Combine expected and actual into daily trend data
+        const dailyMap = new Map();
+        dailyExpectedResult.rows.forEach(row => {
+            dailyMap.set(row.date, { expected: parseFloat(row.expected_total || 0), actual: 0 });
+        });
+        actualRevenueResult.rows.forEach(row => {
+            const key = row.entry_date;
+            const actualValue = parseFloat(row.actual_revenue || 0);
+            if (dailyMap.has(key)) {
+                dailyMap.get(key).actual = actualValue;
+            } else {
+                dailyMap.set(key, { expected: 0, actual: actualValue });
+            }
+        });
+
+        const dailyTrends = Array.from(dailyMap.entries())
+            .sort((a, b) => new Date(a[0]) - new Date(b[0]))
+            .map(([date, values]) => ({
+                date,
+                expected: values.expected || 0,
+                actual: values.actual || 0,
+                difference: (values.actual || 0) - (values.expected || 0)
+            }));
+
+        const vendorSummary = vendorSummaryResult.rows.map(row => {
+            const count = parseInt(row.invoice_count || 0);
+            const expectedTotal = parseFloat(row.total_expected || 0);
+            const purchaseTotal = parseFloat(row.total_purchase_amount || 0);
+            const avgExpected = row.avg_expected !== undefined && row.avg_expected !== null
+                ? parseFloat(row.avg_expected)
+                : (count > 0 ? expectedTotal / count : 0);
+
+            return {
+                vendor_name: row.vendor_name || 'Unknown',
+                invoice_count: count,
+                total_expected: expectedTotal,
+                total_purchase_amount: purchaseTotal,
+                average_expected_per_invoice: avgExpected
+            };
+        });
+
+        res.json({
+            period: { start_date, end_date },
+            summary: {
+                total_expected: totalExpectedRevenue,
+                total_actual: totalActualRevenue,
+                difference,
+                difference_percentage: differencePercentage,
+                invoice_count: invoiceCount,
+                average_expected_per_invoice: averageExpectedPerInvoice,
+                total_purchase_amount: totalPurchaseAmount,
+                actual_to_expected_ratio: ratio
+            },
+            daily_trends: dailyTrends,
+            invoices: invoiceDetails,
+            vendors: vendorSummary
+        });
+    } catch (error) {
+        console.error('Revenue calculation report error:', error);
+        console.error('Error stack:', error.stack);
+        res.status(500).json({
+            error: 'Failed to load revenue calculation report',
+            details: error.message
         });
     }
 });

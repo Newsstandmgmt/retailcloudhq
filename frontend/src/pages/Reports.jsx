@@ -25,6 +25,7 @@ const Reports = () => {
   
   const allTabs = [
     { id: 'profit-loss', name: 'Profit & Loss' },
+    { id: 'revenue-calculation', name: 'Revenue Calculation' },
     { id: 'cash-flow', name: 'Cash Flow' },
     { id: 'expense-breakdown', name: 'Expense Breakdown' },
     { id: 'vendor-payments', name: 'Vendor Payments' },
@@ -59,6 +60,9 @@ const Reports = () => {
       switch (activeTab) {
         case 'profit-loss':
           response = await reportsAPI.getProfitLoss(selectedStore.id, startDate, endDate);
+          break;
+        case 'revenue-calculation':
+          response = await reportsAPI.getRevenueCalculation(selectedStore.id, startDate, endDate);
           break;
         case 'cash-flow':
           response = await reportsAPI.getCashFlowDetailed(selectedStore.id, startDate, endDate);
@@ -164,6 +168,8 @@ const Reports = () => {
     switch (activeTab) {
       case 'profit-loss':
         return prepareProfitLossExport();
+      case 'revenue-calculation':
+        return prepareRevenueCalculationExport();
       case 'cash-flow':
         return prepareCashFlowExport();
       case 'expense-breakdown':
@@ -193,6 +199,8 @@ const Reports = () => {
     switch (activeTab) {
       case 'profit-loss':
         return prepareProfitLossHTML();
+      case 'revenue-calculation':
+        return prepareRevenueCalculationHTML();
       case 'cash-flow':
         return prepareCashFlowHTML();
       case 'expense-breakdown':
@@ -1585,7 +1593,8 @@ const Reports = () => {
       gross_profit, 
       operating_expenses, 
       net_profit, 
-      margin_percentage 
+      margin_percentage,
+      expected_revenue 
     } = reportData || {};
     
     // Ensure all values have defaults
@@ -1595,6 +1604,59 @@ const Reports = () => {
     const safeOperatingExpenses = operating_expenses && typeof operating_expenses === 'object' ? operating_expenses : { total: 0, by_category: [] };
     const safeNetProfit = net_profit || 0;
     const safeMarginPercentage = margin_percentage || 0;
+
+    const expectedRevenueData = expected_revenue && typeof expected_revenue === 'object' ? expected_revenue : {};
+    const totalExpectedRevenue = parseFloat(expectedRevenueData.total_expected || 0);
+    const invoiceCountForExpected = parseInt(expectedRevenueData.invoice_count || 0);
+    const actualRevenueForExpected = expectedRevenueData.actual_revenue !== undefined && expectedRevenueData.actual_revenue !== null
+      ? parseFloat(expectedRevenueData.actual_revenue)
+      : (safeRevenue.total || 0);
+    const differenceToExpected = actualRevenueForExpected - totalExpectedRevenue;
+    const differencePercentageToExpected = totalExpectedRevenue !== 0 ? (differenceToExpected / totalExpectedRevenue) * 100 : null;
+    const averageExpectedPerInvoice = invoiceCountForExpected > 0
+      ? (expectedRevenueData.average_expected_per_invoice !== undefined && expectedRevenueData.average_expected_per_invoice !== null
+          ? parseFloat(expectedRevenueData.average_expected_per_invoice)
+          : totalExpectedRevenue / invoiceCountForExpected)
+      : 0;
+    const totalPurchaseAmountExpected = parseFloat(expectedRevenueData.total_purchase_amount || 0);
+    const ratioActualToExpected = totalExpectedRevenue !== 0
+      ? (expectedRevenueData.actual_to_expected_ratio !== undefined && expectedRevenueData.actual_to_expected_ratio !== null
+          ? parseFloat(expectedRevenueData.actual_to_expected_ratio)
+          : actualRevenueForExpected / totalExpectedRevenue)
+      : null;
+
+    const expectedDailyTrendsRaw = Array.isArray(expectedRevenueData.daily_trends) ? expectedRevenueData.daily_trends : [];
+    const expectedVendorSummary = Array.isArray(expectedRevenueData.vendor_summary) ? expectedRevenueData.vendor_summary : [];
+    const varianceHighlights = expectedRevenueData.variance_highlights || null;
+
+    const expectedDailyTrendChartData = expectedDailyTrendsRaw.map(day => {
+      const rawDate = day?.date || '';
+      const dateObj = rawDate ? new Date(rawDate + 'T00:00:00') : null;
+      const label = dateObj ? dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : rawDate || 'N/A';
+      return {
+        label,
+        rawDate,
+        expected: parseFloat(day?.expected || 0),
+        actual: parseFloat(day?.actual || 0),
+        difference: parseFloat(day?.difference || ((parseFloat(day?.actual || 0)) - (parseFloat(day?.expected || 0))))
+      };
+    });
+
+    const topVendorsForExpected = expectedVendorSummary.slice(0, 5);
+
+    const safeExpectedRevenue = {
+      total_expected: totalExpectedRevenue,
+      invoice_count: invoiceCountForExpected,
+      average_expected_per_invoice: averageExpectedPerInvoice,
+      total_purchase_amount: totalPurchaseAmountExpected,
+      difference: differenceToExpected,
+      difference_percentage: differencePercentageToExpected,
+      actual_revenue: actualRevenueForExpected,
+      actual_to_expected_ratio: ratioActualToExpected,
+      daily_trends: expectedDailyTrendChartData,
+      vendor_summary: expectedVendorSummary,
+      variance_highlights: varianceHighlights
+    };
 
     // Prepare data for charts
     const profitLossData = [
@@ -1614,7 +1676,7 @@ const Reports = () => {
     return (
       <div className="space-y-6">
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <div className="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
             <h3 className="text-sm font-medium text-gray-600 mb-2">Total Revenue</h3>
             <div className="text-3xl font-bold text-green-600">{formatCurrency(safeRevenue.total || 0)}</div>
@@ -1642,6 +1704,42 @@ const Reports = () => {
               {formatCurrency(safeNetProfit)}
             </div>
             <div className="mt-2 text-xs text-gray-500">Margin: {safeMarginPercentage}%</div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-indigo-500">
+            <h3 className="text-sm font-medium text-gray-600 mb-2">Expected vs Actual Revenue</h3>
+            <div className="text-3xl font-bold text-indigo-600">{formatCurrency(safeExpectedRevenue.total_expected || 0)}</div>
+            <div className="mt-2 text-xs text-gray-500">
+              Actual:{' '}
+              <span className="font-semibold text-gray-900">
+                {formatCurrency(safeExpectedRevenue.actual_revenue || 0)}
+              </span>
+            </div>
+            <div className="mt-1 text-xs text-gray-500">
+              Variance:{' '}
+              <span className={`font-semibold ${safeExpectedRevenue.difference >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {safeExpectedRevenue.difference >= 0 ? '+' : ''}
+                {formatCurrency(Math.abs(safeExpectedRevenue.difference || 0))}
+              </span>
+              {safeExpectedRevenue.difference_percentage !== null && (
+                <> ({safeExpectedRevenue.difference_percentage >= 0 ? '+' : ''}{safeExpectedRevenue.difference_percentage.toFixed(1)}%)</>
+              )}
+            </div>
+            <div className="mt-1 text-xs text-gray-500">
+              Invoices: {safeExpectedRevenue.invoice_count || 0}
+              {safeExpectedRevenue.invoice_count > 0 && (
+                <> | Avg Expected: {formatCurrency(safeExpectedRevenue.average_expected_per_invoice || 0)}</>
+              )}
+            </div>
+            {safeExpectedRevenue.total_purchase_amount > 0 && (
+              <div className="mt-1 text-xs text-gray-500">
+                Purchases Covered: {formatCurrency(safeExpectedRevenue.total_purchase_amount || 0)}
+              </div>
+            )}
+            {safeExpectedRevenue.actual_to_expected_ratio !== null && (
+              <div className="mt-1 text-xs text-gray-500">
+                Actual/Expected: {safeExpectedRevenue.actual_to_expected_ratio.toFixed(2)}x
+              </div>
+            )}
           </div>
         </div>
 
@@ -1694,6 +1792,113 @@ const Reports = () => {
           </div>
         </div>
 
+        {(expectedDailyTrendChartData.length > 0 || topVendorsForExpected.length > 0 || varianceHighlights) && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {expectedDailyTrendChartData.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Expected vs Actual Revenue Trend (Inventory)</h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={expectedDailyTrendChartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" />
+                    <YAxis />
+                    <Tooltip
+                      formatter={(value) => formatCurrency(value)}
+                      labelFormatter={(label, payload) => {
+                        const raw = payload && payload.length > 0 ? payload[0]?.payload?.rawDate : null;
+                        return raw ? new Date(raw + 'T00:00:00').toLocaleDateString() : label;
+                      }}
+                    />
+                    <Legend />
+                    <Line type="monotone" dataKey="expected" stroke="#6366F1" strokeWidth={3} dot={false} name="Expected Revenue" />
+                    <Line type="monotone" dataKey="actual" stroke="#10B981" strokeWidth={3} dot={false} name="Actual Revenue" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {(topVendorsForExpected.length > 0 || varianceHighlights) && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Expected Revenue Analytics</h3>
+                {varianceHighlights && (
+                  <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {varianceHighlights.best_day && (
+                      <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                        <div className="text-xs font-medium text-green-700 uppercase tracking-wide mb-1">Best Performing Day</div>
+                        <div className="text-sm font-semibold text-green-700">
+                          {varianceHighlights.best_day.date ? formatDate(varianceHighlights.best_day.date) : 'N/A'}
+                        </div>
+                        <div className="text-xs text-gray-600 mt-1">
+                          Expected: {formatCurrency(varianceHighlights.best_day.expected || 0)}
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          Actual: {formatCurrency(varianceHighlights.best_day.actual || 0)}
+                        </div>
+                        <div className="text-xs text-gray-600 mt-1">
+                          Variance: <span className="font-semibold text-green-600">+{formatCurrency(Math.abs(varianceHighlights.best_day.difference || 0))}</span>
+                        </div>
+                      </div>
+                    )}
+                    {varianceHighlights.worst_day && (
+                      <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                        <div className="text-xs font-medium text-red-700 uppercase tracking-wide mb-1">Lowest Performing Day</div>
+                        <div className="text-sm font-semibold text-red-700">
+                          {varianceHighlights.worst_day.date ? formatDate(varianceHighlights.worst_day.date) : 'N/A'}
+                        </div>
+                        <div className="text-xs text-gray-600 mt-1">
+                          Expected: {formatCurrency(varianceHighlights.worst_day.expected || 0)}
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          Actual: {formatCurrency(varianceHighlights.worst_day.actual || 0)}
+                        </div>
+                        <div className="text-xs text-gray-600 mt-1">
+                          Variance: <span className="font-semibold text-red-600">-{formatCurrency(Math.abs(varianceHighlights.worst_day.difference || 0))}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {topVendorsForExpected.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Expected Revenue</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Invoices</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Expected</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {topVendorsForExpected.map((vendor, idx) => (
+                          <tr key={idx} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm text-gray-900">{vendor.vendor_name || 'Unknown'}</td>
+                            <td className="px-4 py-3 text-sm text-right">{formatCurrency(vendor.total_expected || 0)}</td>
+                            <td className="px-4 py-3 text-sm text-right">{vendor.invoice_count || 0}</td>
+                            <td className="px-4 py-3 text-sm text-right">{formatCurrency(vendor.average_expected_per_invoice || 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {expectedVendorSummary.length > topVendorsForExpected.length && (
+                      <div className="text-xs text-gray-500 mt-3">
+                        Showing top {topVendorsForExpected.length} vendors by expected revenue.
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  !varianceHighlights && (
+                    <div className="text-sm text-gray-500 text-center py-8">
+                      No vendor analytics available for this period.
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Operating Expenses Table */}
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Operating Expenses Detail</h3>
@@ -1733,7 +1938,234 @@ const Reports = () => {
     );
   };
 
-  const needsDateRange = ['profit-loss', 'cash-flow', 'expense-breakdown', 'vendor-payments', 'lottery-sales', 'deposits', 'payroll', 'sales-trends'].includes(activeTab);
+  const renderRevenueCalculation = () => {
+    if (!reportData || typeof reportData !== 'object') return null;
+    const { summary = {}, daily_trends = [], invoices = [], vendors = [] } = reportData || {};
+
+    const totalExpected = parseFloat(summary.total_expected || 0);
+    const totalActual = parseFloat(summary.total_actual || 0);
+    const invoicesCount = parseInt(summary.invoice_count || 0);
+    const totalPurchaseAmount = parseFloat(summary.total_purchase_amount || 0);
+    const inventoryImpact = totalExpected - totalPurchaseAmount;
+    const inventoryImpactClass = inventoryImpact >= 0 ? 'text-green-600' : 'text-red-600';
+
+    const variance = summary.difference !== undefined && summary.difference !== null
+      ? parseFloat(summary.difference)
+      : (totalActual - totalExpected);
+    const variancePercentage = summary.difference_percentage !== undefined && summary.difference_percentage !== null
+      ? parseFloat(summary.difference_percentage)
+      : (totalExpected !== 0 ? ((variance) / totalExpected) * 100 : null);
+    const avgExpectedPerInvoice = summary.average_expected_per_invoice !== undefined && summary.average_expected_per_invoice !== null
+      ? parseFloat(summary.average_expected_per_invoice)
+      : (invoicesCount > 0 ? totalExpected / invoicesCount : 0);
+    const ratio = summary.actual_to_expected_ratio !== undefined && summary.actual_to_expected_ratio !== null
+      ? parseFloat(summary.actual_to_expected_ratio)
+      : (totalExpected !== 0 ? totalActual / totalExpected : null);
+
+    const chartData = (Array.isArray(daily_trends) ? daily_trends : []).map(day => {
+      const rawDate = day?.date || '';
+      const dateObj = rawDate ? new Date(rawDate + 'T00:00:00') : null;
+      const formattedDate = dateObj ? dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : (rawDate || 'N/A');
+      return {
+        date: formattedDate,
+        rawDate,
+        expected: parseFloat(day?.expected || 0),
+        actual: parseFloat(day?.actual || 0)
+      };
+    });
+
+    const vendorSummary = Array.isArray(vendors) ? vendors.map(vendor => ({
+      vendor_name: vendor?.vendor_name || 'Unknown',
+      invoice_count: parseInt(vendor?.invoice_count || 0),
+      total_expected: parseFloat(vendor?.total_expected || 0),
+      total_purchase_amount: parseFloat(vendor?.total_purchase_amount || 0),
+      average_expected_per_invoice: vendor?.average_expected_per_invoice !== undefined && vendor?.average_expected_per_invoice !== null
+        ? parseFloat(vendor.average_expected_per_invoice)
+        : (parseInt(vendor?.invoice_count || 0) > 0 ? parseFloat(vendor?.total_expected || 0) / parseInt(vendor?.invoice_count || 0) : 0)
+    })) : [];
+
+    const invoiceDetails = Array.isArray(invoices) ? invoices.map(invoice => ({
+      ...invoice,
+      purchase_date: invoice?.purchase_date || null,
+      purchase_amount: parseFloat(invoice?.purchase_amount || 0),
+      expected_revenue: parseFloat(invoice?.expected_revenue || 0),
+      actual_same_day_revenue: parseFloat(invoice?.actual_same_day_revenue || 0),
+      variance: parseFloat(invoice?.variance || 0),
+      variance_percentage: invoice?.variance_percentage !== undefined && invoice?.variance_percentage !== null
+        ? parseFloat(invoice.variance_percentage)
+        : (parseFloat(invoice?.expected_revenue || 0) !== 0
+            ? (parseFloat(invoice?.actual_same_day_revenue || 0) - parseFloat(invoice?.expected_revenue || 0)) / parseFloat(invoice?.expected_revenue || 0) * 100
+            : null),
+      revenue_calculation_method: invoice?.revenue_calculation_method || null
+    })) : [];
+
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-indigo-500">
+            <h3 className="text-sm font-medium text-gray-600 mb-2">Expected Revenue (Inventory)</h3>
+            <div className="text-3xl font-bold text-indigo-600">{formatCurrency(totalExpected)}</div>
+            <div className="mt-2 text-xs text-gray-500">
+              Invoices with Calculations: {invoicesCount}
+            </div>
+            {invoicesCount > 0 && (
+              <div className="mt-1 text-xs text-gray-500">
+                Avg Expected / Invoice: {formatCurrency(avgExpectedPerInvoice)}
+              </div>
+            )}
+            {totalPurchaseAmount > 0 && (
+              <div className="mt-1 text-xs text-gray-500">
+                Related Purchases: {formatCurrency(totalPurchaseAmount)}
+              </div>
+            )}
+          </div>
+          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-green-600">
+            <h3 className="text-sm font-medium text-gray-600 mb-2">Actual Revenue (Same Period)</h3>
+            <div className="text-3xl font-bold text-green-600">{formatCurrency(totalActual)}</div>
+            {ratio !== null && (
+              <div className="mt-2 text-xs text-gray-500">
+                Actual / Expected Ratio: {ratio.toFixed(2)}x
+              </div>
+            )}
+          </div>
+          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-purple-500">
+            <h3 className="text-sm font-medium text-gray-600 mb-2">Variance</h3>
+            <div className={`text-3xl font-bold ${variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {variance >= 0 ? '+' : ''}
+              {formatCurrency(Math.abs(variance))}
+            </div>
+            <div className="mt-2 text-xs text-gray-500">
+              {variancePercentage !== null
+                ? `${variancePercentage >= 0 ? '+' : ''}${variancePercentage.toFixed(1)}% vs Expected`
+                : 'Variance %: N/A'}
+            </div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+            <h3 className="text-sm font-medium text-gray-600 mb-2">Inventory Delivery Impact</h3>
+            <div className={`text-3xl font-bold ${inventoryImpactClass}`}>{formatCurrency(inventoryImpact)}</div>
+            <div className="mt-2 text-xs text-gray-500">
+              Expected Revenue - Purchase Cost
+            </div>
+          </div>
+        </div>
+
+        {chartData.length > 0 && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Expected vs Actual Revenue Trend</h3>
+            <ResponsiveContainer width="100%" height={320}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis />
+                <Tooltip
+                  formatter={(value) => formatCurrency(value)}
+                  labelFormatter={(label, payload) => {
+                    const raw = payload && payload.length > 0 ? payload[0]?.payload?.rawDate : null;
+                    return raw ? new Date(raw + 'T00:00:00').toLocaleDateString() : label;
+                  }}
+                />
+                <Legend />
+                <Line type="monotone" dataKey="expected" stroke="#6366F1" strokeWidth={3} dot={false} name="Expected Revenue" />
+                <Line type="monotone" dataKey="actual" stroke="#10B981" strokeWidth={3} dot={false} name="Actual Revenue" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {vendorSummary.length > 0 && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Expected Revenue by Vendor</h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Invoices</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Expected Revenue</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Expected</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Purchase Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {vendorSummary.map((vendor, idx) => (
+                    <tr key={idx} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900">{vendor.vendor_name}</td>
+                      <td className="px-4 py-3 text-sm text-right">{vendor.invoice_count}</td>
+                      <td className="px-4 py-3 text-sm text-right">{formatCurrency(vendor.total_expected || 0)}</td>
+                      <td className="px-4 py-3 text-sm text-right">{formatCurrency(vendor.average_expected_per_invoice || 0)}</td>
+                      <td className="px-4 py-3 text-sm text-right">{formatCurrency(vendor.total_purchase_amount || 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Revenue Calculation Details</h3>
+            <p className="text-xs text-gray-500">
+              Actual revenue uses same-day totals from Daily Revenue entries.
+            </p>
+          </div>
+          {invoiceDetails.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Purchase Date</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice #</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Purchase Amount</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Expected Revenue</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actual Revenue</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Variance</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Variance %</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Method</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {invoiceDetails.map((invoice) => {
+                    const diff = invoice.variance || 0;
+                    const diffPercent = invoice.variance_percentage;
+                    return (
+                      <tr key={invoice.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm text-gray-900">
+                          {invoice.purchase_date ? formatDate(invoice.purchase_date) : 'N/A'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-900">{invoice.invoice_number || 'N/A'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-900">{invoice.vendor_name || 'Unknown'}</td>
+                        <td className="px-4 py-3 text-sm text-right">{formatCurrency(invoice.purchase_amount || 0)}</td>
+                        <td className="px-4 py-3 text-sm text-right">{formatCurrency(invoice.expected_revenue || 0)}</td>
+                        <td className="px-4 py-3 text-sm text-right">{formatCurrency(invoice.actual_same_day_revenue || 0)}</td>
+                        <td className={`px-4 py-3 text-sm text-right font-medium ${diff >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {diff >= 0 ? '+' : ''}
+                          {formatCurrency(Math.abs(diff))}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-600">
+                          {diffPercent !== null && diffPercent !== undefined
+                            ? `${diffPercent >= 0 ? '+' : ''}${diffPercent.toFixed(1)}%`
+                            : 'N/A'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{invoice.revenue_calculation_method || 'N/A'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500 text-center py-8">
+              No revenue calculation data available for this range.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const needsDateRange = ['profit-loss', 'revenue-calculation', 'cash-flow', 'expense-breakdown', 'vendor-payments', 'lottery-sales', 'deposits', 'payroll', 'sales-trends'].includes(activeTab);
   const needsSingleDate = ['daily-business'].includes(activeTab);
   const needsMonthYear = ['monthly-business'].includes(activeTab);
 
@@ -1749,9 +2181,22 @@ const Reports = () => {
       net_profit = 0, 
       margin_percentage = 0 
     } = reportData;
+    const expectedSummary = reportData?.expected_revenue || {};
+    const totalExpectedRevenue = parseFloat(expectedSummary?.total_expected || 0);
+    const expectedVariance = expectedSummary?.difference !== undefined && expectedSummary?.difference !== null
+      ? parseFloat(expectedSummary.difference)
+      : ((revenue?.total || 0) - totalExpectedRevenue);
+    const expectedVariancePercentage = expectedSummary?.difference_percentage !== undefined && expectedSummary?.difference_percentage !== null
+      ? parseFloat(expectedSummary.difference_percentage)
+      : (totalExpectedRevenue !== 0 ? ((expectedVariance) / totalExpectedRevenue) * 100 : null);
+    const expectedInvoicesCount = expectedSummary?.invoice_count || 0;
+
     const headers = ['Category', 'Amount'];
     const rows = [
       ['Total Revenue', formatCurrency(revenue?.total || 0)],
+      ['Expected Revenue (Inventory)', formatCurrency(totalExpectedRevenue)],
+      ['Expected vs Actual Variance', `${formatCurrency(expectedVariance)}${expectedVariancePercentage !== null ? ` (${expectedVariancePercentage.toFixed(1)}%)` : ''}`],
+      ['Invoices with Revenue Calculations', expectedInvoicesCount.toString()],
       ['Cost of Goods Sold', formatCurrency(cost_of_goods_sold || 0)],
       ['Gross Profit', formatCurrency(gross_profit || 0)],
       ['Operating Expenses - Total', formatCurrency(operating_expenses?.total || 0)],
@@ -1759,6 +2204,46 @@ const Reports = () => {
       ['Net Profit', formatCurrency(net_profit || 0)],
       ['Profit Margin (%)', `${margin_percentage || 0}%`]
     ];
+    return { headers, rows };
+  };
+
+  const prepareRevenueCalculationExport = () => {
+    if (!reportData) return { headers: [], rows: [] };
+    const { summary = {}, invoices = [] } = reportData || {};
+
+    const totalExpected = parseFloat(summary?.total_expected || 0);
+    const totalActual = parseFloat(summary?.total_actual || 0);
+    const variance = summary?.difference !== undefined && summary?.difference !== null
+      ? parseFloat(summary.difference)
+      : (totalActual - totalExpected);
+    const variancePercentage = summary?.difference_percentage !== undefined && summary?.difference_percentage !== null
+      ? parseFloat(summary.difference_percentage)
+      : (totalExpected !== 0 ? ((variance) / totalExpected) * 100 : null);
+
+    const headers = ['Invoice #', 'Purchase Date', 'Vendor', 'Purchase Amount', 'Expected Revenue', 'Actual Revenue (Same Day)', 'Variance', 'Variance %', 'Method'];
+    const rows = [
+      ['SUMMARY', '', '', '', '', '', '', '', ''],
+      ['Total Expected Revenue', '', '', '', formatCurrency(totalExpected), '', '', '', ''],
+      ['Actual Revenue (Same Period)', '', '', '', '', formatCurrency(totalActual), '', '', ''],
+      ['Variance', '', '', '', '', '', formatCurrency(variance), variancePercentage !== null ? `${variancePercentage.toFixed(1)}%` : 'N/A', ''],
+      ['Invoices Count', '', '', '', '', '', '', invoices.length || 0, ''],
+      ['', '', '', '', '', '', '', '', ''],
+      ['DETAILS', '', '', '', '', '', '', '', ''],
+      ...(Array.isArray(invoices) ? invoices.map(inv => [
+        inv?.invoice_number || 'N/A',
+        inv?.purchase_date ? new Date(inv.purchase_date).toLocaleDateString() : 'N/A',
+        inv?.vendor_name || 'Unknown',
+        formatCurrency(parseFloat(inv?.purchase_amount || 0)),
+        formatCurrency(parseFloat(inv?.expected_revenue || 0)),
+        formatCurrency(parseFloat(inv?.actual_same_day_revenue || 0)),
+        formatCurrency(parseFloat(inv?.variance || 0)),
+        inv?.variance_percentage !== null && inv?.variance_percentage !== undefined
+          ? `${parseFloat(inv.variance_percentage).toFixed(1)}%`
+          : 'N/A',
+        inv?.revenue_calculation_method || 'N/A'
+      ]) : [])
+    ];
+
     return { headers, rows };
   };
 
@@ -2023,7 +2508,7 @@ const Reports = () => {
 
   const prepareProfitLossHTML = () => {
     if (!reportData) return '<p>No data available</p>';
-    const { 
+    const {
       revenue = { total: 0 }, 
       cost_of_goods_sold = 0, 
       gross_profit = 0, 
@@ -2031,11 +2516,30 @@ const Reports = () => {
       net_profit = 0, 
       margin_percentage = 0 
     } = reportData;
+    const expectedSummary = reportData?.expected_revenue || {};
+    const totalExpectedRevenue = parseFloat(expectedSummary?.total_expected || 0);
+    const expectedVariance = expectedSummary?.difference !== undefined && expectedSummary?.difference !== null
+      ? parseFloat(expectedSummary.difference)
+      : ((revenue?.total || 0) - totalExpectedRevenue);
+    const expectedVariancePercentage = expectedSummary?.difference_percentage !== undefined && expectedSummary?.difference_percentage !== null
+      ? parseFloat(expectedSummary.difference_percentage)
+      : (totalExpectedRevenue !== 0 ? ((expectedVariance) / totalExpectedRevenue) * 100 : null);
+    const expectedInvoicesCount = expectedSummary?.invoice_count || 0;
     return `
       <div class="summary-cards">
         <div class="summary-card positive">
           <div class="label">Total Revenue</div>
           <div class="value">${formatCurrency(revenue?.total || 0)}</div>
+        </div>
+        <div class="summary-card neutral">
+          <div class="label">Expected Revenue (Inventory)</div>
+          <div class="value">${formatCurrency(totalExpectedRevenue)}</div>
+          <div style="font-size: 9pt; margin-top: 5px;">
+            Variance: ${formatCurrency(expectedVariance)}${expectedVariancePercentage !== null ? ` (${expectedVariancePercentage.toFixed(1)}%)` : ''}
+          </div>
+          <div style="font-size: 9pt;">
+            Invoices: ${expectedInvoicesCount}
+          </div>
         </div>
         <div class="summary-card negative">
           <div class="label">Cost of Goods Sold</div>
@@ -2075,6 +2579,70 @@ const Reports = () => {
           </tbody>
         </table>
       </div>
+    `;
+  };
+
+  const prepareRevenueCalculationHTML = () => {
+    if (!reportData) return '<p>No data available</p>';
+    const { summary = {}, invoices = [] } = reportData || {};
+
+    const totalExpected = parseFloat(summary?.total_expected || 0);
+    const totalActual = parseFloat(summary?.total_actual || 0);
+    const invoicesCount = Array.isArray(invoices) ? invoices.length : 0;
+    const variance = summary?.difference !== undefined && summary?.difference !== null
+      ? parseFloat(summary.difference)
+      : (totalActual - totalExpected);
+    const variancePercentage = summary?.difference_percentage !== undefined && summary?.difference_percentage !== null
+      ? parseFloat(summary.difference_percentage)
+      : (totalExpected !== 0 ? ((variance) / totalExpected) * 100 : null);
+    const averageExpected = summary?.average_expected_per_invoice !== undefined && summary?.average_expected_per_invoice !== null
+      ? parseFloat(summary.average_expected_per_invoice)
+      : (invoicesCount > 0 ? totalExpected / invoicesCount : 0);
+
+    const rowsHTML = Array.isArray(invoices) && invoices.length > 0
+      ? invoices.map(inv => `
+          <tr>
+            <td>${inv?.purchase_date ? new Date(inv.purchase_date).toLocaleDateString() : 'N/A'}</td>
+            <td>${inv?.invoice_number || 'N/A'}</td>
+            <td>${inv?.vendor_name || 'Unknown'}</td>
+            <td style="text-align:right;">${formatCurrency(parseFloat(inv?.purchase_amount || 0))}</td>
+            <td style="text-align:right;">${formatCurrency(parseFloat(inv?.expected_revenue || 0))}</td>
+            <td style="text-align:right;">${formatCurrency(parseFloat(inv?.actual_same_day_revenue || 0))}</td>
+            <td style="text-align:right;">${formatCurrency(parseFloat(inv?.variance || 0))}</td>
+            <td style="text-align:right;">${inv?.variance_percentage !== null && inv?.variance_percentage !== undefined ? `${parseFloat(inv.variance_percentage).toFixed(1)}%` : 'N/A'}</td>
+            <td>${inv?.revenue_calculation_method || 'N/A'}</td>
+          </tr>
+        `).join('')
+      : '<tr><td colspan="9" style="text-align:center;">No revenue calculation data available for this range.</td></tr>';
+
+    return `
+      <h2>Revenue Calculation Summary</h2>
+      <ul>
+        <li>Total Expected Revenue: ${formatCurrency(totalExpected)}</li>
+        <li>Actual Revenue (Same Period): ${formatCurrency(totalActual)}</li>
+        <li>Variance: ${formatCurrency(variance)}${variancePercentage !== null ? ` (${variancePercentage.toFixed(1)}%)` : ''}</li>
+        <li>Invoices with Calculations: ${invoicesCount}</li>
+        <li>Average Expected per Invoice: ${formatCurrency(averageExpected)}</li>
+      </ul>
+      <h2>Invoice Details</h2>
+      <table border="1" cellPadding="6" cellSpacing="0" style="border-collapse: collapse; width: 100%;">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Invoice #</th>
+            <th>Vendor</th>
+            <th>Purchase Amount</th>
+            <th>Expected Revenue</th>
+            <th>Actual Revenue</th>
+            <th>Variance</th>
+            <th>Variance %</th>
+            <th>Method</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHTML}
+        </tbody>
+      </table>
     `;
   };
 
@@ -3089,6 +3657,7 @@ const Reports = () => {
       ) : (
         <div>
           {activeTab === 'profit-loss' && renderProfitLoss()}
+          {activeTab === 'revenue-calculation' && renderRevenueCalculation()}
           {activeTab === 'cash-flow' && renderCashFlow()}
           {activeTab === 'expense-breakdown' && renderExpenseBreakdown()}
           {activeTab === 'vendor-payments' && renderVendorPayments()}
