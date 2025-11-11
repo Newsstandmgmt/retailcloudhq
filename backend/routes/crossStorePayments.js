@@ -3,6 +3,7 @@ const { authenticate, authorize } = require('../middleware/auth');
 const { query } = require('../config/database');
 const CrossStorePayment = require('../models/CrossStorePayment');
 const AuditLog = require('../models/AuditLog');
+const DailyOperatingExpenses = require('../models/DailyOperatingExpenses');
 
 const router = express.Router();
 
@@ -31,6 +32,8 @@ router.post('/', authorize('admin', 'super_admin'), async (req, res) => {
             metadata,
             allocations
         } = req.body;
+        const context = req.body.context || 'payment';
+        const expenseDefaults = req.body.expense_defaults || {};
 
         if (!source_store_id) {
             return res.status(400).json({ error: 'Source store is required.' });
@@ -112,6 +115,92 @@ router.post('/', authorize('admin', 'super_admin'), async (req, res) => {
             cleanedAllocations
         );
 
+        let expensesCreated = [];
+        try {
+            if (context === 'expense') {
+                for (let index = 0; index < payment.allocations.length; index++) {
+                    const allocationRow = payment.allocations[index];
+                    const allocationInput = allocations[index] || {};
+
+                    if (allocationInput.create_expense === false) {
+                        continue;
+                    }
+
+                    const expenseTypeId =
+                        allocationInput.expense_type_id || expenseDefaults.expense_type_id || null;
+
+                    const expenseEntryDate =
+                        allocationInput.entry_date ||
+                        expenseDefaults.entry_date ||
+                        payment_date;
+
+                    const expensePaymentMethod =
+                        allocationInput.expense_payment_method ||
+                        expenseDefaults.payment_method ||
+                        payment_method;
+
+                    const reimbursementRequired = allocationRow.reimbursement_required !== false;
+                    const reimbursementStatus = reimbursementRequired ? 'pending' : 'none';
+                    const reimbursementTo = reimbursementRequired
+                        ? (allocationInput.reimbursement_to ||
+                            expenseDefaults.reimbursement_to ||
+                            paid_to ||
+                            null)
+                        : null;
+
+                    const notesParts = [
+                        allocationInput.expense_note,
+                        expenseDefaults.notes,
+                        allocationRow.memo
+                    ].filter(Boolean);
+
+                    const expenseData = {
+                        store_id: allocationRow.target_store_id,
+                        entry_date: expenseEntryDate,
+                        expense_type_id: expenseTypeId,
+                        amount: parseFloat(allocationRow.allocated_amount),
+                        is_recurring: expenseDefaults.is_recurring || false,
+                        recurring_frequency: expenseDefaults.recurring_frequency || null,
+                        is_autopay: expenseDefaults.is_autopay || false,
+                        payment_method: expensePaymentMethod,
+                        bank_id: expenseDefaults.bank_id || null,
+                        bank_account_name: expenseDefaults.bank_account_name || null,
+                        credit_card_id: expenseDefaults.credit_card_id || null,
+                        is_reimbursable: reimbursementRequired,
+                        reimbursement_to: reimbursementTo,
+                        reimbursement_status: reimbursementStatus,
+                        notes: notesParts.join(' • ') || null,
+                        entered_by: req.user.id,
+                        paid_by_store_id: source_store_id,
+                        cross_store_payment_id: payment.id,
+                        cross_store_allocation_id: allocationRow.id
+                    };
+
+                    const createdExpense = await DailyOperatingExpenses.create(expenseData);
+                    expensesCreated.push(createdExpense);
+
+                    await query(
+                        `UPDATE cross_store_payment_allocations
+                         SET target_type = 'expense',
+                             target_id = $1
+                         WHERE id = $2`,
+                        [createdExpense.id, allocationRow.id]
+                    );
+
+                    payment.allocations[index] = {
+                        ...allocationRow,
+                        target_type: 'expense',
+                        target_id: createdExpense.id,
+                        expense_id: createdExpense.id
+                    };
+                }
+            }
+        } catch (expenseError) {
+            console.error('Failed to create cross-store expense entries:', expenseError);
+            await query('DELETE FROM cross_store_payments WHERE id = $1', [payment.id]);
+            throw expenseError;
+        }
+
         try {
             await AuditLog.create({
                 user_id: req.user.id,
@@ -126,7 +215,8 @@ router.post('/', authorize('admin', 'super_admin'), async (req, res) => {
                 store_id: source_store_id,
                 new_values: {
                     payment,
-                    allocations: cleanedAllocations
+                    allocations: cleanedAllocations,
+                    expenses_created: expensesCreated
                 }
             });
         } catch (auditError) {

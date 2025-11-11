@@ -1,4 +1,5 @@
 const { query, getClient } = require('../config/database');
+const DailyOperatingExpenses = require('./DailyOperatingExpenses');
 
 class CrossStorePayment {
     static async create(paymentData, allocations = []) {
@@ -91,7 +92,10 @@ class CrossStorePayment {
                         alloc.reimbursement_note || null
                     ]
                 );
-                allocationRows.push(allocationResult.rows[0]);
+                allocationRows.push({
+                    ...allocationResult.rows[0],
+                    client_reference: alloc.client_reference || null
+                });
             }
 
             await client.query('COMMIT');
@@ -131,10 +135,21 @@ class CrossStorePayment {
                 a.*,
                 target_store.name AS target_store_name,
                 approver.first_name AS approved_by_first_name,
-                approver.last_name AS approved_by_last_name
+                approver.last_name AS approved_by_last_name,
+                doe.id AS expense_id,
+                doe.entry_date AS expense_entry_date,
+                doe.expense_type_id AS expense_expense_type_id,
+                doe.amount AS expense_amount,
+                doe.notes AS expense_notes,
+                doe.reimbursement_status AS expense_reimbursement_status,
+                doe.reimbursement_date AS expense_reimbursement_date,
+                doe.reimbursement_amount AS expense_reimbursement_amount,
+                et.expense_type_name AS expense_type_name
              FROM cross_store_payment_allocations a
              JOIN stores target_store ON target_store.id = a.target_store_id
              LEFT JOIN users approver ON approver.id = a.approved_by
+             LEFT JOIN daily_operating_expenses doe ON doe.cross_store_allocation_id = a.id
+             LEFT JOIN expense_types et ON doe.expense_type_id = et.id
              WHERE a.payment_id = $1
              ORDER BY a.created_at`,
             [paymentId]
@@ -229,10 +244,21 @@ class CrossStorePayment {
                 a.*,
                 target_store.name AS target_store_name,
                 approver.first_name AS approved_by_first_name,
-                approver.last_name AS approved_by_last_name
+                approver.last_name AS approved_by_last_name,
+                doe.id AS expense_id,
+                doe.entry_date AS expense_entry_date,
+                doe.expense_type_id AS expense_expense_type_id,
+                doe.amount AS expense_amount,
+                doe.notes AS expense_notes,
+                doe.reimbursement_status AS expense_reimbursement_status,
+                doe.reimbursement_date AS expense_reimbursement_date,
+                doe.reimbursement_amount AS expense_reimbursement_amount,
+                et.expense_type_name AS expense_type_name
              FROM cross_store_payment_allocations a
              JOIN stores target_store ON target_store.id = a.target_store_id
              LEFT JOIN users approver ON approver.id = a.approved_by
+             LEFT JOIN daily_operating_expenses doe ON doe.cross_store_allocation_id = a.id
+             LEFT JOIN expense_types et ON doe.expense_type_id = et.id
              WHERE a.payment_id = ANY($1::uuid[])
              ORDER BY a.created_at`,
             [paymentIds]
@@ -359,6 +385,53 @@ class CrossStorePayment {
             await client.query('COMMIT');
 
             const updatedAllocation = updateResult.rows[0];
+
+            // Synchronize linked expense entry (if any)
+            const expenseResult = await query(
+                `SELECT id FROM daily_operating_expenses WHERE cross_store_allocation_id = $1`,
+                [allocationId]
+            );
+
+            if (expenseResult.rows.length > 0) {
+                const expenseId = expenseResult.rows[0].id;
+                if (newStatus === 'completed') {
+                    await DailyOperatingExpenses.markReimbursed(expenseId, {
+                        reimbursement_date: newReimbursedAt
+                            ? newReimbursedAt.toISOString().split('T')[0]
+                            : new Date().toISOString().split('T')[0],
+                        reimbursement_amount: newReimbursedAmount || updatedAllocation.allocated_amount,
+                        reimbursement_payment_method: updates.reimbursement_payment_method || null,
+                        reimbursement_check_number: updates.reimbursement_check_number || null,
+                        reimbursement_bank_id: updates.reimbursement_bank_id || null
+                    });
+                } else if (newStatus === 'pending') {
+                    await query(
+                        `UPDATE daily_operating_expenses
+                         SET reimbursement_status = 'pending',
+                             reimbursement_date = NULL,
+                             reimbursement_amount = NULL,
+                             reimbursement_payment_method = NULL,
+                             reimbursement_check_number = NULL,
+                             reimbursement_bank_id = NULL,
+                             updated_at = CURRENT_TIMESTAMP
+                         WHERE cross_store_allocation_id = $1`,
+                        [allocationId]
+                    );
+                } else if (newStatus === 'not_required') {
+                    await query(
+                        `UPDATE daily_operating_expenses
+                         SET reimbursement_status = 'none',
+                             reimbursement_date = NULL,
+                             reimbursement_amount = NULL,
+                             reimbursement_payment_method = NULL,
+                             reimbursement_check_number = NULL,
+                             reimbursement_bank_id = NULL,
+                             updated_at = CURRENT_TIMESTAMP
+                         WHERE cross_store_allocation_id = $1`,
+                        [allocationId]
+                    );
+                }
+            }
 
             return {
                 allocation: updatedAllocation,
