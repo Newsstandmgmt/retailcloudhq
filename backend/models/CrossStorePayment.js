@@ -71,8 +71,9 @@ class CrossStorePayment {
                         reimbursed_at,
                         reimbursed_amount,
                         reimbursed_by,
-                        reimbursement_note
-                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+                        reimbursement_note,
+                        allocation_percentage
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
                     RETURNING *`,
                     [
                         payment.id,
@@ -89,7 +90,10 @@ class CrossStorePayment {
                         null,
                         null,
                         null,
-                        alloc.reimbursement_note || null
+                        alloc.reimbursement_note || null,
+                        alloc.allocation_percentage !== undefined && alloc.allocation_percentage !== null
+                            ? parseFloat(alloc.allocation_percentage)
+                            : null
                     ]
                 );
                 allocationRows.push({

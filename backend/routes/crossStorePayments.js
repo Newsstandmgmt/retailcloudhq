@@ -34,6 +34,7 @@ router.post('/', authorize('admin', 'super_admin'), async (req, res) => {
         } = req.body;
         const context = req.body.context || 'payment';
         const expenseDefaults = req.body.expense_defaults || {};
+        const splitMode = req.body.split_mode === 'percentage' ? 'percentage' : 'amount';
 
         if (!source_store_id) {
             return res.status(400).json({ error: 'Source store is required.' });
@@ -62,19 +63,52 @@ router.post('/', authorize('admin', 'super_admin'), async (req, res) => {
             return res.status(403).json({ error: 'You do not have access to the source store.' });
         }
 
+        let computedAmounts = [];
+        let computedPercentages = [];
+
+        if (splitMode === 'percentage') {
+            const rawPercentages = [];
+            for (let index = 0; index < allocations.length; index++) {
+                const allocation = allocations[index];
+                const percentage = parseFloat(allocation.percentage ?? allocation.allocation_percentage);
+                if (!Number.isFinite(percentage) || percentage <= 0) {
+                    return res.status(400).json({
+                        error: `Allocation ${index + 1} must include a positive percentage.`,
+                    });
+                }
+                rawPercentages.push(percentage);
+            }
+
+            const totalPercentage = rawPercentages.reduce((sum, value) => sum + value, 0);
+            if (!Number.isFinite(totalPercentage) || Math.abs(totalPercentage - 100) > 0.01) {
+                return res.status(400).json({
+                    error: 'Allocation percentages must add up to 100%.',
+                });
+            }
+
+            let runningAmount = 0;
+            rawPercentages.forEach((percentage, index) => {
+                let amount;
+                if (index === allocations.length - 1) {
+                    amount = parseFloat((numericAmount - runningAmount).toFixed(2));
+                } else {
+                    amount = Math.round(numericAmount * percentage * 100) / 100;
+                    amount = parseFloat(amount.toFixed(2));
+                    runningAmount += amount;
+                }
+                computedAmounts.push(amount);
+                computedPercentages.push(percentage);
+            });
+        }
+
         let allocationTotal = 0;
         const cleanedAllocations = [];
 
-        for (const alloc of allocations) {
+        for (let index = 0; index < allocations.length; index++) {
+            const alloc = allocations[index];
             const targetStoreId = alloc.target_store_id;
-            const allocatedAmount = parseFloat(alloc.amount || alloc.allocated_amount);
-
             if (!targetStoreId) {
                 return res.status(400).json({ error: 'Each allocation must include a target store.' });
-            }
-
-            if (!allocatedAmount || allocatedAmount <= 0) {
-                return res.status(400).json({ error: 'Each allocation must have a valid amount.' });
             }
 
             const canAccessTarget = await hasStoreAccess(req.user.id, targetStoreId);
@@ -82,10 +116,34 @@ router.post('/', authorize('admin', 'super_admin'), async (req, res) => {
                 return res.status(403).json({ error: 'You do not have access to one of the target stores.' });
             }
 
+            let allocatedAmount;
+            let allocationPercentage = null;
+
+            if (splitMode === 'percentage') {
+                allocatedAmount = computedAmounts[index];
+                allocationPercentage = computedPercentages[index];
+            } else {
+                allocatedAmount = parseFloat(alloc.amount ?? alloc.allocated_amount);
+                if (!Number.isFinite(allocatedAmount) || allocatedAmount <= 0) {
+                    return res.status(400).json({ error: 'Each allocation must have a valid amount.' });
+                }
+                const rawPercentage = parseFloat(alloc.percentage ?? alloc.allocation_percentage);
+                if (Number.isFinite(rawPercentage) && rawPercentage > 0) {
+                    allocationPercentage = rawPercentage;
+                } else if (numericAmount > 0) {
+                    allocationPercentage = (allocatedAmount / numericAmount) * 100;
+                }
+                allocatedAmount = parseFloat(allocatedAmount.toFixed(2));
+            }
+
             allocationTotal += allocatedAmount;
             cleanedAllocations.push({
                 target_store_id: targetStoreId,
-                allocated_amount: allocatedAmount,
+                allocated_amount: parseFloat(allocatedAmount.toFixed(2)),
+                allocation_percentage:
+                    allocationPercentage !== null && Number.isFinite(allocationPercentage)
+                        ? parseFloat(allocationPercentage.toFixed(3))
+                        : null,
                 target_type: alloc.target_type || null,
                 target_id: alloc.target_id || null,
                 memo: alloc.memo || null,
@@ -224,6 +282,9 @@ router.post('/', authorize('admin', 'super_admin'), async (req, res) => {
         }
 
         const result = await CrossStorePayment.findById(payment.id);
+        if (result) {
+            result.split_mode = splitMode;
+        }
         res.status(201).json({ payment: result });
     } catch (error) {
         console.error('Create cross-store payment error:', error);

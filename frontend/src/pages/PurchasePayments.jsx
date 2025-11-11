@@ -29,6 +29,7 @@ const PurchasePayments = () => {
   const [crossStoreSubmitting, setCrossStoreSubmitting] = useState(false);
   const [updatingAllocationId, setUpdatingAllocationId] = useState(null);
   const [crossStoreForm, setCrossStoreForm] = useState({
+    split_mode: 'amount',
     source_store_id: '',
     payment_date: new Date().toISOString().split('T')[0],
     payment_method: 'bank',
@@ -511,7 +512,9 @@ const PurchasePayments = () => {
   const resetCrossStoreForm = (defaultSourceStoreId) => {
     const sourceId = defaultSourceStoreId || selectedStore?.id || '';
     const defaultTarget = stores.find((store) => store.id !== sourceId);
+    const sourceStore = stores.find((store) => store.id === sourceId);
     setCrossStoreForm({
+      split_mode: 'amount',
       source_store_id: sourceId,
       payment_date: new Date().toISOString().split('T')[0],
       payment_method: 'bank',
@@ -523,6 +526,7 @@ const PurchasePayments = () => {
         {
           target_store_id: defaultTarget ? defaultTarget.id : '',
           allocated_amount: '',
+          percentage: '',
           memo: '',
           target_type: 'manual',
           reimbursement_required: true,
@@ -550,6 +554,7 @@ const PurchasePayments = () => {
         {
           target_store_id: '',
           allocated_amount: '',
+          percentage: '',
           memo: '',
           target_type: 'manual',
           reimbursement_required: true,
@@ -584,14 +589,114 @@ const PurchasePayments = () => {
     }));
   };
 
-  const crossStoreAllocatedTotal = crossStoreForm.allocations.reduce((sum, alloc) => {
-    const rawValue = alloc.allocated_amount ?? alloc.amount ?? '';
-    const amount = parseFloat(rawValue);
-    if (!Number.isFinite(amount)) {
-      return sum;
+  const isCrossStorePercentageMode = crossStoreForm.split_mode === 'percentage';
+  const getCrossStoreBreakdown = () => {
+    const totalAmount = parseFloat(crossStoreForm.amount);
+    const amounts = [];
+    const percentages = [];
+
+    if (isCrossStorePercentageMode && Number.isFinite(totalAmount) && totalAmount > 0) {
+      const rawPercentages = crossStoreForm.allocations.map((allocation) => {
+        const perc = parseFloat(allocation.percentage ?? allocation.allocation_percentage);
+        return Number.isFinite(perc) ? perc : NaN;
+      });
+
+      let runningAmount = 0;
+      crossStoreForm.allocations.forEach((allocation, index) => {
+        const perc = rawPercentages[index];
+        percentages.push(perc);
+
+        if (!Number.isFinite(perc)) {
+          amounts.push(NaN);
+          return;
+        }
+
+        let amount;
+        if (index === crossStoreForm.allocations.length - 1) {
+          amount = parseFloat((totalAmount - runningAmount).toFixed(2));
+        } else {
+          amount = Math.round(totalAmount * perc * 100) / 100;
+          runningAmount += amount;
+          amount = parseFloat(amount.toFixed(2));
+        }
+        amounts.push(amount);
+      });
+    } else {
+      const totalAmountNumber = Number.isFinite(parseFloat(crossStoreForm.amount))
+        ? parseFloat(crossStoreForm.amount)
+        : NaN;
+
+      crossStoreForm.allocations.forEach((allocation) => {
+        const amount = parseFloat(allocation.allocated_amount ?? allocation.amount);
+        amounts.push(Number.isFinite(amount) ? parseFloat(amount.toFixed(2)) : NaN);
+
+        const rawPercentage = parseFloat(allocation.percentage ?? allocation.allocation_percentage);
+        if (Number.isFinite(rawPercentage)) {
+          percentages.push(rawPercentage);
+        } else if (Number.isFinite(totalAmountNumber) && totalAmountNumber > 0 && Number.isFinite(amount)) {
+          percentages.push(parseFloat(((amount / totalAmountNumber) * 100).toFixed(3)));
+        } else {
+          percentages.push(NaN);
+        }
+      });
     }
-    return sum + amount;
-  }, 0);
+
+    const total = amounts.reduce((sum, value) => (Number.isFinite(value) ? sum + value : sum), 0);
+    return { amounts, percentages, total };
+  };
+
+  const crossStoreBreakdown = getCrossStoreBreakdown();
+  const crossStoreAllocationAmounts = crossStoreBreakdown.amounts;
+  const crossStoreAllocationPercentages = crossStoreBreakdown.percentages;
+  const crossStoreAllocatedTotal = crossStoreBreakdown.total;
+  const crossStoreTotalAmount = parseFloat(crossStoreForm.amount);
+  const crossStoreDifference =
+    (Number.isFinite(crossStoreTotalAmount) ? crossStoreTotalAmount : 0) - crossStoreAllocatedTotal;
+  const crossStoreDifferenceWithinTolerance = Math.abs(crossStoreDifference) < 0.01;
+
+  const handleCrossStoreSplitModeChange = (mode) => {
+    setCrossStoreForm((prev) => {
+      if (prev.split_mode === mode) {
+        return prev;
+      }
+
+      const totalAmount = parseFloat(prev.amount);
+      return {
+        ...prev,
+        split_mode: mode,
+        allocations: prev.allocations.map((allocation) => {
+          if (mode === 'percentage') {
+            const amount = parseFloat(allocation.allocated_amount ?? allocation.amount);
+            const derivedPercentage =
+              Number.isFinite(totalAmount) && totalAmount > 0 && Number.isFinite(amount)
+                ? (amount / totalAmount) * 100
+                : NaN;
+            return {
+              ...allocation,
+              allocated_amount: '',
+              percentage: Number.isFinite(derivedPercentage)
+                ? derivedPercentage.toFixed(3)
+                : allocation.percentage || '',
+            };
+          }
+
+          const rawPercentage = parseFloat(allocation.percentage ?? allocation.allocation_percentage);
+          const derivedAmount =
+            Number.isFinite(totalAmount) && totalAmount > 0 && Number.isFinite(rawPercentage)
+              ? (totalAmount * rawPercentage) / 100
+              : NaN;
+
+          return {
+            ...allocation,
+            allocated_amount: Number.isFinite(derivedAmount)
+              ? derivedAmount.toFixed(2)
+              : allocation.allocated_amount || '',
+            percentage: allocation.percentage || (Number.isFinite(rawPercentage) ? rawPercentage.toFixed(3) : ''),
+          };
+        }),
+      };
+    });
+  };
 
   const handleSubmitCrossStorePayment = async (event) => {
     event.preventDefault();
@@ -622,26 +727,52 @@ const PurchasePayments = () => {
       return;
     }
 
-    if (Math.abs(totalPaymentAmount - crossStoreAllocatedTotal) > 0.01) {
+    if (!crossStoreDifferenceWithinTolerance) {
       alert('Allocated amounts must match the total payment amount.');
       return;
     }
 
-    for (const allocation of crossStoreForm.allocations) {
+    if (isCrossStorePercentageMode) {
+      let percentageTotal = 0;
+      for (const allocation of crossStoreForm.allocations) {
+        const perc = parseFloat(allocation.percentage ?? allocation.allocation_percentage);
+        if (!Number.isFinite(perc) || perc <= 0) {
+          alert('Each allocation must have a percentage greater than 0%.');
+          return;
+        }
+        percentageTotal += perc;
+      }
+
+      if (!Number.isFinite(percentageTotal) || Math.abs(percentageTotal - 100) > 0.01) {
+        alert('Allocation percentages must add up to 100%.');
+        return;
+      }
+    }
+
+    for (let index = 0; index < crossStoreForm.allocations.length; index++) {
+      const allocation = crossStoreForm.allocations[index];
       if (!allocation.target_store_id) {
         alert('Each allocation must have a target store selected.');
         return;
       }
-      const allocationAmount = parseFloat(allocation.allocated_amount ?? allocation.amount);
+      const allocationAmount = crossStoreAllocationAmounts[index];
       if (!Number.isFinite(allocationAmount) || allocationAmount <= 0) {
         alert('Each allocation must have a valid amount.');
         return;
+      }
+      if (isCrossStorePercentageMode) {
+        const allocationPercentage = parseFloat(allocation.percentage ?? allocation.allocation_percentage);
+        if (!Number.isFinite(allocationPercentage) || allocationPercentage <= 0) {
+          alert('Each allocation must have a valid percentage.');
+          return;
+        }
       }
     }
 
     try {
       setCrossStoreSubmitting(true);
       await crossStorePaymentsAPI.create({
+        split_mode: crossStoreForm.split_mode,
         source_store_id: crossStoreForm.source_store_id,
         payment_date: crossStoreForm.payment_date,
         payment_method: crossStoreForm.payment_method,
@@ -650,14 +781,28 @@ const PurchasePayments = () => {
         currency: 'USD',
         paid_to: crossStoreForm.paid_to || null,
         notes: crossStoreForm.notes || null,
-        allocations: crossStoreForm.allocations.map((allocation) => ({
+        allocations: crossStoreForm.allocations.map((allocation, index) => {
+          const amount = crossStoreAllocationAmounts[index];
+          const rawPercentage = isCrossStorePercentageMode
+            ? crossStoreAllocationPercentages[index]
+            : parseFloat(allocation.percentage ?? allocation.allocation_percentage);
+          const normalizedPercentage =
+            Number.isFinite(rawPercentage) && rawPercentage > 0
+              ? parseFloat(rawPercentage.toFixed(3))
+              : Number.isFinite(totalPaymentAmount) && totalPaymentAmount > 0 && Number.isFinite(amount)
+                ? parseFloat(((amount / totalPaymentAmount) * 100).toFixed(3))
+                : null;
+
+          return {
           target_store_id: allocation.target_store_id,
-          amount: parseFloat(allocation.allocated_amount ?? allocation.amount),
-          memo: allocation.memo || null,
-          target_type: allocation.target_type || null,
-          reimbursement_required: allocation.reimbursement_required !== false,
-          reimbursement_note: allocation.reimbursement_note || null,
-        })),
+            amount: Number.isFinite(amount) ? parseFloat(amount.toFixed(2)) : 0,
+            memo: allocation.memo || null,
+            target_type: allocation.target_type || null,
+            reimbursement_required: allocation.reimbursement_required !== false,
+            reimbursement_note: allocation.reimbursement_note || null,
+            allocation_percentage: normalizedPercentage,
+          };
+        }),
       });
 
       alert('Cross-store payment recorded successfully.');
@@ -1204,11 +1349,6 @@ const PurchasePayments = () => {
     return sum + amount;
   }, 0);
 
-  const totalPaymentAmountNumber = parseFloat(crossStoreForm.amount);
-  const differenceAmount =
-    (Number.isFinite(totalPaymentAmountNumber) ? totalPaymentAmountNumber : 0) - crossStoreAllocatedTotal;
-  const differenceWithinTolerance = Math.abs(differenceAmount) < 0.01;
-
   const filteredInvoices = displayRecords.filter(record => {
     if (!searchTerm) return true;
     const searchLower = searchTerm.toLowerCase();
@@ -1375,6 +1515,7 @@ const PurchasePayments = () => {
                               const reimbursedTime = allocation.reimbursed_at
                                 ? new Date(allocation.reimbursed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                                 : null;
+                              const allocationPercentage = parseFloat(allocation.allocation_percentage);
 
                               return (
                                 <div key={allocation.id} className="border border-gray-200 rounded-md bg-white p-3 shadow-sm">
@@ -1393,7 +1534,14 @@ const PurchasePayments = () => {
                                       <div className="font-semibold text-gray-900">
                                         {formatCurrency(allocation.allocated_amount)}
                                       </div>
-                                      <div className="text-xs text-gray-500">Allocated</div>
+                                      <div className="text-xs text-gray-500">
+                                        Allocated
+                                        {Number.isFinite(allocationPercentage) && (
+                                          <span className="ml-1">
+                                            ({allocationPercentage.toFixed(2)}%)
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
                                   <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
@@ -2628,8 +2776,37 @@ const PurchasePayments = () => {
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-lg font-semibold text-gray-900">Allocate to other stores</h3>
+                <div className="flex flex-col gap-3 mb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="text-lg font-semibold text-gray-900">Allocate to other stores</h3>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Split By:</span>
+                      <div className="inline-flex rounded-md shadow-sm border border-gray-200 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => handleCrossStoreSplitModeChange('amount')}
+                          className={`px-3 py-1.5 text-sm font-medium ${
+                            isCrossStorePercentageMode
+                              ? 'bg-white text-gray-600 hover:bg-gray-50'
+                              : 'bg-purple-600 text-white'
+                          }`}
+                        >
+                          Dollar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCrossStoreSplitModeChange('percentage')}
+                          className={`px-3 py-1.5 text-sm font-medium ${
+                            isCrossStorePercentageMode
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-white text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          Percentage
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                   <button
                     type="button"
                     onClick={handleAddCrossStoreAllocation}
@@ -2678,19 +2855,43 @@ const PurchasePayments = () => {
                                 ))}
                               </select>
                             </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={allocation.allocated_amount}
-                                onChange={(e) =>
-                                  handleUpdateCrossStoreAllocation(index, 'allocated_amount', e.target.value)
-                                }
-                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                              />
-                            </div>
+                            {isCrossStorePercentageMode ? (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Percentage</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={allocation.percentage}
+                                  onChange={(e) =>
+                                    handleUpdateCrossStoreAllocation(index, 'percentage', e.target.value)
+                                  }
+                                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                                />
+                                <p className="mt-1 text-xs text-gray-500">
+                                  Amount: {formatCurrency(crossStoreAllocationAmounts[index] || 0)}
+                                </p>
+                              </div>
+                            ) : (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={allocation.allocated_amount}
+                                  onChange={(e) =>
+                                    handleUpdateCrossStoreAllocation(index, 'allocated_amount', e.target.value)
+                                  }
+                                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                                />
+                                <p className="mt-1 text-xs text-gray-500">
+                                  {Number.isFinite(crossStoreAllocationPercentages[index])
+                                    ? `≈ ${crossStoreAllocationPercentages[index].toFixed(2)}%`
+                                    : 'Percentage shown after totals entered'}
+                                </p>
+                              </div>
+                            )}
                             <div className="md:col-span-2">
                               <label className="block text-sm font-medium text-gray-700 mb-1">
                                 Notes <span className="text-xs text-gray-400">(optional)</span>
@@ -2759,11 +2960,11 @@ const PurchasePayments = () => {
                 </div>
                 <div
                   className={`text-sm font-semibold ${
-                    differenceWithinTolerance ? 'text-green-600' : 'text-orange-600'
+                    crossStoreDifferenceWithinTolerance ? 'text-green-600' : 'text-orange-600'
                   }`}
                 >
                   Remaining Difference:{' '}
-                  {formatCurrency(differenceAmount)}
+                  {formatCurrency(crossStoreDifference)}
                 </div>
               </div>
 
