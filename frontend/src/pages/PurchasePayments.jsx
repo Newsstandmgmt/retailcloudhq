@@ -2857,36 +2857,38 @@ const PurchasePayments = () => {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {crossStoreForm.allocations.map((allocation, index) => {
-                      const availableStores = (stores || []).filter(
-                        (store) => store.is_active !== false && !store.deleted_at
-                      );
-                      return (
-                        <div
-                          key={index}
-                          className="border border-gray-200 rounded-lg p-4 bg-gray-50"
-                        >
-                          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
-                            <div className="md:col-span-2">
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Target Store</label>
-                              <select
-                                value={allocation.target_store_id}
-                                onChange={(e) =>
-                                  handleUpdateCrossStoreAllocation(index, 'target_store_id', e.target.value)
-                                }
-                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                              >
-                                <option value="">Select store</option>
-                                {availableStores.map((store) => (
+                    {crossStoreForm.allocations.map((allocation, index) => (
+                      <div
+                        key={index}
+                        className="border border-gray-200 rounded-xl bg-white shadow-sm p-4 space-y-4"
+                      >
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                          <div className="md:col-span-4">
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">Target Store</label>
+                            <select
+                              value={allocation.target_store_id}
+                              onChange={(e) =>
+                                handleUpdateCrossStoreAllocation(index, 'target_store_id', e.target.value)
+                              }
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                            >
+                              <option value="">Select store</option>
+                              {stores
+                                .filter((store) => store.is_active !== false && !store.deleted_at)
+                                .map((store) => (
                                   <option key={store.id} value={store.id}>
                                     {store.name}
+                                    {store.id === crossStoreForm.source_store_id ? ' (Paying Store)' : ''}
                                   </option>
                                 ))}
-                              </select>
-                            </div>
+                            </select>
+                          </div>
+                          <div className="md:col-span-3">
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                              {isCrossStorePercentageMode ? 'Percentage' : 'Amount'}
+                            </label>
                             {isCrossStorePercentageMode ? (
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Percentage</label>
+                              <>
                                 <input
                                   type="number"
                                   step="0.01"
@@ -2900,10 +2902,9 @@ const PurchasePayments = () => {
                                 <p className="mt-1 text-xs text-gray-500">
                                   Amount: {formatCurrency(crossStoreAllocationAmounts[index] || 0)}
                                 </p>
-                              </div>
+                              </>
                             ) : (
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+                              <>
                                 <input
                                   type="number"
                                   step="0.01"
@@ -2919,65 +2920,65 @@ const PurchasePayments = () => {
                                     ? `≈ ${crossStoreAllocationPercentages[index].toFixed(2)}%`
                                     : 'Percentage shown after totals entered'}
                                 </p>
-                              </div>
+                              </>
                             )}
-                            <div className="md:col-span-2">
-                              <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Notes <span className="text-xs text-gray-400">(optional)</span>
-                              </label>
-                              <input
-                                type="text"
-                                value={allocation.memo}
-                                onChange={(e) => handleUpdateCrossStoreAllocation(index, 'memo', e.target.value)}
-                                placeholder="e.g., 'Invoice #123 for Store B'"
-                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                              />
-                            </div>
-                            <div className="md:col-span-5">
-                              <label className="inline-flex items-center text-sm text-gray-700">
-                                <input
-                                  type="checkbox"
-                                  checked={allocation.reimbursement_required !== false}
-                                  onChange={(e) =>
-                                    handleUpdateCrossStoreAllocation(index, 'reimbursement_required', e.target.checked)
-                                  }
-                                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                                />
-                                <span className="ml-2">Reimbursement required</span>
-                              </label>
-                              <p className="mt-1 text-xs text-gray-500">
-                                Uncheck if the paying store will absorb this expense and no reimbursement is expected.
-                              </p>
-                            </div>
-                            <div className="md:col-span-5">
-                              <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Reimbursement Note <span className="text-xs text-gray-400">(optional)</span>
-                              </label>
-                              <input
-                                type="text"
-                                value={allocation.reimbursement_note || ''}
-                                onChange={(e) =>
-                                  handleUpdateCrossStoreAllocation(index, 'reimbursement_note', e.target.value)
-                                }
-                                placeholder="Add a note for the receiving store (optional)"
-                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                              />
-                            </div>
                           </div>
-                          {crossStoreForm.allocations.length > 1 && (
-                            <div className="mt-3 text-right">
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveCrossStoreAllocation(index)}
-                                className="text-sm text-red-600 hover:text-red-800"
-                              >
-                                Remove allocation
-                              </button>
-                            </div>
-                          )}
+                          <div className="md:col-span-5">
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                              Notes <span className="text-xs text-gray-400">(optional)</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={allocation.memo}
+                              onChange={(e) => handleUpdateCrossStoreAllocation(index, 'memo', e.target.value)}
+                              placeholder="Describe this allocation"
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                            />
+                          </div>
                         </div>
-                      );
-                    })}
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                          <label className="inline-flex items-center text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={allocation.reimbursement_required !== false}
+                              onChange={(e) =>
+                                handleUpdateCrossStoreAllocation(index, 'reimbursement_required', e.target.checked)
+                              }
+                              className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                            />
+                            <span className="ml-2">Reimbursement required</span>
+                          </label>
+                          <p className="text-xs text-gray-500">
+                            Uncheck if the paying store will absorb this expense and no reimbursement is expected.
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1">
+                            Reimbursement Note <span className="text-xs text-gray-400">(optional)</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={allocation.reimbursement_note || ''}
+                            onChange={(e) =>
+                              handleUpdateCrossStoreAllocation(index, 'reimbursement_note', e.target.value)
+                            }
+                            placeholder="Add a note for the receiving store"
+                            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                          />
+                        </div>
+                        {crossStoreForm.allocations.length > 1 && (
+                          <div className="text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCrossStoreAllocation(index)}
+                              className="text-sm text-red-600 hover:text-red-800"
+                            >
+                              Remove allocation
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
