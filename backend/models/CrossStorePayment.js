@@ -152,7 +152,7 @@ class CrossStorePayment {
              FROM cross_store_payment_allocations a
              JOIN stores target_store ON target_store.id = a.target_store_id
              LEFT JOIN users approver ON approver.id = a.approved_by
-             LEFT JOIN daily_operating_expenses doe ON doe.cross_store_allocation_id = a.id
+             LEFT JOIN daily_operating_expenses doe ON doe.cross_store_payment_id = a.payment_id AND doe.cross_store_allocation_id = a.id
              LEFT JOIN expense_types et ON doe.expense_type_id = et.id
              WHERE a.payment_id = $1
              ORDER BY a.created_at`,
