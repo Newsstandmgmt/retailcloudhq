@@ -309,19 +309,47 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
     }
   };
 
-  const calculateNetSales = (revenue) => {
-    const totalCash = parseFloat(revenue.total_cash || 0);
-    const creditCard = parseFloat(revenue.business_credit_card || 0);
-    const onlineSales = parseFloat(revenue.online_sales || 0);
-    const customerTab = parseFloat(revenue.customer_tab || 0);
-    const calculatedBusinessCash = parseFloat(revenue.calculated_business_cash || 0);
-    
-    // Use calculated business cash if available, otherwise calculate manually
-    if (calculatedBusinessCash > 0) {
-      return calculatedBusinessCash;
+  const calculateDailyBusinessAmount = (revenue, tabTotals = { credits: 0, debits: 0 }) => {
+    const calculatedBusinessCashRaw = revenue?.calculated_business_cash;
+    if (calculatedBusinessCashRaw !== undefined && calculatedBusinessCashRaw !== null) {
+      const parsedCalculated = parseFloat(calculatedBusinessCashRaw);
+      if (!isNaN(parsedCalculated)) {
+        return parsedCalculated;
+      }
     }
-    
-    return totalCash + creditCard + onlineSales + customerTab;
+
+    const totalCash = parseFloat(revenue.total_cash || 0);
+    const businessCreditCard = parseFloat(revenue.business_credit_card || 0);
+    const creditCardFees = parseFloat(revenue.credit_card_transaction_fees || 0);
+    const otherIncome = parseFloat(revenue.other_cash_expense || 0);
+    const onlineNet = parseFloat(revenue.online_net || 0);
+    const totalInstant = parseFloat(revenue.total_instant || 0);
+    const instantAdjustment = parseFloat(revenue.total_instant_adjustment || 0);
+    const instantPay = parseFloat(revenue.instant_pay || 0);
+    const lotteryCreditCard = parseFloat(revenue.lottery_credit_card || 0);
+    const vendorPaymentsTotal = parseFloat(revenue.vendor_payments_total || 0);
+
+    const customerCredits = parseFloat(tabTotals.credits || 0);
+    const customerDebits = parseFloat(tabTotals.debits || 0);
+    const customerTabNet = customerCredits - customerDebits;
+    const customerTabAdjustment = customerTabNet > 0 ? -customerTabNet : Math.abs(customerTabNet);
+
+    const instantAdjustmentAdjustment = instantAdjustment > 0 ? -instantAdjustment : Math.abs(instantAdjustment);
+
+    const dailyBusiness =
+      totalCash +
+      businessCreditCard -
+      creditCardFees +
+      otherIncome +
+      vendorPaymentsTotal +
+      customerTabAdjustment -
+      onlineNet -
+      totalInstant +
+      instantAdjustmentAdjustment +
+      instantPay +
+      lotteryCreditCard;
+
+    return dailyBusiness;
   };
 
   // Calculate totals
@@ -346,7 +374,7 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
       weeklyLotteryCommission: acc.weeklyLotteryCommission + parseFloat(revenue.weekly_lottery_commission || 0),
       thirteenWeekAverage: acc.thirteenWeekAverage + parseFloat(revenue.thirteen_week_average || 0),
       weeklyLotteryDue: acc.weeklyLotteryDue + parseFloat(revenue.weekly_lottery_due || 0),
-      netSales: acc.netSales + calculateNetSales(revenue),
+      dailyBusiness: acc.dailyBusiness + calculateDailyBusinessAmount(revenue, tabData),
       businessCashOnHand: acc.businessCashOnHand + cashOnHand.businessCashOnHand,
       lotteryCashOnHand: acc.lotteryCashOnHand + cashOnHand.lotteryCashOnHand
     };
@@ -366,7 +394,7 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
     weeklyLotteryCommission: 0,
     thirteenWeekAverage: 0,
     weeklyLotteryDue: 0,
-    netSales: 0,
+    dailyBusiness: 0,
     businessCashOnHand: 0,
     lotteryCashOnHand: 0
   });
@@ -390,7 +418,7 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
       'Weekly Lottery Commission',
       '13 Week Average',
       'Weekly Lottery Due',
-      'Gross Business Revenue',
+      'Daily Business Amount',
       'Business Cash On Hand',
       'Lottery Cash On Hand'
     ];
@@ -417,7 +445,7 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
         formatCurrency(revenue.weekly_lottery_commission),
         formatCurrency(revenue.thirteen_week_average),
         formatCurrency(revenue.weekly_lottery_due),
-        formatCurrency(calculateNetSales(revenue)),
+        formatCurrency(calculateDailyBusinessAmount(revenue, tabData)),
         formatCurrency(cashOnHand.businessCashOnHand),
         formatCurrency(cashOnHand.lotteryCashOnHand)
       ];
@@ -441,7 +469,7 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
       formatCurrency(totals.weeklyLotteryCommission),
       formatCurrency(totals.thirteenWeekAverage),
       formatCurrency(totals.weeklyLotteryDue),
-      formatCurrency(totals.netSales),
+        formatCurrency(totals.dailyBusiness),
       formatCurrency(totals.businessCashOnHand),
       formatCurrency(totals.lotteryCashOnHand)
     ]);
@@ -493,7 +521,7 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
         // Table headers
         const headers = [
           ['Date', 'Total Cash', 'Credit Card', 'CC Fees', 'Online Sales', 'Online Net', 
-           'Total Instant', 'Instant Pay', 'Lottery Card Trans', 'Gross Business Revenue']
+           'Total Instant', 'Instant Pay', 'Lottery Card Trans', 'Daily Business Amount']
         ];
         
         // Table rows
@@ -511,7 +539,7 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
             `$${parseFloat(revenue.total_instant || 0).toFixed(2)}`,
             `$${parseFloat(revenue.instant_pay || 0).toFixed(2)}`,
             `$${parseFloat(revenue.lottery_credit_card || 0).toFixed(2)}`,
-            `$${calculateNetSales(revenue).toFixed(2)}`
+            `$${calculateDailyBusinessAmount(revenue, tabData).toFixed(2)}`
           ];
         });
         
@@ -526,7 +554,7 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
           `$${totals.totalInstant.toFixed(2)}`,
           `$${totals.instantPay.toFixed(2)}`,
           `$${totals.lotteryCreditCard.toFixed(2)}`,
-          `$${totals.netSales.toFixed(2)}`
+          `$${totals.dailyBusiness.toFixed(2)}`
         ]);
         
         // Generate table
@@ -752,7 +780,7 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
                   { key: 'cc_fees', label: 'CC Fees', getValue: (r) => formatCurrency(r.credit_card_transaction_fees) },
                   { key: 'customer_credits', label: 'Customer Credits', getValue: (r, date) => formatCurrency(customerTabData[date]?.credits || 0) },
                   { key: 'customer_debits', label: 'Customer Debits', getValue: (r, date) => formatCurrency(customerTabData[date]?.debits || 0) },
-                  { key: 'net_sales', label: 'Gross Business Revenue', getValue: (r) => formatCurrency(calculateNetSales(r)), isBold: true, isHighlighted: true, bgColor: 'bg-green-50', textColor: 'text-green-800' },
+                  { key: 'daily_business_amount', label: 'Daily Business Amount', getValue: (r, date) => formatCurrency(calculateDailyBusinessAmount(r, customerTabData[date] || {})), isBold: true, isHighlighted: true, bgColor: 'bg-green-50', textColor: 'text-green-800' },
                   { key: 'online_sales', label: 'Online Sales', getValue: (r) => formatCurrency(r.online_sales) },
                   { key: 'online_net', label: 'Online Net', getValue: (r) => formatCurrency(r.online_net) },
                   { key: 'total_instant', label: 'Total Instant', getValue: (r) => formatCurrency(r.total_instant) },
@@ -783,20 +811,20 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
                   else if (field.key === 'weekly_lottery_commission') totalValue = totals.weeklyLotteryCommission;
                   else if (field.key === 'thirteen_week_average') totalValue = totals.thirteenWeekAverage;
                   else if (field.key === 'weekly_lottery_due') totalValue = totals.weeklyLotteryDue;
-                  else if (field.key === 'net_sales') totalValue = totals.netSales;
+                  else if (field.key === 'daily_business_amount') totalValue = totals.dailyBusiness;
                   else if (field.key === 'business_cash_on_hand') totalValue = totals.businessCashOnHand;
                   else if (field.key === 'lottery_cash_on_hand') totalValue = totals.lotteryCashOnHand;
                   
-                  // For Gross Business Revenue, determine color based on comparison with Credit Card Sales
+                  // For Daily Business Amount, determine color based on comparison with Credit Card Sales
                   let rowBgColor = field.isHighlighted ? (field.bgColor || 'bg-green-50') : '';
                   let rowTextColor = field.isHighlighted ? (field.textColor || 'text-green-800') : '';
                   
-                  // Special logic for Gross Business Revenue: compare with Credit Card Sales
-                  if (field.key === 'net_sales') {
+                  // Special logic for Daily Business Amount: compare with Credit Card Sales
+                  if (field.key === 'daily_business_amount') {
                     // Check totals first
-                    const netSalesTotal = totals.netSales;
+                    const dailyBusinessTotal = totals.dailyBusiness;
                     const creditCardTotal = totals.creditCard;
-                    const isTotalValid = netSalesTotal > creditCardTotal;
+                    const isTotalValid = dailyBusinessTotal > creditCardTotal;
                     
                     return (
                       <tr key={field.key} className="hover:bg-gray-50">
@@ -808,9 +836,9 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
                         {sortedRevenues.map((revenue) => {
                           const date = revenue.entry_date;
                           const isSelected = selectedDate && selectedDate === date;
-                          const netSales = calculateNetSales(revenue);
+                          const dailyBusinessValue = calculateDailyBusinessAmount(revenue, customerTabData[date] || {});
                           const creditCard = parseFloat(revenue.business_credit_card || 0);
-                          const isValid = netSales > creditCard;
+                          const isValid = dailyBusinessValue > creditCard;
                           const cellBgColor = isValid ? 'bg-green-50' : 'bg-red-50';
                           const cellTextColor = isValid ? 'text-green-800' : 'text-red-800';
                           const value = field.getValue(revenue, date);
@@ -822,7 +850,7 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
                                 isSelected ? 'ring-2 ring-blue-400' : ''
                               } ${cellBgColor} ${cellTextColor}`}
                               onClick={() => onDateSelect && onDateSelect(date)}
-                              title={`Click to open ${new Date(date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} entry form. ${isValid ? 'Gross Business Revenue is greater than Credit Card Sales' : 'Warning: Gross Business Revenue is less than or equal to Credit Card Sales'}`}
+                              title={`Click to open ${new Date(date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} entry form. ${isValid ? 'Daily Business Amount is greater than Credit Card Sales' : 'Warning: Daily Business Amount is less than or equal to Credit Card Sales'}`}
                             >
                               {value}
                             </td>

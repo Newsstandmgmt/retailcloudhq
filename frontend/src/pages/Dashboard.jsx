@@ -276,7 +276,7 @@ const Dashboard = () => {
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
         const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
         
-        // Load total business revenue and lottery due for the month (using same calculation as Business Analytics)
+        // Load total business revenue and lottery due for the month (using same calculation as Daily Analytics)
         try {
           // Fetch all revenue entries for the month (reuse for both calculations)
           const revenueRes = await revenueAPI.getRevenueRange(selectedStore.id, startOfMonth, endOfMonth);
@@ -299,7 +299,7 @@ const Dashboard = () => {
               return sum + totalCash + creditCard + onlineSales + customerTab;
             }, 0);
             
-            // Calculate total lottery due (same as Business Analytics - uses calculated_lottery_owed)
+            // Calculate total lottery due (same as Daily Analytics - uses calculated_lottery_owed)
             const totalLotteryDue = revenueRes.data.revenues.reduce((sum, revenue) => {
               return sum + parseFloat(revenue.calculated_lottery_owed || 0);
             }, 0);

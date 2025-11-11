@@ -53,7 +53,7 @@ const Layout = ({ children }) => {
     // Admin and Manager navigation (like Hisably)
     const allNavItems = [
       { name: 'Dashboard', href: '/dashboard', icon: DashboardIcon },
-      { name: 'Business Analytics', href: '/business-analytics', icon: ChartIcon, feature: 'revenue' },
+      { name: 'Daily Analytics', href: '/business-analytics', icon: ChartIcon, feature: 'revenue' },
       { name: 'Daily Report', href: '/revenue', icon: DocumentIcon, hasSubmenu: true, feature: 'revenue' },
       { name: 'Expense', href: '/expenses', icon: ClipboardIcon, feature: 'expenses' },
       { 

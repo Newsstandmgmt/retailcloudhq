@@ -1,5 +1,5 @@
 /**
- * Business Analytics Page
+ * Daily Analytics Page
  * 
  * Shows daily business and lottery data with filtering capabilities.
  * Focused on viewing and analyzing data, not data entry.
@@ -343,8 +343,8 @@ const BusinessAnalytics = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Business Analytics</h1>
-        <p className="text-gray-600">View and analyze your daily business and lottery data</p>
+        <h1 className="text-2xl font-bold text-gray-900">Daily Analytics</h1>
+        <p className="text-gray-600">View and analyze your daily business and lottery performance</p>
       </div>
 
       {/* Filters */}
