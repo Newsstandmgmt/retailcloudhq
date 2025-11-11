@@ -91,11 +91,21 @@ async function fetchJson(url, options = {}) {
 
 async function exchangeCodeForTokens(code) {
     const url = `${getSquareBaseUrl()}/oauth2/token`;
+    const clientId = getEnv('SQUARE_CLIENT_ID');
+    const clientSecret = getEnv('SQUARE_CLIENT_SECRET');
+    const redirectUri = getEnv('SQUARE_REDIRECT_URI');
+    console.info('[SquareOAuth] Exchanging code for tokens', {
+        env: getEnv('SQUARE_ENVIRONMENT', 'production'),
+        clientIdPrefix: clientId ? clientId.slice(0, 6) : null,
+        clientSecretLength: clientSecret ? clientSecret.length : 0,
+        redirectPrefix: redirectUri ? redirectUri.slice(0, 40) : null,
+    });
     const body = {
-        client_id: getEnv('SQUARE_CLIENT_ID'),
-        client_secret: getEnv('SQUARE_CLIENT_SECRET'),
+        client_id: clientId,
+        client_secret: clientSecret,
         code,
         grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
     };
     const response = await ensureFetch(url, {
         method: 'POST',
