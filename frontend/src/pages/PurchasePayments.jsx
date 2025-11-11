@@ -653,6 +653,10 @@ const PurchasePayments = () => {
   const crossStoreDifference =
     (Number.isFinite(crossStoreTotalAmount) ? crossStoreTotalAmount : 0) - crossStoreAllocatedTotal;
   const crossStoreDifferenceWithinTolerance = Math.abs(crossStoreDifference) < 0.01;
+  const hasSourceAllocation = crossStoreForm.allocations.some(
+    (allocation) => allocation.target_store_id === crossStoreForm.source_store_id
+  );
+  const crossStoreSourceStore = stores.find((store) => store.id === crossStoreForm.source_store_id);
 
   const handleCrossStoreSplitModeChange = (mode) => {
     setCrossStoreForm((prev) => {
@@ -727,11 +731,6 @@ const PurchasePayments = () => {
       return;
     }
 
-    if (!crossStoreDifferenceWithinTolerance) {
-      alert('Allocated amounts must match the total payment amount.');
-      return;
-    }
-
     if (isCrossStorePercentageMode) {
       let percentageTotal = 0;
       for (const allocation of crossStoreForm.allocations) {
@@ -743,8 +742,18 @@ const PurchasePayments = () => {
         percentageTotal += perc;
       }
 
-      if (!Number.isFinite(percentageTotal) || Math.abs(percentageTotal - 100) > 0.01) {
-        alert('Allocation percentages must add up to 100%.');
+      if (!Number.isFinite(percentageTotal)) {
+        alert('Allocation percentages must be valid numbers.');
+        return;
+      }
+
+      if (percentageTotal > 100.01) {
+        alert('Allocation percentages cannot exceed 100%.');
+        return;
+      }
+
+      if (percentageTotal < 99.99 && hasSourceAllocation) {
+        alert('Allocation percentages must add up to 100% when the paying store already has an allocation.');
         return;
       }
     }
@@ -771,6 +780,54 @@ const PurchasePayments = () => {
 
     try {
       setCrossStoreSubmitting(true);
+      let allocationsPayload = crossStoreForm.allocations.map((allocation, index) => {
+        const amount = crossStoreAllocationAmounts[index];
+        const rawPercentage = isCrossStorePercentageMode
+          ? crossStoreAllocationPercentages[index]
+          : parseFloat(allocation.percentage ?? allocation.allocation_percentage);
+        const normalizedPercentage =
+          Number.isFinite(rawPercentage) && rawPercentage > 0
+            ? parseFloat(rawPercentage.toFixed(3))
+            : Number.isFinite(totalPaymentAmount) && totalPaymentAmount > 0 && Number.isFinite(amount)
+              ? parseFloat(((amount / totalPaymentAmount) * 100).toFixed(3))
+              : null;
+
+        return {
+          target_store_id: allocation.target_store_id,
+          amount: Number.isFinite(amount) ? parseFloat(amount.toFixed(2)) : 0,
+          memo: allocation.memo || null,
+          target_type: allocation.target_type || null,
+          reimbursement_required: allocation.reimbursement_required !== false,
+          reimbursement_note: allocation.reimbursement_note || null,
+          allocation_percentage: normalizedPercentage,
+        };
+      });
+
+      let remainingDifference = crossStoreDifference;
+      if (!crossStoreDifferenceWithinTolerance) {
+        if (remainingDifference > 0.01 && !hasSourceAllocation && crossStoreForm.source_store_id) {
+          const remainderAmount = parseFloat(remainingDifference.toFixed(2));
+          const remainderPercentage =
+            Number.isFinite(totalPaymentAmount) && totalPaymentAmount > 0
+              ? parseFloat(((remainderAmount / totalPaymentAmount) * 100).toFixed(3))
+              : null;
+
+          allocationsPayload.push({
+            target_store_id: crossStoreForm.source_store_id,
+            amount: remainderAmount,
+            memo: 'Auto remainder for paying store',
+            target_type: 'manual',
+            reimbursement_required: false,
+            reimbursement_note: null,
+            allocation_percentage: remainderPercentage,
+          });
+          remainingDifference = 0;
+        } else {
+          alert('Allocated amounts must match the total payment amount.');
+          return;
+        }
+      }
+
       await crossStorePaymentsAPI.create({
         split_mode: crossStoreForm.split_mode,
         source_store_id: crossStoreForm.source_store_id,
@@ -781,28 +838,7 @@ const PurchasePayments = () => {
         currency: 'USD',
         paid_to: crossStoreForm.paid_to || null,
         notes: crossStoreForm.notes || null,
-        allocations: crossStoreForm.allocations.map((allocation, index) => {
-          const amount = crossStoreAllocationAmounts[index];
-          const rawPercentage = isCrossStorePercentageMode
-            ? crossStoreAllocationPercentages[index]
-            : parseFloat(allocation.percentage ?? allocation.allocation_percentage);
-          const normalizedPercentage =
-            Number.isFinite(rawPercentage) && rawPercentage > 0
-              ? parseFloat(rawPercentage.toFixed(3))
-              : Number.isFinite(totalPaymentAmount) && totalPaymentAmount > 0 && Number.isFinite(amount)
-                ? parseFloat(((amount / totalPaymentAmount) * 100).toFixed(3))
-                : null;
-
-          return {
-          target_store_id: allocation.target_store_id,
-            amount: Number.isFinite(amount) ? parseFloat(amount.toFixed(2)) : 0,
-            memo: allocation.memo || null,
-            target_type: allocation.target_type || null,
-            reimbursement_required: allocation.reimbursement_required !== false,
-            reimbursement_note: allocation.reimbursement_note || null,
-            allocation_percentage: normalizedPercentage,
-          };
-        }),
+        allocations: allocationsPayload,
       });
 
       alert('Cross-store payment recorded successfully.');
@@ -2684,10 +2720,6 @@ const PurchasePayments = () => {
                       setCrossStoreForm((prev) => ({
                         ...prev,
                         source_store_id: value,
-                        allocations: prev.allocations.map((allocation) => ({
-                          ...allocation,
-                          target_store_id: allocation.target_store_id === value ? '' : allocation.target_store_id,
-                        })),
                       }));
                     }}
                     className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
@@ -2827,10 +2859,7 @@ const PurchasePayments = () => {
                   <div className="space-y-4">
                     {crossStoreForm.allocations.map((allocation, index) => {
                       const availableStores = (stores || []).filter(
-                        (store) =>
-                          store.is_active !== false &&
-                          !store.deleted_at &&
-                          store.id !== crossStoreForm.source_store_id
+                        (store) => store.is_active !== false && !store.deleted_at
                       );
                       return (
                         <div
@@ -2966,6 +2995,15 @@ const PurchasePayments = () => {
                   Remaining Difference:{' '}
                   {formatCurrency(crossStoreDifference)}
                 </div>
+              {!crossStoreDifferenceWithinTolerance &&
+                crossStoreDifference > 0.01 &&
+                !hasSourceAllocation &&
+                crossStoreSourceStore && (
+                  <div className="text-xs text-gray-500">
+                    The remaining difference will be automatically allocated to {crossStoreSourceStore.name} when you
+                    save.
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-3">

@@ -388,6 +388,12 @@ const OperatingExpenses = () => {
   const crossStoreExpenseDifference =
     (Number.isFinite(crossStoreExpenseTotalAmount) ? crossStoreExpenseTotalAmount : 0) - crossStoreExpenseAllocatedTotal;
   const crossStoreExpenseDifferenceWithinTolerance = Math.abs(crossStoreExpenseDifference) < 0.01;
+  const hasSourceExpenseAllocation = crossStoreExpenseForm.allocations.some(
+    (allocation) => allocation.target_store_id === crossStoreExpenseForm.source_store_id
+  );
+  const crossStoreExpenseSourceStore = (stores || []).find(
+    (store) => store.id === crossStoreExpenseForm.source_store_id
+  );
 
   const loadCrossStorePayments = async (storeIdParam) => {
     const storeId = storeIdParam || selectedStore?.id;
@@ -662,11 +668,6 @@ const OperatingExpenses = () => {
       return;
     }
 
-    if (!crossStoreExpenseDifferenceWithinTolerance) {
-      alert('Allocated amounts must add up to the total payment amount.');
-      return;
-    }
-
     if (isCrossStoreExpensePercentageMode) {
       let percentageTotal = 0;
       for (const allocation of crossStoreExpenseForm.allocations) {
@@ -678,8 +679,18 @@ const OperatingExpenses = () => {
         percentageTotal += perc;
       }
 
-      if (!Number.isFinite(percentageTotal) || Math.abs(percentageTotal - 100) > 0.01) {
-        alert('Allocation percentages must add up to 100%.');
+      if (!Number.isFinite(percentageTotal)) {
+        alert('Allocation percentages must be valid numbers.');
+        return;
+      }
+
+      if (percentageTotal > 100.01) {
+        alert('Allocation percentages cannot exceed 100%.');
+        return;
+      }
+
+      if (percentageTotal < 99.99 && hasSourceExpenseAllocation) {
+        alert('Allocation percentages must add up to 100% when the paying store already has an allocation.');
         return;
       }
     }
@@ -706,6 +717,54 @@ const OperatingExpenses = () => {
 
     try {
       setCrossStoreSubmitting(true);
+      let allocationsPayload = crossStoreExpenseForm.allocations.map((allocation, index) => {
+        const amount = crossStoreExpenseAllocationAmounts[index];
+        const rawPercentage = isCrossStoreExpensePercentageMode
+          ? crossStoreExpenseAllocationPercentages[index]
+          : parseFloat(allocation.percentage ?? allocation.allocation_percentage);
+        const normalizedPercentage =
+          Number.isFinite(rawPercentage) && rawPercentage > 0
+            ? parseFloat(rawPercentage.toFixed(3))
+            : Number.isFinite(crossStoreExpenseTotalAmount) &&
+              crossStoreExpenseTotalAmount > 0 &&
+              Number.isFinite(amount)
+              ? parseFloat(((amount / crossStoreExpenseTotalAmount) * 100).toFixed(3))
+              : null;
+
+        return {
+          target_store_id: allocation.target_store_id,
+          amount: Number.isFinite(amount) ? parseFloat(amount.toFixed(2)) : 0,
+          memo: allocation.memo || null,
+          reimbursement_required: allocation.reimbursement_required !== false,
+          reimbursement_note: allocation.reimbursement_note || null,
+          allocation_percentage: normalizedPercentage,
+        };
+      });
+
+      let remainingDifference = crossStoreExpenseDifference;
+      if (!crossStoreExpenseDifferenceWithinTolerance) {
+        if (remainingDifference > 0.01 && !hasSourceExpenseAllocation && crossStoreExpenseForm.source_store_id) {
+          const remainderAmount = parseFloat(remainingDifference.toFixed(2));
+          const remainderPercentage =
+            Number.isFinite(crossStoreExpenseTotalAmount) && crossStoreExpenseTotalAmount > 0
+              ? parseFloat(((remainderAmount / crossStoreExpenseTotalAmount) * 100).toFixed(3))
+              : null;
+
+          allocationsPayload.push({
+            target_store_id: crossStoreExpenseForm.source_store_id,
+            amount: remainderAmount,
+            memo: 'Auto remainder for paying store',
+            reimbursement_required: false,
+            reimbursement_note: null,
+            allocation_percentage: remainderPercentage,
+          });
+          remainingDifference = 0;
+        } else {
+          alert('Allocated amounts must add up to the total payment amount.');
+          return;
+        }
+      }
+
       await crossStorePaymentsAPI.create({
         context: 'expense',
         split_mode: crossStoreExpenseForm.split_mode,
@@ -717,29 +776,7 @@ const OperatingExpenses = () => {
         currency: 'USD',
         paid_to: crossStoreExpenseForm.paid_to || null,
         notes: crossStoreExpenseForm.payment_notes || null,
-        allocations: crossStoreExpenseForm.allocations.map((allocation, index) => {
-          const amount = crossStoreExpenseAllocationAmounts[index];
-          const rawPercentage = isCrossStoreExpensePercentageMode
-            ? crossStoreExpenseAllocationPercentages[index]
-            : parseFloat(allocation.percentage ?? allocation.allocation_percentage);
-          const normalizedPercentage =
-            Number.isFinite(rawPercentage) && rawPercentage > 0
-              ? parseFloat(rawPercentage.toFixed(3))
-              : Number.isFinite(crossStoreExpenseTotalAmount) &&
-                crossStoreExpenseTotalAmount > 0 &&
-                Number.isFinite(amount)
-                ? parseFloat(((amount / crossStoreExpenseTotalAmount) * 100).toFixed(3))
-                : null;
-
-          return {
-            target_store_id: allocation.target_store_id,
-            amount: Number.isFinite(amount) ? parseFloat(amount.toFixed(2)) : 0,
-            memo: allocation.memo || null,
-            reimbursement_required: allocation.reimbursement_required !== false,
-            reimbursement_note: allocation.reimbursement_note || null,
-            allocation_percentage: normalizedPercentage,
-          };
-        }),
+        allocations: allocationsPayload,
         expense_defaults: {
           entry_date: crossStoreExpenseForm.entry_date,
           expense_type_id: crossStoreExpenseForm.expense_type_id,
@@ -1605,11 +1642,6 @@ const OperatingExpenses = () => {
                           const sourceStore = (stores || []).find((store) => store.id === value);
                           return sourceStore ? sourceStore.name || '' : '';
                         })(),
-                        allocations: prev.allocations.map((allocation) =>
-                          allocation.target_store_id === value
-                            ? { ...allocation, target_store_id: '' }
-                            : allocation
-                        ),
                       }));
                     }}
                     className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
@@ -1818,10 +1850,7 @@ const OperatingExpenses = () => {
                   <div className="space-y-4">
                     {crossStoreExpenseForm.allocations.map((allocation, index) => {
                       const availableStores = (stores || []).filter(
-                        (store) =>
-                          store.is_active !== false &&
-                          !store.deleted_at &&
-                          store.id !== crossStoreExpenseForm.source_store_id
+                        (store) => store.is_active !== false && !store.deleted_at
                       );
                       return (
                         <div key={index} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
@@ -1966,6 +1995,15 @@ const OperatingExpenses = () => {
                   Remaining Difference:{' '}
                   {formatCurrency(crossStoreExpenseDifference)}
                 </div>
+              {!crossStoreExpenseDifferenceWithinTolerance &&
+                crossStoreExpenseDifference > 0.01 &&
+                !hasSourceExpenseAllocation &&
+                crossStoreExpenseSourceStore && (
+                  <div className="text-xs text-gray-500">
+                    The remaining difference will be automatically allocated to {crossStoreExpenseSourceStore.name} when
+                    you save.
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-3">
