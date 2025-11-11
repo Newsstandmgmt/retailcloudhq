@@ -1239,7 +1239,6 @@ const OperatingExpenses = () => {
                           allocation.reimbursement_status === 'completed';
                       const isTargetStore = allocation.target_store_id === selectedStore.id;
                       const allocationPercentage = parseFloat(allocation.allocation_percentage);
-                      const isTargetStore = allocation.target_store_id === selectedStore.id;
                         return (
                           <div key={allocation.id} className="border border-gray-200 bg-white rounded-md p-3 shadow-sm">
                             <div className="flex flex-wrap items-start justify-between gap-2">
