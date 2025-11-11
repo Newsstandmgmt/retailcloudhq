@@ -186,6 +186,24 @@ ALTER TABLE daily_revenue
 ALTER TABLE daily_revenue
     ADD COLUMN IF NOT EXISTS square_synced_at TIMESTAMP;
 
+ALTER TABLE daily_revenue
+    ADD COLUMN IF NOT EXISTS customer_tab NUMERIC(12, 2) DEFAULT 0;
+
+ALTER TABLE daily_revenue
+    ADD COLUMN IF NOT EXISTS calculated_business_cash NUMERIC(14, 2) DEFAULT 0;
+
+ALTER TABLE daily_revenue
+    ADD COLUMN IF NOT EXISTS calculated_lottery_owed NUMERIC(14, 2) DEFAULT 0;
+
+ALTER TABLE daily_revenue
+    ADD COLUMN IF NOT EXISTS weekly_lottery_commission NUMERIC(14, 2) DEFAULT 0;
+
+ALTER TABLE daily_revenue
+    ADD COLUMN IF NOT EXISTS thirteen_week_average NUMERIC(14, 2) DEFAULT 0;
+
+ALTER TABLE daily_revenue
+    ADD COLUMN IF NOT EXISTS weekly_lottery_due NUMERIC(14, 2) DEFAULT 0;
+
 -- ============================================
 -- LOTTERY TRACKING TABLES
 -- ============================================

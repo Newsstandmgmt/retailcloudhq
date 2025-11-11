@@ -721,7 +721,7 @@ const handleSyncSquareSales = async () => {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Cash On Hand</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-white rounded-lg p-4 border border-blue-200">
-                  <div className="text-sm font-medium text-gray-600 mb-1">Business Cash On Hand</div>
+                  <div className="text-sm font-medium text-gray-600 mb-1">Cash On Hand</div>
                   <div className="text-2xl font-bold text-blue-600">
                     ${(cashOnHand.businessCashOnHand || 0).toFixed(2)}
                   </div>
