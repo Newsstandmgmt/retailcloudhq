@@ -2333,16 +2333,7 @@ router.get('/store/:storeId/cash-tracking', canAccessStore, async (req, res) => 
             const latest = latestRevenueResult.rows[0];
             const storeClosed = latest.store_closed === true || latest.store_closed === 'true';
             if (!storeClosed) {
-                if (latest.calculated_business_cash !== null && latest.calculated_business_cash !== undefined) {
-                    derivedCurrentCash = parseFloat(latest.calculated_business_cash || 0);
-                } else {
-                    derivedCurrentCash = (
-                        parseFloat(latest.total_cash || 0) +
-                        parseFloat(latest.business_credit_card || 0) -
-                        parseFloat(latest.credit_card_transaction_fees || 0) +
-                        parseFloat(latest.other_cash_expense || 0)
-                    );
-                }
+                derivedCurrentCash = parseFloat(latest.calculated_business_cash || 0);
             } else {
                 derivedCurrentCash = 0;
             }
