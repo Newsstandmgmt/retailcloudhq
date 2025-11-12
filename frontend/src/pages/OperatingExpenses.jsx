@@ -1515,13 +1515,6 @@ const OperatingExpenses = () => {
                             : allocation.reimbursement_status === 'completed'
                               ? 'bg-green-100 text-green-700'
                               : 'bg-orange-100 text-orange-700';
-                        const isPending =
-                          allocation.reimbursement_required !== false &&
-                          allocation.reimbursement_status !== 'completed';
-                        const isCompleted =
-                          allocation.reimbursement_required !== false &&
-                          allocation.reimbursement_status === 'completed';
-                        const isTargetStore = allocation.target_store_id === selectedStore.id;
                         const allocationPercentage = parseFloat(allocation.allocation_percentage);
                         return (
                           <div key={allocation.id} className="border border-gray-200 bg-white rounded-md p-3 shadow-sm">
@@ -1529,68 +1522,7 @@ const OperatingExpenses = () => {
                               <div>
                                 <div className="font-medium text-gray-900">
                                   {allocation.target_store_name || 'Target Store'}
-                                  {isSourceStore && !isTargetStore && (
-                                    <span className="ml-2 text-xs uppercase tracking-wide text-purple-600">
-                                      Due from {allocation.target_store_name || 'store'}
-                                    </span>
-                                  )}
-                                  {!isSourceStore && isTargetStore && (
-                                    <span className="ml-2 text-xs uppercase tracking-wide text-blue-600">
-                                      Paid by {payment.source_store_name || 'store'}
-                                    </span>
-                                  )}
                                 </div>
-                                {allocation.expense_type_name && (
-                                  <div className="text-xs text-gray-500">
-                                    Expense Type: {allocation.expense_type_name}
-                                  </div>
-                                )}
-                                {allocation.expense_entry_date && (
-                                  <div className="text-xs text-gray-500">
-                                    Recorded on {formatDate(allocation.expense_entry_date)}
-                                  </div>
-                                )}
-                                {allocation.memo && (
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    Note: {allocation.memo}
-                                  </div>
-                                )}
-                                {allocation.expense_notes && (
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    Expense Notes: {allocation.expense_notes}
-                                  </div>
-                                )}
-                                {allocation.reimbursement_method && (
-                                  <div className="text-xs text-gray-500 mt-1 space-y-0.5">
-                                    <div>
-                                      Method: {formatReimbursementMethod(allocation.reimbursement_method)}
-                                      {allocation.reimbursement_method === 'check' &&
-                                        allocation.reimbursement_check_number &&
-                                        ` • Check #${allocation.reimbursement_check_number}`}
-                                      {allocation.reimbursement_method === 'ach' &&
-                                        allocation.reimbursement_reference &&
-                                        ` • Ref: ${allocation.reimbursement_reference}`}
-                                      {allocation.reimbursement_method !== 'check' &&
-                                        allocation.reimbursement_method !== 'ach' &&
-                                        allocation.reimbursement_reference &&
-                                        ` • Ref: ${allocation.reimbursement_reference}`}
-                                    </div>
-                                    {allocation.reimbursement_bank_name && (
-                                      <div>
-                                        Bank: {allocation.reimbursement_bank_name}
-                                        {allocation.reimbursement_bank_short_name
-                                          ? ` (${allocation.reimbursement_bank_short_name})`
-                                          : ''}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                                {allocation.reimbursement_method === 'cash' &&
-                                  Number.isFinite(parseFloat(allocation.reimbursed_cash_amount)) && (
-                                    <div className="text-xs text-gray-500">
-                                      Cash posted: {formatCurrency(allocation.reimbursed_cash_amount)}
-                                    </div>
-                                  )}
                               </div>
                               <div className="text-right">
                                 <div className="text-lg font-semibold text-gray-900">
@@ -1605,71 +1537,6 @@ const OperatingExpenses = () => {
                                   {statusLabel}
                                 </span>
                               </div>
-                            </div>
-                            {allocation.reimbursement_note && (
-                              <div className="mt-2 text-xs text-gray-500">
-                                Reimbursement note: {allocation.reimbursement_note}
-                              </div>
-                            )}
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {isPending && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenCrossStoreReimbursementModal(allocation)}
-                                  className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                                  disabled={updatingAllocationId === allocation.id}
-                                >
-                                  {updatingAllocationId === allocation.id ? 'Updating…' : 'Reimburse'}
-                                </button>
-                              )}
-                              {isPending && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateCrossStoreAllocationStatus(
-                                      allocation.id,
-                                      { status: 'not_required' },
-                                      'Marked as not requiring reimbursement.'
-                                    )
-                                  }
-                                  className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                                  disabled={updatingAllocationId === allocation.id}
-                                >
-                                  {updatingAllocationId === allocation.id ? 'Updating…' : 'Mark Not Required'}
-                                </button>
-                              )}
-                              {isCompleted && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateCrossStoreAllocationStatus(
-                                      allocation.id,
-                                      { status: 'pending' },
-                                      'Reimbursement marked as pending.'
-                                    )
-                                  }
-                                  className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                                  disabled={updatingAllocationId === allocation.id}
-                                >
-                                  {updatingAllocationId === allocation.id ? 'Updating…' : 'Mark Pending'}
-                                </button>
-                              )}
-                              {allocation.reimbursement_required === false && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateCrossStoreAllocationStatus(
-                                      allocation.id,
-                                      { status: 'pending', reimbursement_required: true },
-                                      'Reimbursement requirement enabled and set to pending.'
-                                    )
-                                  }
-                                  className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                                  disabled={updatingAllocationId === allocation.id}
-                                >
-                                  {updatingAllocationId === allocation.id ? 'Updating…' : 'Require Reimbursement'}
-                                </button>
-                              )}
                             </div>
                           </div>
                         );
