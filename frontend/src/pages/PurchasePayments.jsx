@@ -28,6 +28,17 @@ const PurchasePayments = () => {
   const [showCrossStoreModal, setShowCrossStoreModal] = useState(false);
   const [crossStoreSubmitting, setCrossStoreSubmitting] = useState(false);
   const [updatingAllocationId, setUpdatingAllocationId] = useState(null);
+  const [showCrossStoreReimbursementModal, setShowCrossStoreReimbursementModal] = useState(false);
+  const [crossStoreReimbursementAllocation, setCrossStoreReimbursementAllocation] = useState(null);
+const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
+  method: 'cash',
+  amount: '',
+  cashAmount: '',
+  reference: '',
+  note: '',
+  bankId: '',
+});
+  const [crossStoreReimbursementSubmitting, setCrossStoreReimbursementSubmitting] = useState(false);
   const [crossStoreForm, setCrossStoreForm] = useState({
     split_mode: 'amount',
     source_store_id: '',
@@ -856,16 +867,22 @@ const PurchasePayments = () => {
     }
   };
 
-  const handleUpdateAllocationStatus = async (allocationId, updates, successMessage = 'Reimbursement status updated.') => {
-    if (!selectedStore) return;
+  const handleUpdateAllocationStatus = async (
+    allocationId,
+    updates,
+    successMessage = 'Reimbursement status updated.'
+  ) => {
+    if (!selectedStore) return false;
     try {
       setUpdatingAllocationId(allocationId);
       await crossStorePaymentsAPI.updateAllocationReimbursement(allocationId, updates);
       await loadCrossStorePayments(selectedStore.id);
       alert(successMessage);
+      return true;
     } catch (error) {
       console.error('Error updating reimbursement status:', error);
       alert(error.response?.data?.error || 'Failed to update reimbursement status.');
+      return false;
     } finally {
       setUpdatingAllocationId(null);
     }
@@ -884,11 +901,141 @@ const PurchasePayments = () => {
     });
   };
 
+  const formatReimbursementMethod = (method) => {
+    if (!method) return '';
+    if (method === 'ach') return 'ACH Transfer';
+    if (method === 'bank') return 'Bank Transfer';
+    return method
+      .toString()
+      .split('_')
+      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+      .join(' ');
+  };
+
   const handlePendingQuantityChange = (itemId, value) => {
     setPendingDeliveryQuantities(prev => ({
       ...prev,
       [itemId]: value
     }));
+  };
+
+  const handleOpenCrossStoreReimbursementModal = (allocation) => {
+    if (!allocation) return;
+    const defaultAmount = parseFloat(allocation.reimbursed_amount ?? allocation.allocated_amount ?? 0);
+    const defaultCash = parseFloat(
+      allocation.reimbursed_cash_amount ?? allocation.reimbursed_amount ?? allocation.allocated_amount ?? 0
+    );
+    const initialMethod = allocation.reimbursement_method || 'cash';
+
+    const fallbackBankId =
+      allocation.reimbursement_bank_id ||
+      (initialMethod !== 'cash'
+        ? banks.find((bank) => bank.is_default_bank)?.id || banks[0]?.id || ''
+        : '');
+
+    setCrossStoreReimbursementForm({
+      method: initialMethod,
+      amount: Number.isFinite(defaultAmount) && defaultAmount > 0 ? defaultAmount.toFixed(2) : '',
+      cashAmount:
+        initialMethod === 'cash' && Number.isFinite(defaultCash) && defaultCash > 0
+          ? defaultCash.toFixed(2)
+          : '',
+      reference:
+        allocation.reimbursement_method === 'check'
+          ? allocation.reimbursement_check_number || ''
+          : allocation.reimbursement_reference || '',
+      note: allocation.reimbursement_note || '',
+      bankId: fallbackBankId,
+    });
+    setCrossStoreReimbursementAllocation(allocation);
+    setShowCrossStoreReimbursementModal(true);
+  };
+
+  const handleCloseCrossStoreReimbursementModal = () => {
+    setShowCrossStoreReimbursementModal(false);
+    setCrossStoreReimbursementAllocation(null);
+    setCrossStoreReimbursementForm({
+      method: 'cash',
+      amount: '',
+      cashAmount: '',
+      reference: '',
+      note: '',
+      bankId: '',
+    });
+  };
+
+  const handleSubmitCrossStoreReimbursement = async (e) => {
+    e.preventDefault();
+    if (!crossStoreReimbursementAllocation) return;
+
+    const parsedAmount = parseFloat(
+      crossStoreReimbursementForm.amount || crossStoreReimbursementAllocation.allocated_amount || 0
+    );
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      alert('Enter a valid reimbursement amount.');
+      return;
+    }
+
+    const method = crossStoreReimbursementForm.method;
+    if (
+      (method === 'check' || method === 'ach') &&
+      banks.length > 0 &&
+      !crossStoreReimbursementForm.bankId
+    ) {
+      alert('Select the bank account used for this reimbursement.');
+      return;
+    }
+    if (method === 'check' && !crossStoreReimbursementForm.reference.trim()) {
+      alert('Enter the check number used for this reimbursement.');
+      return;
+    }
+    if (method === 'ach' && !crossStoreReimbursementForm.reference.trim()) {
+      alert('Enter the ACH confirmation or reference number.');
+      return;
+    }
+
+    const payload = {
+      status: 'completed',
+      reimbursed_amount: parsedAmount,
+      reimbursement_method: method,
+      reimbursement_note: crossStoreReimbursementForm.note || undefined,
+      reimbursement_payment_method: method,
+    };
+
+    if (method === 'cash') {
+      const parsedCash = parseFloat(
+        crossStoreReimbursementForm.cashAmount || crossStoreReimbursementForm.amount || parsedAmount
+      );
+      if (!Number.isFinite(parsedCash) || parsedCash <= 0) {
+        alert('Enter a valid cash amount for reimbursement.');
+        return;
+      }
+      payload.reimbursed_cash_amount = parsedCash;
+      payload.reimbursement_reference = crossStoreReimbursementForm.reference || undefined;
+    } else if (method === 'check') {
+      payload.reimbursement_check_number = crossStoreReimbursementForm.reference || undefined;
+      payload.reimbursement_bank_id = crossStoreReimbursementForm.bankId || undefined;
+      payload.reimbursement_reference = crossStoreReimbursementForm.reference || undefined;
+    } else if (method === 'ach') {
+      payload.reimbursement_bank_id = crossStoreReimbursementForm.bankId || undefined;
+      payload.reimbursement_reference = crossStoreReimbursementForm.reference || undefined;
+    } else {
+      payload.reimbursement_reference = crossStoreReimbursementForm.reference || undefined;
+    }
+
+    try {
+      setCrossStoreReimbursementSubmitting(true);
+      const success = await handleUpdateAllocationStatus(
+        crossStoreReimbursementAllocation.id,
+        payload,
+        'Reimbursement recorded.'
+      );
+      if (success) {
+        handleCloseCrossStoreReimbursementModal();
+      }
+    } finally {
+      setCrossStoreReimbursementSubmitting(false);
+    }
   };
 
   const handleAddPendingItemToInvoice = async (pendingItem) => {
@@ -1565,6 +1712,37 @@ const PurchasePayments = () => {
                                           Note: {allocation.memo}
                                         </div>
                                       )}
+                                      {allocation.reimbursement_method && (
+                                        <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+                                          <div>
+                                            Method: {formatReimbursementMethod(allocation.reimbursement_method)}
+                                            {allocation.reimbursement_method === 'check' &&
+                                              allocation.reimbursement_check_number &&
+                                              ` • Check #${allocation.reimbursement_check_number}`}
+                                            {allocation.reimbursement_method === 'ach' &&
+                                              allocation.reimbursement_reference &&
+                                              ` • Ref: ${allocation.reimbursement_reference}`}
+                                            {allocation.reimbursement_method !== 'check' &&
+                                              allocation.reimbursement_method !== 'ach' &&
+                                              allocation.reimbursement_reference &&
+                                              ` • Ref: ${allocation.reimbursement_reference}`}
+                                          </div>
+                                          {allocation.reimbursement_bank_name && (
+                                            <div>
+                                              Bank: {allocation.reimbursement_bank_name}
+                                              {allocation.reimbursement_bank_short_name
+                                                ? ` (${allocation.reimbursement_bank_short_name})`
+                                                : ''}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                      {allocation.reimbursement_method === 'cash' &&
+                                        Number.isFinite(parseFloat(allocation.reimbursed_cash_amount)) && (
+                                          <div className="text-xs text-gray-500">
+                                            Cash posted: {formatCurrency(allocation.reimbursed_cash_amount)}
+                                          </div>
+                                        )}
                                     </div>
                                     <div className="text-right">
                                       <div className="font-semibold text-gray-900">
@@ -1613,17 +1791,11 @@ const PurchasePayments = () => {
                                     {isPending && (
                                       <button
                                         type="button"
-                                        onClick={() =>
-                                          handleUpdateAllocationStatus(
-                                            allocation.id,
-                                            { status: 'completed' },
-                                            'Reimbursement marked as completed.'
-                                          )
-                                        }
+                                          onClick={() => handleOpenCrossStoreReimbursementModal(allocation)}
                                         className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed"
                                         disabled={updatingAllocationId === allocation.id}
                                       >
-                                        {updatingAllocationId === allocation.id ? 'Updating…' : 'Mark Reimbursed'}
+                                        {updatingAllocationId === allocation.id ? 'Updating…' : 'Reimburse'}
                                       </button>
                                     )}
                                     {isPending && (
@@ -2684,6 +2856,177 @@ const PurchasePayments = () => {
                   className="px-6 py-2 bg-[#2d8659] text-white rounded-lg hover:bg-[#256b49] transition-colors"
                 >
                   Submit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showCrossStoreReimbursementModal && crossStoreReimbursementAllocation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 px-4">
+          <div className="bg-white w-full max-w-md rounded-lg shadow-xl p-6">
+            <h2 className="text-lg font-semibold text-gray-900">Record Reimbursement</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              {selectedStore?.name
+                ? `${selectedStore.name} is recording a reimbursement for ${crossStoreReimbursementAllocation.target_store_name || 'the assigned store'}.`
+                : 'Record reimbursement for this cross-store allocation.'}
+            </p>
+            <form onSubmit={handleSubmitCrossStoreReimbursement} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Reimbursement Amount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={crossStoreReimbursementForm.amount}
+                  onChange={(e) =>
+                    setCrossStoreReimbursementForm((prev) => ({ ...prev, amount: e.target.value }))
+                  }
+                  placeholder={formatCurrency(
+                    crossStoreReimbursementAllocation.reimbursed_amount ??
+                      crossStoreReimbursementAllocation.allocated_amount
+                  )}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
+                <select
+                  value={crossStoreReimbursementForm.method}
+                  onChange={(e) => {
+                    const nextMethod = e.target.value;
+                    setCrossStoreReimbursementForm((prev) => ({
+                      ...prev,
+                      method: nextMethod,
+                      cashAmount: nextMethod === 'cash' ? (prev.cashAmount || prev.amount || '') : '',
+                      bankId:
+                        nextMethod === 'cash'
+                          ? ''
+                          : prev.bankId ||
+                            (banks.find((bank) => bank.is_default_bank)?.id || banks[0]?.id || ''),
+                      reference:
+                        nextMethod === 'check' && prev.reference
+                          ? prev.reference
+                          : nextMethod === 'cash'
+                            ? prev.reference
+                            : prev.reference,
+                    }));
+                  }}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="check">Check</option>
+                  <option value="ach">ACH / Bank Transfer</option>
+                  <option value="other">Other</option>
+                </select>
+                {crossStoreReimbursementForm.method === 'cash' && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    Selecting cash automatically adjusts Cash On Hand for both the paying and receiving stores.
+                  </p>
+                )}
+              </div>
+              {crossStoreReimbursementForm.method === 'cash' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Cash Amount</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={crossStoreReimbursementForm.cashAmount}
+                    onChange={(e) =>
+                      setCrossStoreReimbursementForm((prev) => ({ ...prev, cashAmount: e.target.value }))
+                    }
+                    placeholder={
+                      crossStoreReimbursementForm.amount ||
+                      formatCurrency(
+                        crossStoreReimbursementAllocation.reimbursed_cash_amount ??
+                          crossStoreReimbursementAllocation.allocated_amount
+                      )
+                    }
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                    required
+                  />
+                </div>
+              )}
+              {(crossStoreReimbursementForm.method === 'check' ||
+                crossStoreReimbursementForm.method === 'ach') && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Bank Account</label>
+                  <select
+                    value={crossStoreReimbursementForm.bankId}
+                    onChange={(e) =>
+                      setCrossStoreReimbursementForm((prev) => ({
+                        ...prev,
+                        bankId: e.target.value,
+                      }))
+                    }
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  >
+                    <option value="">Select bank account</option>
+                    {banks.map((bank) => (
+                      <option key={bank.id} value={bank.id}>
+                        {bank.bank_name}
+                        {bank.bank_short_name ? ` (${bank.bank_short_name})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {crossStoreReimbursementForm.method === 'check'
+                    ? 'Check Number'
+                    : crossStoreReimbursementForm.method === 'ach'
+                      ? 'ACH / Transfer Reference'
+                      : 'Reference (optional)'}
+                </label>
+                <input
+                  type="text"
+                  value={crossStoreReimbursementForm.reference}
+                  onChange={(e) =>
+                    setCrossStoreReimbursementForm((prev) => ({ ...prev, reference: e.target.value }))
+                  }
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  placeholder={
+                    crossStoreReimbursementForm.method === 'check'
+                      ? 'Enter check number'
+                      : crossStoreReimbursementForm.method === 'ach'
+                        ? 'Enter ACH confirmation / reference'
+                        : 'Reference or memo'
+                  }
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Reimbursement Note <span className="text-xs text-gray-400">(optional)</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={crossStoreReimbursementForm.note}
+                  onChange={(e) =>
+                    setCrossStoreReimbursementForm((prev) => ({ ...prev, note: e.target.value }))
+                  }
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  placeholder="Any additional notes for this reimbursement"
+                />
+              </div>
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={handleCloseCrossStoreReimbursementModal}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
+                  disabled={crossStoreReimbursementSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 text-sm"
+                  disabled={crossStoreReimbursementSubmitting}
+                >
+                  {crossStoreReimbursementSubmitting ? 'Recording…' : 'Record Reimbursement'}
                 </button>
               </div>
             </form>
