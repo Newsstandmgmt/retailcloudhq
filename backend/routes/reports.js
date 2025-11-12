@@ -2323,20 +2323,59 @@ router.get('/store/:storeId/cash-tracking', canAccessStore, async (req, res) => 
             `SELECT entry_date, calculated_business_cash, total_cash, business_credit_card, credit_card_transaction_fees, other_cash_expense, store_closed
              FROM daily_revenue
              WHERE store_id = $1
+             ${end_date ? 'AND entry_date <= $2' : ''}
              ORDER BY entry_date DESC
              LIMIT 1`,
-            [storeId]
+            end_date ? [storeId, end_date] : [storeId]
         );
 
         let derivedCurrentCash = ledgerCurrentBalance;
-        if (latestRevenueResult.rows.length > 0) {
+        let revenueWithinRangeCash = null;
+
+        if (start_date && end_date) {
+            const revenueRangeResult = await query(
+                `SELECT
+                    COALESCE(SUM(calculated_business_cash), 0) as sum_calculated,
+                    SUM(total_cash) as sum_cash,
+                    SUM(business_credit_card) as sum_card,
+                    SUM(credit_card_transaction_fees) as sum_fees,
+                    SUM(other_cash_expense) as sum_other,
+                    BOOL_OR(store_closed = true) as any_closed,
+                    COUNT(*) as entry_count
+                 FROM daily_revenue
+                 WHERE store_id = $1
+                 AND entry_date BETWEEN $2 AND $3`,
+                [storeId, start_date, end_date]
+            );
+
+            if (revenueRangeResult.rows.length > 0) {
+                const row = revenueRangeResult.rows[0];
+                if (parseInt(row.entry_count, 10) > 0) {
+                    const hasCalc = row.sum_calculated !== null && !isNaN(parseFloat(row.sum_calculated));
+                    if (hasCalc) {
+                        revenueWithinRangeCash = parseFloat(row.sum_calculated || 0);
+                    } else {
+                        revenueWithinRangeCash = (
+                            parseFloat(row.sum_cash || 0) +
+                            parseFloat(row.sum_card || 0) -
+                            parseFloat(row.sum_fees || 0) +
+                            parseFloat(row.sum_other || 0)
+                        );
+                    }
+                    const anyClosed = row.any_closed === true;
+                    if (anyClosed) {
+                        revenueWithinRangeCash = Math.max(0, revenueWithinRangeCash);
+                    }
+                }
+            }
+        }
+
+        if (revenueWithinRangeCash !== null) {
+            derivedCurrentCash = revenueWithinRangeCash;
+        } else if (latestRevenueResult.rows.length > 0) {
             const latest = latestRevenueResult.rows[0];
             const storeClosed = latest.store_closed === true || latest.store_closed === 'true';
-            if (!storeClosed) {
-                derivedCurrentCash = parseFloat(latest.calculated_business_cash || 0);
-            } else {
-                derivedCurrentCash = 0;
-            }
+            derivedCurrentCash = storeClosed ? 0 : parseFloat(latest.calculated_business_cash || 0);
         }
 
         let closingBalance;
