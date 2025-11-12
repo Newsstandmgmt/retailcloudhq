@@ -84,15 +84,27 @@ router.post('/:storeId/daily', canAccessStore, async (req, res) => {
         // Update cash on hand if cash revenue changed
         if (cashDifference !== 0) {
             try {
-                await CashOnHandService.addCash(
-                    req.params.storeId,
-                    cashDifference,
-                    'revenue',
-                    revenue.id,
-                    entry_date,
-                    `Daily revenue entry - Cash sales: $${newCash.toFixed(2)}`,
-                    req.user.id
-                );
+                if (cashDifference > 0) {
+                    await CashOnHandService.addCash(
+                        req.params.storeId,
+                        cashDifference,
+                        'revenue',
+                        revenue.id,
+                        entry_date,
+                        `Daily revenue entry - Cash sales: $${newCash.toFixed(2)}`,
+                        req.user.id
+                    );
+                } else {
+                    await CashOnHandService.subtractCash(
+                        req.params.storeId,
+                        Math.abs(cashDifference),
+                        'revenue',
+                        revenue.id,
+                        entry_date,
+                        `Daily revenue entry - Cash sales: $${newCash.toFixed(2)}`,
+                        req.user.id
+                    );
+                }
             } catch (cashError) {
                 console.error('Error updating cash on hand (non-blocking):', cashError);
             }
