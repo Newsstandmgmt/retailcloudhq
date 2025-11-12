@@ -1399,202 +1399,142 @@ const Reports = () => {
   // Sales Trends Report
   const renderSalesTrends = () => {
     if (!reportData || typeof reportData !== 'object') return null;
-    const { 
-      summary = { total_revenue: 0, avg_daily_revenue: 0, max_daily_revenue: 0, min_daily_revenue: 0, days_with_data: 0 }, 
-      daily_trends = [], 
-      weekly_trends = [], 
-      monthly_trends = [] 
+    const {
+      summary = { total_revenue: 0, avg_daily_revenue: 0, max_daily_revenue: 0, min_daily_revenue: 0, days_with_data: 0 },
+      daily_trends = [],
+      weekly_trends = [],
+      monthly_trends = []
     } = reportData || {};
 
-    // Chart data preparation
-    const dailyChartData = (daily_trends || []).map(d => ({
-      date: d?.date ? new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '',
-      revenue: d?.revenue || 0,
-      cash: d?.cash || 0,
-      credit_card: d?.credit_card || 0,
-      online: d?.online || 0
-    }));
+    const sections = [];
 
-    const weeklyChartData = (weekly_trends || []).map(w => ({
-      week: w?.week_start ? new Date(w.week_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '',
-      revenue: w?.weekly_revenue || 0,
-      avgDaily: w?.avg_daily_revenue || 0
-    }));
-
-    const monthlyChartData = (monthly_trends || []).map(m => ({
-      month: m?.month_start ? new Date(m.month_start).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '',
-      revenue: m?.monthly_revenue || 0,
-      avgDaily: m?.avg_daily_revenue || 0
-    }));
-
-    return (
-      <div className="space-y-6">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
-            <h3 className="text-sm font-medium text-gray-600 mb-2">Total Revenue</h3>
-            <div className="text-3xl font-bold text-green-600">{formatCurrency(summary.total_revenue || 0)}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
-            <h3 className="text-sm font-medium text-gray-600 mb-2">Avg Daily Revenue</h3>
-            <div className="text-3xl font-bold text-blue-600">{formatCurrency(summary.avg_daily_revenue || 0)}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-purple-500">
-            <h3 className="text-sm font-medium text-gray-600 mb-2">Max Daily Revenue</h3>
-            <div className="text-3xl font-bold text-purple-600">{formatCurrency(summary.max_daily_revenue || 0)}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-orange-500">
-            <h3 className="text-sm font-medium text-gray-600 mb-2">Min Daily Revenue</h3>
-            <div className="text-3xl font-bold text-orange-600">{formatCurrency(summary.min_daily_revenue || 0)}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-gray-500">
-            <h3 className="text-sm font-medium text-gray-600 mb-2">Days with Data</h3>
-            <div className="text-3xl font-bold text-gray-700">{summary.days_with_data || 0}</div>
-          </div>
+    sections.push(`
+      <div class="summary-cards">
+        <div class="summary-card positive">
+          <div class="label">Total Revenue</div>
+          <div class="value">${formatCurrency(summary.total_revenue)}</div>
         </div>
-
-        {/* Charts Row */}
-        {dailyChartData.length > 0 && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Daily Revenue Trend</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={dailyChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip formatter={(value) => formatCurrency(value)} />
-                <Legend />
-                <Line type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={2} name="Total Revenue" />
-                <Line type="monotone" dataKey="cash" stroke="#3b82f6" strokeWidth={1} name="Cash" dot={false} />
-                <Line type="monotone" dataKey="credit_card" stroke="#f59e0b" strokeWidth={1} name="Credit Card" dot={false} />
-                <Line type="monotone" dataKey="online" stroke="#8884d8" strokeWidth={1} name="Online Sales" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
-        {weeklyChartData.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Weekly Revenue Trend</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={weeklyChartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="week" />
-                  <YAxis />
-                  <Tooltip formatter={(value) => formatCurrency(value)} />
-                  <Legend />
-                  <Bar dataKey="revenue" fill="#00C49F" name="Weekly Revenue" />
-                  <Line type="monotone" dataKey="avgDaily" stroke="#FFBB28" name="Avg Daily Revenue" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Revenue Trend</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={monthlyChartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip formatter={(value) => formatCurrency(value)} />
-                  <Legend />
-                  <Bar dataKey="revenue" fill="#FF8042" name="Monthly Revenue" />
-                  <Line type="monotone" dataKey="avgDaily" stroke="#8884d8" name="Avg Daily Revenue" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-
-        {/* Detailed Tables */}
-        {daily_trends.length > 0 && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Daily Trends Detail</h3>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Revenue</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Cash</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Credit Card</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Online</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {daily_trends.map((trend, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 text-sm text-gray-900">{trend?.date ? new Date(trend.date).toLocaleDateString() : 'N/A'}</td>
-                      <td className="px-4 py-2 text-sm text-right">{formatCurrency(trend?.revenue || 0)}</td>
-                      <td className="px-4 py-2 text-sm text-right">{formatCurrency(trend?.cash || 0)}</td>
-                      <td className="px-4 py-2 text-sm text-right">{formatCurrency(trend?.credit_card || 0)}</td>
-                      <td className="px-4 py-2 text-sm text-right">{formatCurrency(trend?.online || 0)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {weekly_trends.length > 0 && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Weekly Trends Detail</h3>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Week Start</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Weekly Revenue</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Avg Daily Revenue</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Days with Data</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {weekly_trends.map((trend, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 text-sm text-gray-900">{trend?.week_start ? new Date(trend.week_start).toLocaleDateString() : 'N/A'}</td>
-                      <td className="px-4 py-2 text-sm text-right">{formatCurrency(trend?.weekly_revenue || 0)}</td>
-                      <td className="px-4 py-2 text-sm text-right">{formatCurrency(trend?.avg_daily_revenue || 0)}</td>
-                      <td className="px-4 py-2 text-sm text-right">{trend?.days_count || 0}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {monthly_trends.length > 0 && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Trends Detail</h3>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Month</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Monthly Revenue</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Avg Daily Revenue</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Days with Data</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {monthly_trends.map((trend, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 text-sm text-gray-900">{trend?.month_start ? new Date(trend.month_start).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'N/A'}</td>
-                      <td className="px-4 py-2 text-sm text-right">{formatCurrency(trend?.monthly_revenue || 0)}</td>
-                      <td className="px-4 py-2 text-sm text-right">{formatCurrency(trend?.avg_daily_revenue || 0)}</td>
-                      <td className="px-4 py-2 text-sm text-right">{trend?.days_count || 0}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        <div class="summary-card neutral">
+          <div class="label">Avg Daily Revenue</div>
+          <div class="value">${formatCurrency(summary.avg_daily_revenue)}</div>
+        </div>
+        <div class="summary-card positive">
+          <div class="label">Max Daily Revenue</div>
+          <div class="value">${formatCurrency(summary.max_daily_revenue)}</div>
+        </div>
+        <div class="summary-card negative">
+          <div class="label">Min Daily Revenue</div>
+          <div class="value">${formatCurrency(summary.min_daily_revenue)}</div>
+        </div>
+        <div class="summary-card neutral">
+          <div class="label">Days with Data</div>
+          <div class="value">${summary.days_with_data}</div>
+        </div>
       </div>
-    );
+    `);
+
+    if (daily_trends.length > 0) {
+      const dailyRows = daily_trends.map((trend) => {
+        const dateLabel = trend?.date ? new Date(trend.date).toLocaleDateString() : 'N/A';
+        return `
+          <tr>
+            <td>${dateLabel}</td>
+            <td class="text-right currency">${formatCurrency(trend?.revenue || 0)}</td>
+            <td class="text-right currency">${formatCurrency(trend?.cash || 0)}</td>
+            <td class="text-right currency">${formatCurrency(trend?.credit_card || 0)}</td>
+            <td class="text-right currency">${formatCurrency(trend?.online || 0)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      sections.push(`
+        <div class="section">
+          <div class="section-title">Daily Revenue Trends</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th class="text-right">Total Revenue</th>
+                <th class="text-right">Cash</th>
+                <th class="text-right">Credit Card</th>
+                <th class="text-right">Online</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${dailyRows}
+            </tbody>
+          </table>
+        </div>
+      `);
+    }
+
+    if (weekly_trends.length > 0) {
+      const weeklyRows = weekly_trends.map((trend) => {
+        const weekLabel = trend?.week_start ? new Date(trend.week_start).toLocaleDateString() : 'N/A';
+        return `
+          <tr>
+            <td>${weekLabel}</td>
+            <td class="text-right currency">${formatCurrency(trend?.weekly_revenue || 0)}</td>
+            <td class="text-right currency">${formatCurrency(trend?.avg_daily_revenue || 0)}</td>
+            <td class="text-right">${trend?.days_count || 0}</td>
+          </tr>
+        `;
+      }).join('');
+
+      sections.push(`
+        <div class="section">
+          <div class="section-title">Weekly Revenue Trends</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Week Start</th>
+                <th class="text-right">Weekly Revenue</th>
+                <th class="text-right">Avg Daily Revenue</th>
+                <th class="text-right">Days with Data</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${weeklyRows}
+            </tbody>
+          </table>
+        </div>
+      `);
+    }
+
+    if (monthly_trends.length > 0) {
+      const monthlyRows = monthly_trends.map((trend) => {
+        const monthLabel = trend?.month_start ? new Date(trend.month_start).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'N/A';
+        return `
+          <tr>
+            <td>${monthLabel}</td>
+            <td class="text-right currency">${formatCurrency(trend?.monthly_revenue || 0)}</td>
+            <td class="text-right currency">${formatCurrency(trend?.avg_daily_revenue || 0)}</td>
+            <td class="text-right">${trend?.days_count || 0}</td>
+          </tr>
+        `;
+      }).join('');
+
+      sections.push(`
+        <div class="section">
+          <div class="section-title">Monthly Revenue Trends</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th class="text-right">Monthly Revenue</th>
+                <th class="text-right">Avg Daily Revenue</th>
+                <th class="text-right">Days with Data</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${monthlyRows}
+            </tbody>
+          </table>
+        </div>
+      `);
+    }
+
+    return sections.join('\n');
   };
 
   // Profit & Loss with charts
@@ -3338,13 +3278,16 @@ const Reports = () => {
 
   const prepareSalesTrendsHTML = () => {
     if (!reportData) return '<p>No data available</p>';
-    const { 
-      summary = { total_revenue: 0, avg_daily_revenue: 0, max_daily_revenue: 0, min_daily_revenue: 0, days_with_data: 0 }, 
-      daily_trends = [], 
-      weekly_trends = [], 
-      monthly_trends = [] 
+    const {
+      summary = { total_revenue: 0, avg_daily_revenue: 0, max_daily_revenue: 0, min_daily_revenue: 0, days_with_data: 0 },
+      daily_trends = [],
+      weekly_trends = [],
+      monthly_trends = []
     } = reportData || {};
-    return `
+
+    const sections = [];
+
+    sections.push(`
       <div class="summary-cards">
         <div class="summary-card positive">
           <div class="label">Total Revenue</div>
@@ -3367,33 +3310,117 @@ const Reports = () => {
           <div class="value">${summary.days_with_data}</div>
         </div>
       </div>
-      
-      ${daily_trends.length > 0 ? `
-      <div class="section">
-        <div class="section-title">Daily Revenue Trends</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th class="text-right">Total Revenue</th>
-              <th class="text-right">Cash</th>
-              <th class="text-right">Credit Card</th>
-              <th class="text-right">Online</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${daily_trends.map(trend => `
+    `);
+
+    if (daily_trends.length > 0) {
+      const dailyRows = daily_trends.map((trend) => {
+        const dateLabel = trend?.date ? new Date(trend.date).toLocaleDateString() : 'N/A';
+        return `
+          <tr>
+            <td>${dateLabel}</td>
+            <td class="text-right currency">${formatCurrency(trend?.revenue || 0)}</td>
+            <td class="text-right currency">${formatCurrency(trend?.cash || 0)}</td>
+            <td class="text-right currency">${formatCurrency(trend?.credit_card || 0)}</td>
+            <td class="text-right currency">${formatCurrency(trend?.online || 0)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      sections.push(`
+        <div class="section">
+          <div class="section-title">Daily Revenue Trends</div>
+          <table>
+            <thead>
               <tr>
-                <td>${new Date(trend.date).toLocaleDateString()}</td>
-                <td class="text-right currency">${formatCurrency(trend.revenue)}</td>
-                <td class="text-right currency">${formatCurrency(trend.cash)}</td>
-                <td class="text-right currency">${formatCurrency(trend.credit_card)}</td>
-                <td class="text-right currency">${formatCurrency(trend.online)}</td>
+                <th>Date</th>
+                <th class="text-right">Total Revenue</th>
+                <th class="text-right">Cash</th>
+                <th class="text-right">Credit Card</th>
+                <th class="text-right">Online</th>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-      ` : ''}
-      
-      ${weekly_trends.length > 0 ? `
+            </thead>
+            <tbody>
+              ${dailyRows}
+            </tbody>
+          </table>
+        </div>
+      `);
+    }
+
+    if (weekly_trends.length > 0) {
+      const weeklyRows = weekly_trends.map((trend) => {
+        const weekLabel = trend?.week_start ? new Date(trend.week_start).toLocaleDateString() : 'N/A';
+        return `
+          <tr>
+            <td>${weekLabel}</td>
+            <td class="text-right currency">${formatCurrency(trend?.weekly_revenue || 0)}</td>
+            <td class="text-right currency">${formatCurrency(trend?.avg_daily_revenue || 0)}</td>
+            <td class="text-right">${trend?.days_count || 0}</td>
+          </tr>
+        `;
+      }).join('');
+
+      sections.push(`
+        <div class="section">
+          <div class="section-title">Weekly Revenue Trends</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Week Start</th>
+                <th class="text-right">Weekly Revenue</th>
+                <th class="text-right">Avg Daily Revenue</th>
+                <th class="text-right">Days with Data</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${weeklyRows}
+            </tbody>
+          </table>
+        </div>
+      `);
+    }
+
+    if (monthly_trends.length > 0) {
+      const monthlyRows = monthly_trends.map((trend) => {
+        const monthLabel = trend?.month_start ? new Date(trend.month_start).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'N/A';
+        return `
+          <tr>
+            <td>${monthLabel}</td>
+            <td class="text-right currency">${formatCurrency(trend?.monthly_revenue || 0)}</td>
+            <td class="text-right currency">${formatCurrency(trend?.avg_daily_revenue || 0)}</td>
+            <td class="text-right">${trend?.days_count || 0}</td>
+          </tr>
+        `;
+      }).join('');
+
+      sections.push(`
+        <div class="section">
+          <div class="section-title">Monthly Revenue Trends</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th class="text-right">Monthly Revenue</th>
+                <th class="text-right">Avg Daily Revenue</th>
+                <th class="text-right">Days with Data</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${monthlyRows}
+            </tbody>
+          </table>
+        </div>
+      `);
+    }
+
+    return sections.join('\n');
+  };
+
+  return (
+    <div className="p-4">
+      {/* Add your existing report components here */}
+    </div>
+  );
+};
+
+export default Reports;
