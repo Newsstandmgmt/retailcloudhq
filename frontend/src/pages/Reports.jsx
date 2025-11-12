@@ -11,6 +11,7 @@ import {
 const Reports = () => {
   const { selectedStore } = useStore();
   const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const [activeTab, setActiveTab] = useState('profit-loss');
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
@@ -20,6 +21,12 @@ const Reports = () => {
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState(null);
   const [error, setError] = useState(null);
+  const [showReimburseModal, setShowReimburseModal] = useState(false);
+  const [showCashReconcileModal, setShowCashReconcileModal] = useState(false);
+  const [cashReconcileForm, setCashReconcileForm] = useState({ targetBalance: '', reason: '' });
+  const [cashReconcileSubmitting, setCashReconcileSubmitting] = useState(false);
+  const [cashReconcileError, setCashReconcileError] = useState('');
+  const [reimbursingExpense, setReimbursingExpense] = useState(null);
 
   const { isFeatureEnabled } = useStore();
   
@@ -44,6 +51,8 @@ const Reports = () => {
     if (!tab.feature) return true;
     return isFeatureEnabled(tab.feature);
   });
+
+  const cashTrackingSummary = activeTab === 'cash-tracking' && reportData?.summary ? reportData.summary : null;
 
   useEffect(() => {
     if (selectedStore) {
@@ -3724,6 +3733,60 @@ const Reports = () => {
     }
   };
 
+  const openCashReconcileModal = () => {
+    if (!selectedStore) {
+      alert('Please select a store first.');
+      return;
+    }
+    const current = activeTab === 'cash-tracking' && reportData?.summary
+      ? parseFloat(reportData.summary.current_cash_on_hand || 0)
+      : 0;
+    setCashReconcileForm({
+      targetBalance: current.toFixed(2),
+      reason: ''
+    });
+    setCashReconcileError('');
+    setShowCashReconcileModal(true);
+  };
+
+  const handleSubmitCashReconcile = async (e) => {
+    e.preventDefault();
+    if (!selectedStore) {
+      setCashReconcileError('Please select a store.');
+      return;
+    }
+    const target = parseFloat(cashReconcileForm.targetBalance);
+    if (Number.isNaN(target)) {
+      setCashReconcileError('Enter a valid target balance amount.');
+      return;
+    }
+    const reason = cashReconcileForm.reason.trim();
+    if (!reason) {
+      setCashReconcileError('Reason is required.');
+      return;
+    }
+    const current = reportData?.summary ? parseFloat(reportData.summary.current_cash_on_hand || 0) : 0;
+    if (Math.abs(target - current) < 0.0001) {
+      setCashReconcileError('Target balance matches current balance—no adjustment needed.');
+      return;
+    }
+
+    try {
+      setCashReconcileSubmitting(true);
+      await reportsAPI.reconcileCash(selectedStore.id, {
+        new_balance: target,
+        reason
+      });
+      setShowCashReconcileModal(false);
+      alert('Cash on hand reconciled successfully.');
+      setCashReconcileSubmitting(false);
+      loadReport();
+    } catch (error) {
+      setCashReconcileSubmitting(false);
+      setCashReconcileError(error.response?.data?.error || error.message);
+    }
+  };
+
   if (!selectedStore) {
     return (
       <div className="p-6">
@@ -3776,6 +3839,16 @@ const Reports = () => {
           >
             Refresh
           </button>
+          {activeTab === 'cash-tracking' && isAdmin && (
+            <button
+              type="button"
+              onClick={openCashReconcileModal}
+              className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-md hover:bg-purple-700 disabled:opacity-60"
+              disabled={loading || !selectedStore}
+            >
+              Reconcile Cash
+            </button>
+          )}
         </div>
       </div>
 

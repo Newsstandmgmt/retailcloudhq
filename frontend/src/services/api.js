@@ -610,6 +610,7 @@ export const reportsAPI = {
     const url = query ? `/api/reports/store/${storeId}/cash-tracking?${query}` : `/api/reports/store/${storeId}/cash-tracking`;
     return api.get(url);
   },
+  reconcileCash: (storeId, data) => api.post(`/api/cash-on-hand/store/${storeId}/reconcile`, data),
   getExpenseBreakdown: (storeId, startDate, endDate) => {
     const params = new URLSearchParams();
     params.append('start_date', startDate);
