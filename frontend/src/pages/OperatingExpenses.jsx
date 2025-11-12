@@ -57,6 +57,7 @@ const OperatingExpenses = () => {
   const [crossStoreError, setCrossStoreError] = useState('');
   const [showCrossStoreExpenseModal, setShowCrossStoreExpenseModal] = useState(false);
   const [crossStoreSubmitting, setCrossStoreSubmitting] = useState(false);
+  const [editingCrossStorePayment, setEditingCrossStorePayment] = useState(null);
   const [updatingAllocationId, setUpdatingAllocationId] = useState(null);
   const [showCrossStoreReimbursementModal, setShowCrossStoreReimbursementModal] = useState(false);
   const [crossStoreReimbursementAllocation, setCrossStoreReimbursementAllocation] = useState(null);
@@ -107,6 +108,54 @@ const OperatingExpenses = () => {
     setCrossStoreExpenseForm(createDefaultCrossStoreExpenseForm(defaultSourceId));
   };
 
+  const buildCrossStoreExpenseFormFromPayment = (payment) => {
+    if (!payment) {
+      return createDefaultCrossStoreExpenseForm(selectedStore?.id || '');
+    }
+
+    const paymentAllocations = Array.isArray(payment.allocations) ? payment.allocations : [];
+    const hasPercentages = paymentAllocations.every((allocation) =>
+      Number.isFinite(parseFloat(allocation.allocation_percentage))
+    );
+    const firstAllocation = paymentAllocations[0] || {};
+
+    return {
+      split_mode: hasPercentages ? 'percentage' : 'amount',
+      source_store_id: payment.source_store_id,
+      payment_date: payment.payment_date
+        ? payment.payment_date.split('T')[0]
+        : new Date().toISOString().split('T')[0],
+      entry_date: firstAllocation.expense_entry_date
+        ? firstAllocation.expense_entry_date.split('T')[0]
+        : payment.payment_date
+          ? payment.payment_date.split('T')[0]
+          : new Date().toISOString().split('T')[0],
+      payment_method: payment.payment_method || 'bank',
+      payment_reference: payment.payment_reference || '',
+      amount: Number.isFinite(parseFloat(payment.amount))
+        ? parseFloat(payment.amount).toFixed(2)
+        : '',
+      paid_to: payment.paid_to || '',
+      expense_type_id: firstAllocation.expense_expense_type_id || '',
+      expense_payment_method: firstAllocation.expense_payment_method || payment.payment_method || 'bank',
+      notes: payment.notes || '',
+      payment_notes: payment.payment_notes || '',
+      reimbursement_to: firstAllocation.reimbursement_to || '',
+      allocations: paymentAllocations.map((allocation) => ({
+        target_store_id: allocation.target_store_id,
+        allocated_amount: Number.isFinite(parseFloat(allocation.allocated_amount))
+          ? parseFloat(allocation.allocated_amount).toFixed(2)
+          : '',
+        percentage: Number.isFinite(parseFloat(allocation.allocation_percentage))
+          ? parseFloat(allocation.allocation_percentage).toFixed(3)
+          : '',
+        memo: allocation.memo || '',
+        reimbursement_required: allocation.reimbursement_required !== false,
+        reimbursement_note: allocation.reimbursement_note || '',
+      })),
+    };
+  };
+
   const handleAddCrossStoreExpenseAllocation = () => {
     setCrossStoreExpenseForm((prev) => ({
       ...prev,
@@ -147,6 +196,32 @@ const OperatingExpenses = () => {
       ...prev,
       allocations: prev.allocations.filter((_, allocIndex) => allocIndex !== index),
     }));
+  };
+
+  const handleDeleteCrossStoreExpense = async (payment) => {
+    if (!payment) return;
+    const confirmMessage = `Delete cross-store expense recorded on ${new Date(
+      payment.payment_date
+    ).toLocaleDateString()} for ${formatCurrency(payment.amount)}?`;
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      setCrossStoreLoading(true);
+      await crossStorePaymentsAPI.delete(payment.id);
+      alert('Cross-store expense deleted successfully.');
+      if (selectedStore) {
+        await loadCrossStorePayments(selectedStore.id);
+        await loadExpenses();
+        await loadPendingReimbursements();
+      }
+    } catch (error) {
+      console.error('Failed to delete cross-store expense:', error);
+      alert(error.response?.data?.error || 'Failed to delete cross-store expense.');
+    } finally {
+      setCrossStoreLoading(false);
+    }
   };
 
   const handleCrossStoreExpenseSplitModeChange = (mode) => {
@@ -336,6 +411,7 @@ const OperatingExpenses = () => {
   };
 
   const isCrossStoreExpensePercentageMode = crossStoreExpenseForm.split_mode === 'percentage';
+  const isEditingCrossStoreExpense = Boolean(editingCrossStorePayment);
   const getCrossStoreExpenseBreakdown = () => {
     const totalAmount = parseFloat(crossStoreExpenseForm.amount);
     const amounts = [];
@@ -641,13 +717,20 @@ const OperatingExpenses = () => {
     }
   };
 
-  const handleOpenCrossStoreExpenseModal = () => {
-    resetCrossStoreExpenseForm(selectedStore?.id || '');
+  const handleOpenCrossStoreExpenseModal = (payment = null) => {
+    if (payment) {
+      setEditingCrossStorePayment(payment);
+      setCrossStoreExpenseForm(buildCrossStoreExpenseFormFromPayment(payment));
+    } else {
+      setEditingCrossStorePayment(null);
+      resetCrossStoreExpenseForm(selectedStore?.id || '');
+    }
     setShowCrossStoreExpenseModal(true);
   };
 
   const handleCloseCrossStoreExpenseModal = () => {
     setShowCrossStoreExpenseModal(false);
+    setEditingCrossStorePayment(null);
     resetCrossStoreExpenseForm(selectedStore?.id || '');
   };
 
@@ -776,7 +859,7 @@ const OperatingExpenses = () => {
         }
       }
 
-      await crossStorePaymentsAPI.create({
+      const requestBody = {
         context: 'expense',
         split_mode: crossStoreExpenseForm.split_mode,
         source_store_id: crossStoreExpenseForm.source_store_id,
@@ -796,12 +879,20 @@ const OperatingExpenses = () => {
           notes: crossStoreExpenseForm.notes || null,
           reimbursement_to: crossStoreExpenseForm.reimbursement_to || null,
         },
-      });
+      };
 
-      alert('Cross-store expense recorded successfully.');
+      if (isEditingCrossStoreExpense && editingCrossStorePayment) {
+        await crossStorePaymentsAPI.update(editingCrossStorePayment.id, requestBody);
+        alert('Cross-store expense updated successfully.');
+      } else {
+        await crossStorePaymentsAPI.create(requestBody);
+        alert('Cross-store expense recorded successfully.');
+      }
+
       setShowCrossStoreExpenseModal(false);
       const resetSourceId = crossStoreExpenseForm.source_store_id || selectedStore?.id || '';
       resetCrossStoreExpenseForm(resetSourceId);
+      setEditingCrossStorePayment(null);
       if (selectedStore) {
         loadCrossStorePayments(selectedStore.id);
         loadExpenses();
@@ -1006,7 +1097,15 @@ const OperatingExpenses = () => {
     });
   };
 
-  const crossStoreExpenseAllocations = crossStorePayments.flatMap((payment) =>
+  const crossStoreExpensePayments = crossStorePayments.filter(
+    (payment) =>
+      Array.isArray(payment.allocations) &&
+      payment.allocations.some(
+        (allocation) => allocation.target_type === 'expense' || allocation.expense_id
+      )
+  );
+
+  const crossStoreExpenseAllocations = crossStoreExpensePayments.flatMap((payment) =>
     (payment.allocations || []).map((allocation) => ({
       payment,
       allocation,
@@ -1300,7 +1399,7 @@ const OperatingExpenses = () => {
           {(user?.role === 'admin' || user?.role === 'super_admin') &&
             (stores || []).filter((store) => store.is_active !== false && !store.deleted_at).length > 1 && (
               <button
-                onClick={handleOpenCrossStoreExpenseModal}
+                onClick={() => handleOpenCrossStoreExpenseModal()}
                 className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1314,15 +1413,15 @@ const OperatingExpenses = () => {
                 Cross-Store Expense
               </button>
             )}
-          <button
-            onClick={() => setShowAddExpenseModal(true)}
-            className="px-4 py-2 bg-[#2d8659] text-white rounded-lg hover:bg-[#256b49] transition-colors flex items-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Add Expense Entry
-          </button>
+        <button
+          onClick={() => setShowAddExpenseModal(true)}
+          className="px-4 py-2 bg-[#2d8659] text-white rounded-lg hover:bg-[#256b49] transition-colors flex items-center gap-2"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          Add Expense Entry
+        </button>
         </div>
       </div>
 
@@ -1613,12 +1712,318 @@ const OperatingExpenses = () => {
                 </span>
               )}
             </button>
+            <button
+              onClick={() => setActiveTab('cross-store')}
+              className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'cross-store'
+                  ? 'border-[#2d8659] text-[#2d8659]'
+                  : 'border-transparent text-gray-600 hover:text-[#2d8659] hover:border-[#2d8659]'
+              }`}
+            >
+              Cross-Store Expenses
+              {crossStoreExpensePayments.length > 0 && (
+                <span className="ml-2 px-2 py-0.5 text-xs bg-blue-100 text-blue-800 rounded-full">
+                  {crossStoreExpensePayments.length}
+                </span>
+              )}
+            </button>
           </nav>
         </div>
       </div>
 
-      {/* Filters and Search Section */}
-      {activeTab === 'all' && (
+      {activeTab === 'cross-store' ? (
+        <div className="bg-white rounded-lg shadow p-4 mb-4">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Cross-Store Expenses</h2>
+              <p className="text-sm text-gray-500">
+                Expenses paid by one store and allocated to others. Edit or delete entries here.
+              </p>
+              {crossStoreExpensePendingAllocations.length > 0 && (
+                <p className="mt-2 text-sm font-medium text-orange-700">
+                  {crossStoreExpensePendingSummaryText}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleOpenCrossStoreExpenseModal()}
+                className="inline-flex items-center gap-2 px-3 py-2 bg-[#2d8659] text-white rounded-md text-sm hover:bg-[#256b49]"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                New Cross-Store Expense
+              </button>
+              <button
+                onClick={() => selectedStore && loadCrossStorePayments(selectedStore.id)}
+                className="px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50"
+                disabled={crossStoreLoading}
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {crossStoreError && (
+            <div className="mb-3 text-sm text-red-600">
+              {crossStoreError}
+            </div>
+          )}
+
+          {crossStoreLoading ? (
+            <div className="py-6 text-center text-sm text-gray-500">Loading cross-store expenses...</div>
+          ) : crossStoreExpensePayments.length === 0 ? (
+            <div className="py-6 text-center text-sm text-gray-500">
+              No cross-store expenses recorded for this store yet.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {crossStoreExpensePayments.map((payment) => {
+                const isSourceStore = payment.source_store_id === selectedStore.id;
+                const hasCompletedReimbursement = Array.isArray(payment.allocations)
+                  && payment.allocations.some((allocation) => allocation.reimbursement_status === 'completed');
+                return (
+                  <div key={payment.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold text-gray-900">
+                          {new Date(payment.payment_date).toLocaleDateString()}
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          Payment Method: <span className="capitalize">{payment.payment_method}</span>
+                          {payment.payment_reference && (
+                            <span className="ml-2 text-gray-500">Ref: {payment.payment_reference}</span>
+                          )}
+                        </div>
+                        {payment.paid_to && (
+                          <div className="text-sm text-gray-600">
+                            Paid to: {payment.paid_to}
+                          </div>
+                        )}
+                        <div className="mt-1 text-xs text-gray-500">
+                          Source Store: {payment.source_store_name || 'Unknown'}
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        {isSourceStore && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenCrossStoreExpenseModal(payment)}
+                              className={`px-3 py-1.5 text-sm rounded-md border ${
+                                hasCompletedReimbursement
+                                  ? 'border-gray-300 text-gray-400 cursor-not-allowed'
+                                  : 'border-[#2d8659] text-[#2d8659] hover:bg-[#2d8659]/10'
+                              }`}
+                              disabled={hasCompletedReimbursement}
+                              title={
+                                hasCompletedReimbursement
+                                  ? 'Reimbursements have been completed. Mark them pending before editing.'
+                                  : 'Edit cross-store expense'
+                              }
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCrossStoreExpense(payment)}
+                              className="px-3 py-1.5 text-sm rounded-md border border-red-300 text-red-600 hover:bg-red-50"
+                              disabled={crossStoreLoading}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                        <div className="text-right">
+                          <div className="text-sm text-gray-500 uppercase tracking-wide">Total</div>
+                          <div className="text-lg font-semibold text-gray-900">
+                            {formatCurrency(payment.amount)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      {payment.allocations.map((allocation) => {
+                        const statusLabel =
+                          allocation.reimbursement_required === false
+                            ? 'Not Required'
+                            : allocation.reimbursement_status === 'completed'
+                              ? 'Reimbursed'
+                              : 'Pending';
+                        const statusClass =
+                          allocation.reimbursement_required === false
+                            ? 'bg-gray-100 text-gray-600'
+                            : allocation.reimbursement_status === 'completed'
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-orange-100 text-orange-700';
+                        const isPending =
+                          allocation.reimbursement_required !== false &&
+                          allocation.reimbursement_status !== 'completed';
+                        const isCompleted =
+                          allocation.reimbursement_required !== false &&
+                          allocation.reimbursement_status === 'completed';
+                        const isTargetStore = allocation.target_store_id === selectedStore.id;
+                        const allocationPercentage = parseFloat(allocation.allocation_percentage);
+                        return (
+                          <div key={allocation.id} className="border border-gray-200 bg-white rounded-md p-3 shadow-sm">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div>
+                                <div className="font-medium text-gray-900">
+                                  {allocation.target_store_name || 'Target Store'}
+                                  {isSourceStore && !isTargetStore && (
+                                    <span className="ml-2 text-xs uppercase tracking-wide text-purple-600">
+                                      Due from {allocation.target_store_name || 'store'}
+                                    </span>
+                                  )}
+                                  {!isSourceStore && isTargetStore && (
+                                    <span className="ml-2 text-xs uppercase tracking-wide text-blue-600">
+                                      Paid by {payment.source_store_name || 'store'}
+                                    </span>
+                                  )}
+                                </div>
+                                {allocation.expense_type_name && (
+                                  <div className="text-xs text-gray-500">
+                                    Expense Type: {allocation.expense_type_name}
+                                  </div>
+                                )}
+                                {allocation.expense_entry_date && (
+                                  <div className="text-xs text-gray-500">
+                                    Recorded on {formatDate(allocation.expense_entry_date)}
+                                  </div>
+                                )}
+                                {allocation.memo && (
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    Note: {allocation.memo}
+                                  </div>
+                                )}
+                                {allocation.expense_notes && (
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    Expense Notes: {allocation.expense_notes}
+                                  </div>
+                                )}
+                                {allocation.reimbursement_method && (
+                                  <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+                                    <div>
+                                      Method: {formatReimbursementMethod(allocation.reimbursement_method)}
+                                      {allocation.reimbursement_method === 'check' &&
+                                        allocation.reimbursement_check_number &&
+                                        ` • Check #${allocation.reimbursement_check_number}`}
+                                      {allocation.reimbursement_method === 'ach' &&
+                                        allocation.reimbursement_reference &&
+                                        ` • Ref: ${allocation.reimbursement_reference}`}
+                                      {allocation.reimbursement_method !== 'check' &&
+                                        allocation.reimbursement_method !== 'ach' &&
+                                        allocation.reimbursement_reference &&
+                                        ` • Ref: ${allocation.reimbursement_reference}`}
+                                    </div>
+                                    {allocation.reimbursement_bank_name && (
+                                      <div>
+                                        Bank: {allocation.reimbursement_bank_name}
+                                        {allocation.reimbursement_bank_short_name
+                                          ? ` (${allocation.reimbursement_bank_short_name})`
+                                          : ''}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {allocation.reimbursement_method === 'cash' &&
+                                  Number.isFinite(parseFloat(allocation.reimbursed_cash_amount)) && (
+                                    <div className="text-xs text-gray-500">
+                                      Cash posted: {formatCurrency(allocation.reimbursed_cash_amount)}
+                                    </div>
+                                  )}
+                              </div>
+                              <div className="text-right">
+                                <div className="text-lg font-semibold text-gray-900">
+                                  {formatCurrency(allocation.allocated_amount)}
+                                </div>
+                                {Number.isFinite(allocationPercentage) && (
+                                  <div className="text-xs text-gray-500">
+                                    ({allocationPercentage.toFixed(2)}%)
+                                  </div>
+                                )}
+                                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusClass}`}>
+                                  {statusLabel}
+                                </span>
+                              </div>
+                            </div>
+                            {allocation.reimbursement_note && (
+                              <div className="mt-2 text-xs text-gray-500">
+                                Reimbursement note: {allocation.reimbursement_note}
+                              </div>
+                            )}
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {isPending && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenCrossStoreReimbursementModal(allocation)}
+                                  className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                  disabled={updatingAllocationId === allocation.id}
+                                >
+                                  {updatingAllocationId === allocation.id ? 'Updating…' : 'Reimburse'}
+                                </button>
+                              )}
+                              {isPending && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateCrossStoreAllocationStatus(
+                                      allocation.id,
+                                      { status: 'not_required' },
+                                      'Marked as not requiring reimbursement.'
+                                    )
+                                  }
+                                  className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                  disabled={updatingAllocationId === allocation.id}
+                                >
+                                  {updatingAllocationId === allocation.id ? 'Updating…' : 'Mark Not Required'}
+                                </button>
+                              )}
+                              {isCompleted && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateCrossStoreAllocationStatus(
+                                      allocation.id,
+                                      { status: 'pending' },
+                                      'Reimbursement marked as pending.'
+                                    )
+                                  }
+                                  className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                  disabled={updatingAllocationId === allocation.id}
+                                >
+                                  {updatingAllocationId === allocation.id ? 'Updating…' : 'Mark Pending'}
+                                </button>
+                              )}
+                              {allocation.reimbursement_required === false && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateCrossStoreAllocationStatus(
+                                      allocation.id,
+                                      { status: 'pending', reimbursement_required: true },
+                                      'Reimbursement requirement enabled and set to pending.'
+                                    )
+                                  }
+                                  className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                  disabled={updatingAllocationId === allocation.id}
+                                >
+                                  {updatingAllocationId === allocation.id ? 'Updating…' : 'Require Reimbursement'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
         <div className="bg-white rounded-lg shadow p-4 mb-4">
           <div className="flex flex-wrap items-center gap-4 mb-4">
             {/* Period Filter */}

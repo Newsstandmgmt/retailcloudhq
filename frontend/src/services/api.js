@@ -831,6 +831,8 @@ export const crossStorePaymentsAPI = {
   create: (data) => api.post('/api/cross-store-payments', data),
   list: (params = {}) => api.get('/api/cross-store-payments', { params }),
   getById: (paymentId) => api.get(`/api/cross-store-payments/${paymentId}`),
+  update: (paymentId, data) => api.put(`/api/cross-store-payments/${paymentId}`, data),
+  delete: (paymentId) => api.delete(`/api/cross-store-payments/${paymentId}`),
   updateAllocationReimbursement: (allocationId, data) =>
     api.post(`/api/cross-store-payments/allocations/${allocationId}/reimbursement`, data),
 };

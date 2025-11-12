@@ -597,6 +597,267 @@ class CrossStorePayment {
             client.release();
         }
     }
+
+    static async updatePayment(paymentId, paymentData, allocations = [], options = {}) {
+        const {
+            source_store_id,
+            payment_date,
+            payment_method,
+            payment_reference,
+            amount,
+            currency,
+            paid_to,
+            notes,
+            metadata
+        } = paymentData;
+        const {
+            context = 'payment',
+            expenseDefaults = {},
+            rawAllocations = [],
+            userId = null
+        } = options;
+
+        const client = await getClient();
+        try {
+            await client.query('BEGIN');
+
+            const existingPaymentResult = await client.query(
+                'SELECT * FROM cross_store_payments WHERE id = $1',
+                [paymentId]
+            );
+
+            if (existingPaymentResult.rows.length === 0) {
+                throw new Error('Cross-store payment not found.');
+            }
+
+            const existingAllocationsResult = await client.query(
+                'SELECT * FROM cross_store_payment_allocations WHERE payment_id = $1',
+                [paymentId]
+            );
+
+            const hasCompletedReimbursement = existingAllocationsResult.rows.some(
+                (row) => row.reimbursement_status === 'completed'
+            );
+            if (hasCompletedReimbursement) {
+                throw new Error('Cannot edit a cross-store payment that has completed reimbursements. Mark them as pending first.');
+            }
+
+            await DailyOperatingExpenses.deleteByCrossStorePayment(paymentId, client);
+            await client.query(
+                'DELETE FROM cross_store_payment_allocations WHERE payment_id = $1',
+                [paymentId]
+            );
+
+            const paymentResult = await client.query(
+                `UPDATE cross_store_payments
+                 SET source_store_id = $1,
+                     payment_date = $2,
+                     payment_method = $3,
+                     payment_reference = $4,
+                     amount = $5,
+                     currency = $6,
+                     paid_to = $7,
+                     notes = $8,
+                     metadata = $9,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $10
+                 RETURNING *`,
+                [
+                    source_store_id,
+                    payment_date,
+                    payment_method,
+                    payment_reference || null,
+                    amount,
+                    currency || 'USD',
+                    paid_to || null,
+                    notes || null,
+                    metadata ? JSON.stringify(metadata) : null,
+                    paymentId
+                ]
+            );
+
+            const payment = paymentResult.rows[0];
+            const allocationRows = [];
+
+            for (const alloc of allocations) {
+                const reimbursementRequired = alloc.reimbursement_required !== false;
+                const reimbursementStatus = reimbursementRequired ? 'pending' : 'not_required';
+                const allocationResult = await client.query(
+                    `INSERT INTO cross_store_payment_allocations (
+                        payment_id,
+                        target_store_id,
+                        allocated_amount,
+                        target_type,
+                        target_id,
+                        memo,
+                        approved_by,
+                        approved_at,
+                        metadata,
+                        reimbursement_required,
+                        reimbursement_status,
+                        reimbursed_at,
+                        reimbursed_amount,
+                        reimbursed_by,
+                        reimbursement_note,
+                        allocation_percentage
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+                    RETURNING *`,
+                    [
+                        payment.id,
+                    alloc.target_store_id,
+                    alloc.allocated_amount,
+                    null,
+                    null,
+                    alloc.memo || null,
+                        alloc.approved_by || null,
+                        alloc.approved_at || null,
+                        alloc.metadata ? JSON.stringify(alloc.metadata) : null,
+                        reimbursementRequired,
+                        reimbursementStatus,
+                        null,
+                        null,
+                        null,
+                        alloc.reimbursement_note || null,
+                        alloc.allocation_percentage !== undefined && alloc.allocation_percentage !== null
+                            ? parseFloat(alloc.allocation_percentage)
+                            : null
+                    ]
+                );
+                allocationRows.push({
+                    ...allocationResult.rows[0],
+                    client_reference: alloc.client_reference || null
+                });
+            }
+
+            const contextIsExpense = context === 'expense';
+            const expensesCreated = [];
+
+            if (contextIsExpense) {
+                for (let index = 0; index < allocationRows.length; index++) {
+                    const allocationRow = allocationRows[index];
+                    const allocationInput = rawAllocations[index] || {};
+
+                    const expenseTypeId =
+                        allocationInput.expense_type_id || expenseDefaults.expense_type_id || null;
+                    const expenseEntryDate =
+                        allocationInput.entry_date ||
+                        expenseDefaults.entry_date ||
+                        payment_date;
+                    const expensePaymentMethod =
+                        allocationInput.expense_payment_method ||
+                        expenseDefaults.payment_method ||
+                        payment_method;
+                    const reimbursementRequired = allocationRow.reimbursement_required !== false;
+                    const reimbursementStatus = reimbursementRequired ? 'pending' : 'none';
+                    const reimbursementTo = reimbursementRequired
+                        ? (allocationInput.reimbursement_to ||
+                            expenseDefaults.reimbursement_to ||
+                            paid_to ||
+                            null)
+                        : null;
+                    const notesParts = [
+                        allocationInput.expense_note,
+                        expenseDefaults.notes,
+                        allocationRow.memo
+                    ].filter(Boolean);
+
+                    const expenseData = {
+                        store_id: allocationRow.target_store_id,
+                        entry_date: expenseEntryDate,
+                        expense_type_id: expenseTypeId,
+                        amount: parseFloat(allocationRow.allocated_amount),
+                        is_recurring: expenseDefaults.is_recurring || false,
+                        recurring_frequency: expenseDefaults.recurring_frequency || null,
+                        is_autopay: expenseDefaults.is_autopay || false,
+                        payment_method: expensePaymentMethod,
+                        bank_id: expenseDefaults.bank_id || null,
+                        bank_account_name: expenseDefaults.bank_account_name || null,
+                        credit_card_id: expenseDefaults.credit_card_id || null,
+                        is_reimbursable: reimbursementRequired,
+                        reimbursement_to: reimbursementTo,
+                        reimbursement_status: reimbursementStatus,
+                        notes: notesParts.join(' • ') || null,
+                        entered_by: userId || payment.created_by || null,
+                        paid_by_store_id: source_store_id,
+                        cross_store_payment_id: payment.id,
+                        cross_store_allocation_id: allocationRow.id
+                    };
+
+                    const createdExpense = await DailyOperatingExpenses.create(expenseData, client);
+                    expensesCreated.push(createdExpense);
+
+                    await client.query(
+                        `UPDATE cross_store_payment_allocations
+                         SET target_type = 'expense',
+                             target_id = $1
+                         WHERE id = $2`,
+                        [createdExpense.id, allocationRow.id]
+                    );
+
+                    allocationRows[index] = {
+                        ...allocationRows[index],
+                        target_type: 'expense',
+                        target_id: createdExpense.id,
+                        expense_id: createdExpense.id
+                    };
+                }
+            }
+
+            await client.query('COMMIT');
+
+            const updatedPayment = await CrossStorePayment.findById(payment.id);
+            if (updatedPayment) {
+                updatedPayment.expenses_created = contextIsExpense ? expensesCreated : [];
+            }
+            return updatedPayment;
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
+
+    static async deletePayment(paymentId) {
+        const client = await getClient();
+        try {
+            await client.query('BEGIN');
+
+            const paymentResult = await client.query(
+                'SELECT * FROM cross_store_payments WHERE id = $1',
+                [paymentId]
+            );
+
+            if (paymentResult.rows.length === 0) {
+                throw new Error('Cross-store payment not found.');
+            }
+
+            const allocationResult = await client.query(
+                'SELECT * FROM cross_store_payment_allocations WHERE payment_id = $1',
+                [paymentId]
+            );
+
+            const hasCompletedReimbursement = allocationResult.rows.some(
+                (row) => row.reimbursement_status === 'completed'
+            );
+            if (hasCompletedReimbursement) {
+                throw new Error('Cannot delete a cross-store payment that has completed reimbursements. Mark them as pending first.');
+            }
+
+            await DailyOperatingExpenses.deleteByCrossStorePayment(paymentId, client);
+            await client.query('DELETE FROM cross_store_payment_allocations WHERE payment_id = $1', [paymentId]);
+            await client.query('DELETE FROM cross_store_payments WHERE id = $1', [paymentId]);
+
+            await client.query('COMMIT');
+
+            return paymentResult.rows[0];
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
 }
 
 module.exports = CrossStorePayment;

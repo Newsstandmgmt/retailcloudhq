@@ -18,6 +18,111 @@ const hasStoreAccess = async (userId, storeId) => {
     return result.rows[0]?.can_access === true;
 };
 
+const normalizeAllocations = async ({
+    userId,
+    sourceStoreId,
+    allocations,
+    splitMode,
+    numericAmount
+}) => {
+    if (!Array.isArray(allocations) || allocations.length === 0) {
+        throw new Error('At least one allocation is required.');
+    }
+
+    const computedAmounts = [];
+    const computedPercentages = [];
+
+    if (splitMode === 'percentage') {
+        const rawPercentages = [];
+        for (let index = 0; index < allocations.length; index++) {
+            const allocation = allocations[index];
+            const percentage = parseFloat(allocation.percentage ?? allocation.allocation_percentage);
+            if (!Number.isFinite(percentage) || percentage <= 0) {
+                throw new Error(`Allocation ${index + 1} must include a positive percentage.`);
+            }
+            rawPercentages.push(percentage);
+        }
+
+        const totalPercentage = rawPercentages.reduce((sum, value) => sum + value, 0);
+        if (!Number.isFinite(totalPercentage) || Math.abs(totalPercentage - 100) > 0.01) {
+            throw new Error('Allocation percentages must add up to 100%.');
+        }
+
+        let runningAmount = 0;
+        rawPercentages.forEach((percentage, index) => {
+            let amount;
+            if (index === allocations.length - 1) {
+                amount = parseFloat((numericAmount - runningAmount).toFixed(2));
+            } else {
+                amount = Math.round(numericAmount * percentage * 100) / 100;
+                amount = parseFloat(amount.toFixed(2));
+                runningAmount += amount;
+            }
+            computedAmounts.push(amount);
+            computedPercentages.push(percentage);
+        });
+    }
+
+    let allocationTotal = 0;
+    const cleanedAllocations = [];
+
+    for (let index = 0; index < allocations.length; index++) {
+        const alloc = allocations[index];
+        const targetStoreId = alloc.target_store_id;
+
+        if (!targetStoreId) {
+            throw new Error('Each allocation must include a target store.');
+        }
+
+        const canAccessTarget = await hasStoreAccess(userId, targetStoreId);
+        if (!canAccessTarget) {
+            throw new Error('You do not have access to one of the target stores.');
+        }
+
+        let allocatedAmount;
+        let allocationPercentage = null;
+
+        if (splitMode === 'percentage') {
+            allocatedAmount = computedAmounts[index];
+            allocationPercentage = computedPercentages[index];
+        } else {
+            allocatedAmount = parseFloat(alloc.amount ?? alloc.allocated_amount);
+            if (!Number.isFinite(allocatedAmount) || allocatedAmount <= 0) {
+                throw new Error('Each allocation must have a valid amount.');
+            }
+            const rawPercentage = parseFloat(alloc.percentage ?? alloc.allocation_percentage);
+            if (Number.isFinite(rawPercentage) && rawPercentage > 0) {
+                allocationPercentage = rawPercentage;
+            } else if (numericAmount > 0) {
+                allocationPercentage = (allocatedAmount / numericAmount) * 100;
+            }
+            allocatedAmount = parseFloat(allocatedAmount.toFixed(2));
+        }
+
+        allocationTotal += allocatedAmount;
+        cleanedAllocations.push({
+            target_store_id: targetStoreId,
+            allocated_amount: parseFloat(allocatedAmount.toFixed(2)),
+            allocation_percentage:
+                allocationPercentage !== null && Number.isFinite(allocationPercentage)
+                    ? parseFloat(allocationPercentage.toFixed(3))
+                    : null,
+            target_type: alloc.target_type || null,
+            target_id: alloc.target_id || null,
+            memo: alloc.memo || null,
+            metadata: alloc.metadata || null,
+            reimbursement_required: alloc.reimbursement_required !== false,
+            reimbursement_note: alloc.reimbursement_note || null
+        });
+    }
+
+    if (Math.abs(allocationTotal - numericAmount) > 0.01) {
+        throw new Error('Allocations must add up to the total payment amount.');
+    }
+
+    return cleanedAllocations;
+};
+
 router.post('/', authorize('admin', 'super_admin'), async (req, res) => {
     try {
         const {
@@ -67,25 +172,11 @@ router.post('/', authorize('admin', 'super_admin'), async (req, res) => {
         let computedPercentages = [];
 
         if (splitMode === 'percentage') {
-            const rawPercentages = [];
-            for (let index = 0; index < allocations.length; index++) {
-                const allocation = allocations[index];
-                const percentage = parseFloat(allocation.percentage ?? allocation.allocation_percentage);
-                if (!Number.isFinite(percentage) || percentage <= 0) {
-                    return res.status(400).json({
-                        error: `Allocation ${index + 1} must include a positive percentage.`,
-                    });
-                }
-                rawPercentages.push(percentage);
-            }
-
-            const totalPercentage = rawPercentages.reduce((sum, value) => sum + value, 0);
-            if (!Number.isFinite(totalPercentage) || Math.abs(totalPercentage - 100) > 0.01) {
-                return res.status(400).json({
-                    error: 'Allocation percentages must add up to 100%.',
-                });
-            }
-
+            // Legacy support: computedAmounts populated for downstream calculations
+            // normalizeAllocations handles validation; this retains previous behaviour for remainder logic
+            const rawPercentages = allocations.map((allocation) =>
+                parseFloat(allocation.percentage ?? allocation.allocation_percentage)
+            );
             let runningAmount = 0;
             rawPercentages.forEach((percentage, index) => {
                 let amount;
@@ -101,60 +192,17 @@ router.post('/', authorize('admin', 'super_admin'), async (req, res) => {
             });
         }
 
-        let allocationTotal = 0;
-        const cleanedAllocations = [];
-
-        for (let index = 0; index < allocations.length; index++) {
-            const alloc = allocations[index];
-            const targetStoreId = alloc.target_store_id;
-            if (!targetStoreId) {
-                return res.status(400).json({ error: 'Each allocation must include a target store.' });
-            }
-
-            const canAccessTarget = await hasStoreAccess(req.user.id, targetStoreId);
-            if (!canAccessTarget) {
-                return res.status(403).json({ error: 'You do not have access to one of the target stores.' });
-            }
-
-            let allocatedAmount;
-            let allocationPercentage = null;
-
-            if (splitMode === 'percentage') {
-                allocatedAmount = computedAmounts[index];
-                allocationPercentage = computedPercentages[index];
-            } else {
-                allocatedAmount = parseFloat(alloc.amount ?? alloc.allocated_amount);
-                if (!Number.isFinite(allocatedAmount) || allocatedAmount <= 0) {
-                    return res.status(400).json({ error: 'Each allocation must have a valid amount.' });
-                }
-                const rawPercentage = parseFloat(alloc.percentage ?? alloc.allocation_percentage);
-                if (Number.isFinite(rawPercentage) && rawPercentage > 0) {
-                    allocationPercentage = rawPercentage;
-                } else if (numericAmount > 0) {
-                    allocationPercentage = (allocatedAmount / numericAmount) * 100;
-                }
-                allocatedAmount = parseFloat(allocatedAmount.toFixed(2));
-            }
-
-            allocationTotal += allocatedAmount;
-            cleanedAllocations.push({
-                target_store_id: targetStoreId,
-                allocated_amount: parseFloat(allocatedAmount.toFixed(2)),
-                allocation_percentage:
-                    allocationPercentage !== null && Number.isFinite(allocationPercentage)
-                        ? parseFloat(allocationPercentage.toFixed(3))
-                        : null,
-                target_type: alloc.target_type || null,
-                target_id: alloc.target_id || null,
-                memo: alloc.memo || null,
-                metadata: alloc.metadata || null,
-                reimbursement_required: alloc.reimbursement_required !== false,
-                reimbursement_note: alloc.reimbursement_note || null
+        let cleanedAllocations;
+        try {
+            cleanedAllocations = await normalizeAllocations({
+                userId: req.user.id,
+                sourceStoreId: source_store_id,
+                allocations,
+                splitMode,
+                numericAmount
             });
-        }
-
-        if (Math.abs(allocationTotal - numericAmount) > 0.01) {
-            return res.status(400).json({ error: 'Allocations must add up to the total payment amount.' });
+        } catch (validationError) {
+            return res.status(400).json({ error: validationError.message });
         }
 
         const payment = await CrossStorePayment.create(
@@ -289,6 +337,169 @@ router.post('/', authorize('admin', 'super_admin'), async (req, res) => {
     } catch (error) {
         console.error('Create cross-store payment error:', error);
         res.status(500).json({ error: error.message || 'Failed to create cross-store payment.' });
+    }
+});
+
+router.put('/:paymentId', authorize('admin', 'super_admin'), async (req, res) => {
+    try {
+        const paymentId = req.params.paymentId;
+        const existing = await CrossStorePayment.findById(paymentId);
+
+        if (!existing) {
+            return res.status(404).json({ error: 'Cross-store payment not found.' });
+        }
+
+        const canAccessExistingSource = await hasStoreAccess(req.user.id, existing.source_store_id);
+        if (!canAccessExistingSource) {
+            return res.status(403).json({ error: 'You do not have access to the source store.' });
+        }
+
+        const {
+            source_store_id = existing.source_store_id,
+            payment_date,
+            payment_method,
+            payment_reference,
+            amount,
+            currency,
+            paid_to,
+            notes,
+            metadata,
+            allocations
+        } = req.body;
+        const context = req.body.context || 'payment';
+        const expenseDefaults = req.body.expense_defaults || {};
+        const splitMode = req.body.split_mode === 'percentage' ? 'percentage' : 'amount';
+
+        const numericAmount = parseFloat(amount);
+        if (!numericAmount || numericAmount <= 0) {
+            return res.status(400).json({ error: 'Valid payment amount is required.' });
+        }
+
+        if (!payment_date) {
+            return res.status(400).json({ error: 'Payment date is required.' });
+        }
+
+        if (!payment_method) {
+            return res.status(400).json({ error: 'Payment method is required.' });
+        }
+
+        if (!Array.isArray(allocations) || allocations.length === 0) {
+            return res.status(400).json({ error: 'At least one allocation is required.' });
+        }
+
+        let cleanedAllocations;
+        try {
+            cleanedAllocations = await normalizeAllocations({
+                userId: req.user.id,
+                sourceStoreId: source_store_id,
+                allocations,
+                splitMode,
+                numericAmount
+            });
+        } catch (validationError) {
+            return res.status(400).json({ error: validationError.message });
+        }
+
+        const canAccessSource = await hasStoreAccess(req.user.id, source_store_id);
+        if (!canAccessSource) {
+            return res.status(403).json({ error: 'You do not have access to the source store.' });
+        }
+
+        const updatedPayment = await CrossStorePayment.updatePayment(
+            paymentId,
+            {
+                source_store_id,
+                payment_date,
+                payment_method,
+                payment_reference,
+                amount: numericAmount,
+                currency: currency || existing.currency || 'USD',
+                paid_to,
+                notes,
+                metadata
+            },
+            cleanedAllocations,
+            {
+                context,
+                expenseDefaults,
+                rawAllocations: allocations,
+                userId: req.user.id
+            }
+        );
+
+        try {
+            await AuditLog.create({
+                user_id: req.user.id,
+                user_email: req.user.email,
+                user_name: `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim(),
+                action_type: 'update',
+                entity_type: 'cross_store_payment',
+                entity_id: paymentId,
+                action_description: `Updated cross-store payment ${paymentId}.`,
+                resource_path: req.originalUrl,
+                http_method: req.method,
+                store_id: source_store_id,
+                old_values: existing,
+                new_values: updatedPayment
+            });
+        } catch (auditError) {
+            console.warn('Failed to create audit log for cross store payment update:', auditError.message);
+        }
+
+        res.json({ payment: updatedPayment });
+    } catch (error) {
+        console.error('Update cross-store payment error:', error);
+        res.status(500).json({ error: error.message || 'Failed to update cross-store payment.' });
+    }
+});
+
+router.delete('/:paymentId', authorize('admin', 'super_admin'), async (req, res) => {
+    try {
+        const paymentId = req.params.paymentId;
+        const payment = await CrossStorePayment.findById(paymentId);
+
+        if (!payment) {
+            return res.status(404).json({ error: 'Cross-store payment not found.' });
+        }
+
+        const canAccessSource = await hasStoreAccess(req.user.id, payment.source_store_id);
+        if (!canAccessSource) {
+            return res.status(403).json({ error: 'You do not have access to the source store.' });
+        }
+
+        const hasCompletedReimbursement =
+            Array.isArray(payment.allocations) &&
+            payment.allocations.some((alloc) => alloc.reimbursement_status === 'completed');
+        if (hasCompletedReimbursement) {
+            return res.status(400).json({
+                error: 'Cannot delete a cross-store payment that has completed reimbursements. Mark them as pending first.',
+            });
+        }
+
+        await CrossStorePayment.deletePayment(paymentId);
+
+        try {
+            await AuditLog.create({
+                user_id: req.user.id,
+                user_email: req.user.email,
+                user_name: `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim(),
+                action_type: 'delete',
+                entity_type: 'cross_store_payment',
+                entity_id: paymentId,
+                action_description: `Deleted cross-store payment ${paymentId}.`,
+                resource_path: req.originalUrl,
+                http_method: req.method,
+                store_id: payment.source_store_id,
+                old_values: payment
+            });
+        } catch (auditError) {
+            console.warn('Failed to create audit log for cross store payment deletion:', auditError.message);
+        }
+
+        res.status(204).send();
+    } catch (error) {
+        console.error('Delete cross-store payment error:', error);
+        res.status(500).json({ error: error.message || 'Failed to delete cross-store payment.' });
     }
 });
 

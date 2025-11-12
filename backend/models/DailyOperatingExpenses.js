@@ -1,12 +1,19 @@
 const { query } = require('../config/database');
 
+const getExecutor = (client) => {
+    if (client && typeof client.query === 'function') {
+        return (text, params) => client.query(text, params);
+    }
+    return query;
+};
+
 class DailyOperatingExpenses {
     constructor(data) {
         Object.assign(this, data);
     }
     
     // Create daily expense entry
-    static async create(expenseData) {
+    static async create(expenseData, client = null) {
         const {
             store_id,
             entry_date,
@@ -29,7 +36,9 @@ class DailyOperatingExpenses {
             cross_store_allocation_id = null
         } = expenseData;
         
-        const result = await query(
+        const exec = getExecutor(client);
+
+        const result = await exec(
             `INSERT INTO daily_operating_expenses (
                 store_id, entry_date, expense_type_id, amount,
                 is_recurring, recurring_frequency, is_autopay,
@@ -178,7 +187,7 @@ class DailyOperatingExpenses {
     }
     
     // Update expense entry
-    static async update(id, updateData) {
+    static async update(id, updateData, client = null) {
         const {
             entry_date,
             expense_type_id,
@@ -195,7 +204,8 @@ class DailyOperatingExpenses {
             notes
         } = updateData;
         
-        const result = await query(
+        const exec = getExecutor(client);
+        const result = await exec(
             `UPDATE daily_operating_expenses 
              SET entry_date = COALESCE($1, entry_date),
                  expense_type_id = COALESCE($2, expense_type_id),
@@ -232,7 +242,7 @@ class DailyOperatingExpenses {
     }
     
     // Mark expense as reimbursed
-    static async markReimbursed(id, reimbursementData) {
+    static async markReimbursed(id, reimbursementData, client = null) {
         const { 
             reimbursement_date, 
             reimbursement_amount,
@@ -241,7 +251,8 @@ class DailyOperatingExpenses {
             reimbursement_bank_id
         } = reimbursementData;
         
-        const result = await query(
+        const exec = getExecutor(client);
+        const result = await exec(
             `UPDATE daily_operating_expenses 
              SET reimbursement_status = 'reimbursed',
                  reimbursement_date = $1,
@@ -266,12 +277,21 @@ class DailyOperatingExpenses {
     }
     
     // Delete expense entry
-    static async delete(id) {
-        const result = await query(
+    static async delete(id, client = null) {
+        const exec = getExecutor(client);
+        const result = await exec(
             'DELETE FROM daily_operating_expenses WHERE id = $1 RETURNING *',
             [id]
         );
         return result.rows[0] || null;
+    }
+
+    static async deleteByCrossStorePayment(paymentId, client = null) {
+        const exec = getExecutor(client);
+        await exec(
+            'DELETE FROM daily_operating_expenses WHERE cross_store_payment_id = $1',
+            [paymentId]
+        );
     }
     
     // Get pending reimbursements
