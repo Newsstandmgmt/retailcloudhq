@@ -63,7 +63,8 @@ router.post('/store/:storeId', canAccessStore, async (req, res) => {
             prepaid_tax, tax_type, tax_rate, tax_inclusive,
             paid_on_purchase, payment_method_on_purchase, bank_id_on_purchase, bank_account_name_on_purchase, credit_card_id_on_purchase,
             is_reimbursable, reimbursement_to, reimbursement_status, reimbursement_payment_method, reimbursement_check_number,
-            expected_revenue, revenue_calculation_method, invoice_items
+            expected_revenue, revenue_calculation_method, invoice_items,
+            is_cigarette_purchase, cigarette_cartons_purchased
         } = req.body;
         
         // Invoice number is only required for Invoice or Credit Memo payment options
@@ -138,6 +139,10 @@ router.post('/store/:storeId', canAccessStore, async (req, res) => {
             expected_revenue: calculatedExpectedRevenue,
             revenue_calculation_method: revenue_calculation_method || null,
             invoice_items: invoice_items || null,
+            is_cigarette_purchase: is_cigarette_purchase === true || is_cigarette_purchase === 'true',
+            cigarette_cartons_purchased: is_cigarette_purchase
+                ? (parseInt(cigarette_cartons_purchased, 10) || 0)
+                : 0,
             entered_by: req.user.id
         });
 

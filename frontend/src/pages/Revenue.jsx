@@ -56,6 +56,7 @@ const Revenue = () => {
     sam_newspaper: '',
     customer_tab: '',
     other_cash_expense: '',
+    cigarette_cartons_sold: '',
     weekly_lottery_commission: '',
     thirteen_week_average: '',
     weekly_lottery_due: '',
@@ -360,11 +361,16 @@ const handleSyncSquareSales = async () => {
               formDataUpdate.newspaper_sold = 0;
               formDataUpdate.elias_newspaper = 0;
               formDataUpdate.sam_newspaper = 0;
+              formDataUpdate.cigarette_cartons_sold = 0;
               formDataUpdate.customer_tab = 0;
               formDataUpdate.other_cash_expense = 0;
+              // Clear weekly lottery fields
               formDataUpdate.weekly_lottery_commission = '';
               formDataUpdate.thirteen_week_average = '';
               formDataUpdate.weekly_lottery_due = '';
+              // Clear bank deposit amounts
+              setBusinessBankDepositAmount('');
+              setLotteryBankDepositAmount('');
             }
             
             return formDataUpdate;
@@ -401,6 +407,7 @@ const handleSyncSquareSales = async () => {
             total_instant_adjustment: '',
             instant_pay: '',
             lottery_credit_card: '',
+            cigarette_cartons_sold: '',
             weekly_lottery_commission: '',
             thirteen_week_average: '',
             weekly_lottery_due: '',
@@ -455,8 +462,7 @@ const handleSyncSquareSales = async () => {
         newFormData.newspaper_sold = 0;
         newFormData.elias_newspaper = 0;
         newFormData.sam_newspaper = 0;
-        newFormData.customer_tab = 0;
-        newFormData.other_cash_expense = 0;
+        newFormData.cigarette_cartons_sold = 0;
         // Clear weekly lottery fields
         newFormData.weekly_lottery_commission = '';
         newFormData.thirteen_week_average = '';
@@ -566,6 +572,7 @@ const handleSyncSquareSales = async () => {
         newspaper_sold: isStoreClosed ? 0 : (data.newspaper_sold || 0),
         elias_newspaper: isStoreClosed ? 0 : (data.elias_newspaper || 0),
         sam_newspaper: isStoreClosed ? 0 : (data.sam_newspaper || 0),
+        cigarette_cartons_sold: isStoreClosed ? 0 : (data.cigarette_cartons_sold || 0),
         other_cash_expense: isStoreClosed ? 0 : (data.other_cash_expense || 0),
         // Weekly lottery fields should be null/empty if store is closed
         weekly_lottery_commission: isStoreClosed ? null : (data.weekly_lottery_commission || null),
@@ -860,6 +867,35 @@ const handleSyncSquareSales = async () => {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Inventory Metrics Section */}
+            <div className="border-t border-gray-200 pt-4">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Inventory Metrics</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label
+                    htmlFor="cigarette_cartons_sold"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Cigarette Cartons Sold
+                  </label>
+                  <input
+                    type="number"
+                    id="cigarette_cartons_sold"
+                    name="cigarette_cartons_sold"
+                    min="0"
+                    step="1"
+                    value={formData.cigarette_cartons_sold || ''}
+                    onChange={handleChange}
+                    disabled={formData.store_closed}
+                    className={`w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${formData.store_closed ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Quantity of cigarette cartons sold today. Feeds Inventory reports.
+                  </p>
+                </div>
               </div>
             </div>
 

@@ -2184,11 +2184,56 @@ router.get('/store/:storeId/inventory', canAccessStore, async (req, res) => {
             vape_tax_products_count: vapeTaxProducts.length
         };
 
+        // Cigarette cartons purchased summary
+        let cigaretteCartonsPurchased = 0;
+        const purchaseColumnCheck = await query(`
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'purchase_invoices'
+            AND column_name IN ('is_cigarette_purchase', 'cigarette_cartons_purchased')
+        `);
+        const hasCigarettePurchaseColumns = purchaseColumnCheck.rows.length === 2;
+
+        if (hasCigarettePurchaseColumns) {
+            const cigarettePurchaseTotals = await query(`
+                SELECT COALESCE(SUM(cigarette_cartons_purchased), 0) AS total_cartons
+                FROM purchase_invoices
+                WHERE store_id = $1
+                AND purchase_date >= $2::date
+                AND purchase_date <= $3::date
+                AND is_cigarette_purchase = TRUE
+            `, [storeId, start_date, end_date]);
+            cigaretteCartonsPurchased = parseInt(cigarettePurchaseTotals.rows[0]?.total_cartons || 0, 10) || 0;
+        }
+
+        // Cigarette cartons sold summary
+        let cigaretteCartonsSold = 0;
+        const revenueColumnCheck = await query(`
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'daily_revenue'
+            AND column_name = 'cigarette_cartons_sold'
+        `);
+        const hasCigaretteSoldColumn = revenueColumnCheck.rows.length > 0;
+
+        if (hasCigaretteSoldColumn) {
+            const cigaretteSoldTotals = await query(`
+                SELECT COALESCE(SUM(cigarette_cartons_sold), 0) AS total_cartons
+                FROM daily_revenue
+                WHERE store_id = $1
+                AND entry_date >= $2::date
+                AND entry_date <= $3::date
+            `, [storeId, start_date, end_date]);
+            cigaretteCartonsSold = parseInt(cigaretteSoldTotals.rows[0]?.total_cartons || 0, 10) || 0;
+        }
+
         res.json({
             summary,
             products: productsResult.rows,
             movements: movementsResult.rows,
-            vape_tax_products: vapeTaxProducts
+            vape_tax_products: vapeTaxProducts,
+            total_cigarette_cartons_purchased: cigaretteCartonsPurchased,
+            total_cigarette_cartons_sold: cigaretteCartonsSold
         });
     } catch (error) {
         console.error('Inventory report error:', error);

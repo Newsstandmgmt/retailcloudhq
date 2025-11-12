@@ -65,6 +65,8 @@ class PurchaseInvoice {
             expected_revenue,
             revenue_calculation_method,
             invoice_items,
+            is_cigarette_purchase = false,
+            cigarette_cartons_purchased,
             entered_by
         } = invoiceData;
 
@@ -123,6 +125,10 @@ class PurchaseInvoice {
             invoiceItemsJson = JSON.stringify(invoice_items);
         }
 
+        const normalizedCartonsPurchased = cigarette_cartons_purchased !== undefined && cigarette_cartons_purchased !== null
+            ? parseInt(cigarette_cartons_purchased, 10) || 0
+            : 0;
+
         const result = await query(
             `INSERT INTO purchase_invoices (
                 store_id, invoice_number, purchase_date, vendor_id, vendor_name,
@@ -132,9 +138,10 @@ class PurchaseInvoice {
                 is_reimbursable, reimbursement_to, reimbursement_status,
                 reimbursement_payment_method, reimbursement_check_number,
                 expected_revenue, revenue_calculation_method, invoice_items,
+                is_cigarette_purchase, cigarette_cartons_purchased,
                 status, payment_date, payment_method, entered_by
             )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36)
              RETURNING *`,
             [
                 storeId, finalInvoiceNumber || null, purchase_date, vendor_id, vendorName,
@@ -147,6 +154,8 @@ class PurchaseInvoice {
                 expected_revenue ? parseFloat(expected_revenue) : null,
                 revenue_calculation_method || null,
                 invoiceItemsJson,
+                is_cigarette_purchase === true || is_cigarette_purchase === 'true',
+                normalizedCartonsPurchased,
                 finalStatus, paymentDate, paymentMethod, entered_by
             ]
         );
@@ -318,7 +327,8 @@ class PurchaseInvoice {
             'tax_type', 'tax_rate', 'status', 'payment_date', 'payment_method', 'check_number',
             'paid_on_purchase', 'payment_method_on_purchase', 'bank_id_on_purchase', 'bank_account_name_on_purchase', 'credit_card_id_on_purchase',
             'is_reimbursable', 'reimbursement_to', 'reimbursement_status', 'reimbursement_date', 'reimbursement_amount',
-            'reimbursement_payment_method', 'reimbursement_check_number', 'reimbursement_bank_id'
+            'reimbursement_payment_method', 'reimbursement_check_number', 'reimbursement_bank_id',
+            'is_cigarette_purchase', 'cigarette_cartons_purchased'
         ];
         const updates = [];
         const values = [];
@@ -341,6 +351,15 @@ class PurchaseInvoice {
                     updateData.due_days !== undefined ? updateData.due_days : currentInvoice.due_days
                 );
             }
+        }
+
+        if (updateData.hasOwnProperty('is_cigarette_purchase')) {
+            updateData.is_cigarette_purchase = updateData.is_cigarette_purchase === true || updateData.is_cigarette_purchase === 'true';
+        }
+
+        if (updateData.hasOwnProperty('cigarette_cartons_purchased')) {
+            const parsedCartons = parseInt(updateData.cigarette_cartons_purchased, 10);
+            updateData.cigarette_cartons_purchased = Number.isFinite(parsedCartons) ? parsedCartons : 0;
         }
 
         for (const field of allowedFields) {

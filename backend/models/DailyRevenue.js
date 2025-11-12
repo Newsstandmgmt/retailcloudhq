@@ -39,6 +39,7 @@ class DailyRevenue {
             sam_newspaper,
             customer_tab,
             other_cash_expense,
+            cigarette_cartons_sold,
             weekly_lottery_commission,
             thirteen_week_average,
             weekly_lottery_due,
@@ -78,6 +79,7 @@ class DailyRevenue {
         const sanitizedSquareFees = isStoreClosed ? 0 : sanitizeNumeric(square_card_fees, 0);
         const sanitizedSquareNet = isStoreClosed ? 0 : sanitizeNumeric(square_net_card_sales, 0);
         const sanitizedSquareSyncedAt = isStoreClosed ? null : (square_synced_at ? new Date(square_synced_at) : null);
+        const sanitizedCigaretteCartonsSold = isStoreClosed ? 0 : sanitizeNumeric(cigarette_cartons_sold, 0);
         
         // Build update clause - only update fields that are explicitly provided in revenueData
         // This allows POS/CC data to update only credit card fields without overwriting other data
@@ -99,12 +101,6 @@ class DailyRevenue {
         const isLotteryBankDeposit = revenueData.is_lottery_bank_deposit || false;
         
         // Only update fields that were explicitly provided (check if key exists in revenueData)
-        numericFields.forEach(field => {
-            if (revenueData.hasOwnProperty(field)) {
-                updateFields.push(`${field} = EXCLUDED.${field}`);
-            }
-        });
-        
         if (revenueData.hasOwnProperty('notes')) {
             updateFields.push(`notes = EXCLUDED.notes`);
         }
@@ -128,23 +124,34 @@ class DailyRevenue {
             updateFields.push(`store_closed = EXCLUDED.store_closed`);
         }
         
+        // Check which optional columns exist
+        const columnCheck = await query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'daily_revenue' 
+            AND column_name IN ('customer_tab', 'calculated_business_cash', 'calculated_lottery_owed', 'cigarette_cartons_sold')
+        `);
+        const hasCustomerTab = columnCheck.rows.some(r => r.column_name === 'customer_tab');
+        const hasCalculatedBusinessCash = columnCheck.rows.some(r => r.column_name === 'calculated_business_cash');
+        const hasCalculatedLotteryOwed = columnCheck.rows.some(r => r.column_name === 'calculated_lottery_owed');
+        const hasCigaretteCartonsSold = columnCheck.rows.some(r => r.column_name === 'cigarette_cartons_sold');
+
+        if (hasCigaretteCartonsSold) {
+            numericFields.push('cigarette_cartons_sold');
+        }
+
+        numericFields.forEach(field => {
+            if (revenueData.hasOwnProperty(field)) {
+                updateFields.push(`${field} = EXCLUDED.${field}`);
+            }
+        });
+
         // If no fields to update, just update timestamp
         if (updateFields.length === 0) {
             updateFields.push('updated_at = CURRENT_TIMESTAMP');
         } else {
             updateFields.push('updated_at = CURRENT_TIMESTAMP');
         }
-        
-        // Check which optional columns exist
-        const columnCheck = await query(`
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'daily_revenue' 
-            AND column_name IN ('customer_tab', 'calculated_business_cash', 'calculated_lottery_owed')
-        `);
-        const hasCustomerTab = columnCheck.rows.some(r => r.column_name === 'customer_tab');
-        const hasCalculatedBusinessCash = columnCheck.rows.some(r => r.column_name === 'calculated_business_cash');
-        const hasCalculatedLotteryOwed = columnCheck.rows.some(r => r.column_name === 'calculated_lottery_owed');
         
         const calculatedBusinessCash = sanitizeOptionalNumeric(revenueData.calculated_business_cash);
         const calculatedLotteryOwed = sanitizeOptionalNumeric(revenueData.calculated_lottery_owed);
@@ -173,6 +180,11 @@ class DailyRevenue {
             if (hasCalculatedLotteryOwed) {
                 insertFields.push('calculated_lottery_owed');
                 insertValues.push(calculatedLotteryOwed);
+            }
+
+            if (hasCigaretteCartonsSold) {
+                insertFields.push('cigarette_cartons_sold');
+                insertValues.push(sanitizedCigaretteCartonsSold);
             }
             
             // Check if bank deposit columns exist
@@ -320,23 +332,38 @@ class DailyRevenue {
     
     // Calculate totals for a date range
     static async calculateTotals(storeId, startDate, endDate) {
+        const columnCheck = await query(`
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'daily_revenue'
+            AND column_name = 'cigarette_cartons_sold'
+        `);
+        const hasCigaretteCartonsSold = columnCheck.rows.length > 0;
+
+        const selectFields = [
+            'SUM(total_cash) as total_cash_sum',
+            'SUM(cash_adjustment) as cash_adjustment_sum',
+            'SUM(business_credit_card) as business_credit_card_sum',
+            'SUM(credit_card_transaction_fees) as credit_card_transaction_fees_sum',
+            'SUM(online_sales) as online_sales_sum',
+            'SUM(online_net) as online_net_sum',
+            'SUM(total_instant) as total_instant_sum',
+            'SUM(total_instant_adjustment) as total_instant_adjustment_sum',
+            'SUM(instant_pay) as instant_pay_sum',
+            'SUM(lottery_credit_card) as lottery_credit_card_sum',
+            'SUM(sales_tax_amount) as sales_tax_amount_sum',
+            'SUM(newspaper_sold) as newspaper_sold_sum',
+            'SUM(elias_newspaper) as elias_newspaper_sum',
+            'SUM(sam_newspaper) as sam_newspaper_sum',
+            'SUM(other_cash_expense) as other_cash_expense_sum'
+        ];
+
+        if (hasCigaretteCartonsSold) {
+            selectFields.push('SUM(cigarette_cartons_sold) as cigarette_cartons_sold_sum');
+        }
+
         const result = await query(
-            `SELECT 
-                SUM(total_cash) as total_cash_sum,
-                SUM(cash_adjustment) as cash_adjustment_sum,
-                SUM(business_credit_card) as business_credit_card_sum,
-                SUM(credit_card_transaction_fees) as credit_card_transaction_fees_sum,
-                SUM(online_sales) as online_sales_sum,
-                SUM(online_net) as online_net_sum,
-                SUM(total_instant) as total_instant_sum,
-                SUM(total_instant_adjustment) as total_instant_adjustment_sum,
-                SUM(instant_pay) as instant_pay_sum,
-                SUM(lottery_credit_card) as lottery_credit_card_sum,
-                SUM(sales_tax_amount) as sales_tax_amount_sum,
-                SUM(newspaper_sold) as newspaper_sold_sum,
-                SUM(elias_newspaper) as elias_newspaper_sum,
-                SUM(sam_newspaper) as sam_newspaper_sum,
-                SUM(other_cash_expense) as other_cash_expense_sum
+            `SELECT ${selectFields.join(',\n                ')}
             FROM daily_revenue
             WHERE store_id = $1 AND entry_date BETWEEN $2 AND $3`,
             [storeId, startDate, endDate]

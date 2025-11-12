@@ -78,6 +78,8 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     reimbursement_status: 'pending',
     reimbursement_payment_method: 'cash',
     reimbursement_check_number: '',
+    is_cigarette_purchase: false,
+    cigarette_cartons_purchased: '',
     expected_revenue: '',
     revenue_calculation_method: 'none', // 'none', 'manual', 'product_selection', 'auto_calculate'
     invoice_items: [], // Array of { product_id, quantity }
@@ -309,6 +311,8 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       reimbursement_status: invoice.reimbursement_status || 'pending',
         reimbursement_payment_method: invoice.reimbursement_payment_method || 'cash',
         reimbursement_check_number: invoice.reimbursement_check_number || '',
+        is_cigarette_purchase: invoice.is_cigarette_purchase || false,
+        cigarette_cartons_purchased: invoice.cigarette_cartons_purchased ? String(invoice.cigarette_cartons_purchased) : '',
         expected_revenue: invoice.expected_revenue || '',
         revenue_calculation_method: invoice.revenue_calculation_method || 'none',
         invoice_items: invoice.invoice_items || [],
@@ -349,6 +353,11 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
 
     try {
       // Prepare invoice data - don't send invoice_number for cash payments
+      const isCigarettePurchase = editForm.is_cigarette_purchase === true || editForm.is_cigarette_purchase === 'true';
+      const cigaretteCartonsPurchased = isCigarettePurchase
+        ? (parseInt(editForm.cigarette_cartons_purchased, 10) || 0)
+        : 0;
+
       const invoiceData = {
         ...editForm,
         invoice_number: (editForm.payment_option === 'cash') ? undefined : editForm.invoice_number,
@@ -363,6 +372,8 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
         reimbursement_status: editForm.is_reimbursable ? (editForm.reimbursement_status || 'pending') : 'none',
         reimbursement_payment_method: editForm.is_reimbursable && editForm.reimbursement_status === 'reimbursed' ? editForm.reimbursement_payment_method : null,
         reimbursement_check_number: editForm.is_reimbursable && editForm.reimbursement_status === 'reimbursed' && editForm.reimbursement_payment_method === 'check' ? editForm.reimbursement_check_number : null,
+        is_cigarette_purchase: isCigarettePurchase,
+        cigarette_cartons_purchased: cigaretteCartonsPurchased,
       };
       
       await purchaseInvoicesAPI.update(editingInvoice.id, invoiceData);
@@ -1461,6 +1472,11 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       }
 
       // Prepare invoice data - don't send invoice_number for cash payments
+      const isCigarettePurchase = invoiceForm.is_cigarette_purchase === true || invoiceForm.is_cigarette_purchase === 'true';
+      const cigaretteCartonsPurchased = isCigarettePurchase
+        ? (parseInt(invoiceForm.cigarette_cartons_purchased, 10) || 0)
+        : 0;
+
       const invoiceData = {
         ...invoiceForm,
         invoice_number: (invoiceForm.payment_option === 'cash') ? undefined : invoiceForm.invoice_number,
@@ -1478,6 +1494,8 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
         expected_revenue: finalExpectedRevenue,
         revenue_calculation_method: invoiceForm.revenue_calculation_method !== 'none' ? invoiceForm.revenue_calculation_method : null,
         invoice_items: finalInvoiceItems.length > 0 ? finalInvoiceItems : null,
+        is_cigarette_purchase: isCigarettePurchase,
+        cigarette_cartons_purchased: cigaretteCartonsPurchased,
       };
       
       await purchaseInvoicesAPI.create(selectedStore.id, invoiceData);
@@ -1488,7 +1506,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
         purchase_date: new Date().toISOString().split('T')[0],
         vendor_id: '',
         amount: '',
-        payment_option: 'cash',
+        payment_option: 'pay_later',
         due_days: '',
         notes: '',
         paid_on_purchase: false,
@@ -1501,6 +1519,8 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
         reimbursement_status: 'pending',
         reimbursement_payment_method: 'cash',
         reimbursement_check_number: '',
+        is_cigarette_purchase: false,
+        cigarette_cartons_purchased: '',
         expected_revenue: '',
         revenue_calculation_method: 'none',
         invoice_items: [],
@@ -2267,6 +2287,8 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                     payment_option: 'pay_later',
                     due_days: '',
                     notes: '',
+                    is_cigarette_purchase: false,
+                    cigarette_cartons_purchased: '',
                   });
                 }}
                 className="text-gray-400 hover:text-gray-600"
@@ -2417,6 +2439,46 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                       className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659] focus:border-transparent"
                       required
                     />
+                  </div>
+
+                  {/* Cigarette Purchase Tracking */}
+                  <div className="border-t pt-4 mt-4">
+                    <label className="flex items-center text-sm font-medium text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(invoiceForm.is_cigarette_purchase)}
+                        onChange={(e) => setInvoiceForm({
+                          ...invoiceForm,
+                          is_cigarette_purchase: e.target.checked,
+                          cigarette_cartons_purchased: e.target.checked ? invoiceForm.cigarette_cartons_purchased : '',
+                        })}
+                        className="mr-2"
+                      />
+                      Cigarette Purchase
+                    </label>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Track cigarette carton purchases for reporting.
+                    </p>
+                    {invoiceForm.is_cigarette_purchase && (
+                      <div className="mt-3">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Cartons Purchased
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={invoiceForm.cigarette_cartons_purchased}
+                          onChange={(e) => setInvoiceForm({
+                            ...invoiceForm,
+                            cigarette_cartons_purchased: e.target.value.replace(/[^0-9]/g, ''),
+                          })}
+                          placeholder="Enter number of cartons"
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659] focus:border-transparent"
+                          required
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {/* Revenue Calculation Section */}
@@ -2836,15 +2898,11 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                     purchase_date: new Date().toISOString().split('T')[0],
                     vendor_id: '',
                     amount: '',
-                    payment_option: 'cash',
+                    payment_option: 'pay_later',
                     due_days: '',
                     notes: '',
-                    paid_on_purchase: false,
-                    payment_method_on_purchase: 'cash',
-                    bank_id_on_purchase: '',
-                    bank_account_name_on_purchase: '',
-                    is_reimbursable: false,
-                    reimbursement_to: '',
+                    is_cigarette_purchase: false,
+                    cigarette_cartons_purchased: '',
                   });
                   }}
                   className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 mr-3"
@@ -3856,6 +3914,45 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                       className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
                       required
                     />
+                  </div>
+
+                  {/* Cigarette Purchase Tracking */}
+                  <div className="border-t pt-4 mt-4">
+                    <label className="flex items-center text-sm font-medium text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(editForm.is_cigarette_purchase)}
+                        onChange={(e) => setEditForm({
+                          ...editForm,
+                          is_cigarette_purchase: e.target.checked,
+                          cigarette_cartons_purchased: e.target.checked ? editForm.cigarette_cartons_purchased : '',
+                        })}
+                        className="mr-2"
+                      />
+                      Cigarette Purchase
+                    </label>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Update the cigarette carton count for this invoice.
+                    </p>
+                    {editForm.is_cigarette_purchase && (
+                      <div className="mt-3">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Cartons Purchased
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={editForm.cigarette_cartons_purchased}
+                          onChange={(e) => setEditForm({
+                            ...editForm,
+                            cigarette_cartons_purchased: e.target.value.replace(/[^0-9]/g, ''),
+                          })}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
+                          required
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {/* Invoice Paid / Paid By Third Party */}

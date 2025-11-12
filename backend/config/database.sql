@@ -202,6 +202,9 @@ ALTER TABLE daily_revenue
     ADD COLUMN IF NOT EXISTS thirteen_week_average NUMERIC(14, 2) DEFAULT 0;
 
 ALTER TABLE daily_revenue
+    ADD COLUMN IF NOT EXISTS cigarette_cartons_sold INTEGER DEFAULT 0;
+
+ALTER TABLE daily_revenue
     ADD COLUMN IF NOT EXISTS weekly_lottery_due NUMERIC(14, 2) DEFAULT 0;
 
 -- ============================================
