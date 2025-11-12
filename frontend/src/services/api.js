@@ -611,6 +611,7 @@ export const reportsAPI = {
     return api.get(url);
   },
   reconcileCash: (storeId, data) => api.post(`/api/cash-on-hand/store/${storeId}/reconcile`, data),
+  resetCash: (storeId, data) => api.post(`/api/cash-on-hand/store/${storeId}/reset`, data),
   getExpenseBreakdown: (storeId, startDate, endDate) => {
     const params = new URLSearchParams();
     params.append('start_date', startDate);

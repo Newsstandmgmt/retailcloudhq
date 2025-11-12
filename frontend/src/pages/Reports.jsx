@@ -26,6 +26,7 @@ const Reports = () => {
   const [cashReconcileForm, setCashReconcileForm] = useState({ targetBalance: '', reason: '' });
   const [cashReconcileSubmitting, setCashReconcileSubmitting] = useState(false);
   const [cashReconcileError, setCashReconcileError] = useState('');
+  const [resetCashSubmitting, setResetCashSubmitting] = useState(false);
   const [reimbursingExpense, setReimbursingExpense] = useState(null);
 
   const { isFeatureEnabled } = useStore();
@@ -3787,6 +3788,37 @@ const Reports = () => {
     }
   };
 
+  const handleResetCashLedger = async () => {
+    if (!selectedStore) {
+      alert('Please select a store first.');
+      return;
+    }
+    if (!isAdmin) {
+      alert('Only admins can reset cash history.');
+      return;
+    }
+    const confirmation = window.confirm('This will delete all cash transactions for this store and set the balance to $0. Continue?');
+    if (!confirmation) return;
+
+    const reason = window.prompt('Enter a reason for resetting cash history:');
+    if (!reason || !reason.trim()) {
+      alert('Reset cancelled—reason is required.');
+      return;
+    }
+
+    try {
+      setResetCashSubmitting(true);
+      await reportsAPI.resetCash(selectedStore.id, { reason: reason.trim() });
+      setResetCashSubmitting(false);
+      alert('Cash history reset successfully.');
+      loadReport();
+    } catch (error) {
+      console.error('Cash reset error:', error);
+      setResetCashSubmitting(false);
+      alert(error.response?.data?.error || error.message || 'Failed to reset cash history.');
+    }
+  };
+
   if (!selectedStore) {
     return (
       <div className="p-6">
@@ -3845,9 +3877,19 @@ const Reports = () => {
               type="button"
               onClick={openCashReconcileModal}
               className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-md hover:bg-purple-700 disabled:opacity-60"
-              disabled={loading || !selectedStore}
+              disabled={loading || !selectedStore || resetCashSubmitting}
             >
               Reconcile Cash
+            </button>
+          )}
+          {activeTab === 'cash-tracking' && isAdmin && (
+            <button
+              type="button"
+              onClick={handleResetCashLedger}
+              className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-60"
+              disabled={loading || !selectedStore || resetCashSubmitting}
+            >
+              {resetCashSubmitting ? 'Resetting…' : 'Reset Cash History'}
             </button>
           )}
         </div>

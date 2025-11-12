@@ -185,6 +185,29 @@ class CashOnHandService {
         const result = await query(sql, params);
         return result.rows;
     }
+
+    static async resetBalance(storeId, reason = '', userId = null) {
+        const exec = this.getExecutor(null);
+        await this.initialize(storeId, 0);
+
+        await exec(
+            'DELETE FROM cash_transactions WHERE store_id = $1',
+            [storeId]
+        );
+
+        await exec(
+            `UPDATE cash_on_hand
+             SET current_balance = 0,
+                 last_transaction_id = NULL,
+                 last_transaction_type = NULL,
+                 last_updated = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE store_id = $1`,
+            [storeId]
+        );
+
+        return this.getBalance(storeId);
+    }
 }
 
 module.exports = CashOnHandService;

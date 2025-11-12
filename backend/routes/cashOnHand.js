@@ -115,5 +115,28 @@ router.post('/store/:storeId/reconcile', canAccessStore, authorize('admin', 'sup
     }
 });
 
+router.post('/store/:storeId/reset', canAccessStore, authorize('admin', 'super_admin'), async (req, res) => {
+    try {
+        const storeId = req.params.storeId;
+        const { reason } = req.body || {};
+
+        if (!reason || !reason.toString().trim()) {
+            return res.status(400).json({ error: 'Reason is required to reset cash transactions.' });
+        }
+
+        const cleanedReason = reason.toString().trim();
+        const updatedBalance = await CashOnHandService.resetBalance(storeId, cleanedReason, req.user.id);
+
+        res.json({
+            success: true,
+            message: 'Cash transactions cleared and balance reset to 0.',
+            current_balance: parseFloat(updatedBalance?.current_balance || 0)
+        });
+    } catch (error) {
+        console.error('Cash reset error:', error);
+        res.status(500).json({ error: 'Failed to reset cash on hand.' });
+    }
+});
+
 module.exports = router;
 
