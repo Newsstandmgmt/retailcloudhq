@@ -3416,9 +3416,198 @@ const Reports = () => {
     return sections.join('\n');
   };
 
+  const renderActiveTabContent = () => {
+    switch (activeTab) {
+      case 'profit-loss':
+        return renderProfitLoss();
+      case 'revenue-calculation':
+        return renderRevenueCalculation();
+      case 'cash-flow':
+        return renderCashFlow();
+      case 'expense-breakdown':
+        return renderExpenseBreakdown();
+      case 'vendor-payments':
+        return renderVendorPayments();
+      case 'daily-business':
+        return renderDailyBusiness();
+      case 'monthly-business':
+        return renderMonthlyBusiness();
+      case 'lottery-sales':
+        return renderLotterySales();
+      case 'deposits':
+        return renderDeposits();
+      case 'payroll':
+        return renderPayroll();
+      case 'sales-trends':
+        return renderSalesTrends();
+      case 'inventory':
+        return renderInventory();
+      default:
+        return null;
+    }
+  };
+
+  if (!selectedStore) {
+    return (
+      <div className="p-6">
+        <div className="bg-white border border-gray-200 rounded-lg p-6 text-center text-gray-600">
+          Select a store to view reports.
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-4">
-      {/* Add your existing report components here */}
+    <div className="p-6 space-y-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Reports &amp; Analytics</h1>
+          <p className="text-sm text-gray-600">
+            {selectedStore?.name ? `${selectedStore.name} · ` : ''}{getPeriodString()}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleExport('csv')}
+            className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+            disabled={!reportData || loading}
+          >
+            Export CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => handleExport('excel')}
+            className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+            disabled={!reportData || loading}
+          >
+            Export Excel
+          </button>
+          <button
+            type="button"
+            onClick={() => handleExport('pdf')}
+            className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-60"
+            disabled={!reportData || loading}
+          >
+            Export PDF
+          </button>
+          <button
+            type="button"
+            onClick={loadReport}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-60"
+            disabled={loading}
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {tabs.map((tab) => {
+          const isActive = tab.id === activeTab;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 text-sm font-medium rounded-full border transition-colors ${
+                isActive
+                  ? 'bg-blue-600 text-white border-blue-600 shadow'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {tab.name}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-end gap-4 bg-white border border-gray-200 rounded-lg p-4">
+        {needsDateRange && (
+          <>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Start Date</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">End Date</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </>
+        )}
+
+        {needsSingleDate && (
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Entry Date</label>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        )}
+
+        {needsMonthYear && (
+          <>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Month</label>
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {Array.from({ length: 12 }).map((_, index) => {
+                  const value = String(index + 1).padStart(2, '0');
+                  const label = new Date(2000, index, 1).toLocaleDateString('en-US', { month: 'long' });
+                  return (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Year</label>
+              <input
+                type="number"
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-24"
+              />
+            </div>
+          </>
+        )}
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="bg-white border border-gray-200 rounded-lg p-8 text-center text-gray-600">
+          Loading report data...
+        </div>
+      ) : (
+        renderActiveTabContent() || (
+          <div className="bg-white border border-gray-200 rounded-lg p-8 text-center text-gray-500">
+            No data available for the selected period.
+          </div>
+        )
+      )}
     </div>
   );
 };
