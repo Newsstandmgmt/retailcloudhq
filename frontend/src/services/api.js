@@ -598,10 +598,17 @@ export const reportsAPI = {
     return api.get(`/api/reports/store/${storeId}/revenue-calculation?${params.toString()}`);
   },
   getCashFlowDetailed: (storeId, startDate, endDate) => {
+     const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
+     return api.get(`/api/reports/store/${storeId}/cash-flow-detailed?${params.toString()}`);
+   },
+  getCashTracking: (storeId, startDate, endDate, limit = 500) => {
     const params = new URLSearchParams();
-    params.append('start_date', startDate);
-    params.append('end_date', endDate);
-    return api.get(`/api/reports/store/${storeId}/cash-flow-detailed?${params.toString()}`);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    if (limit) params.append('limit', limit.toString());
+    const query = params.toString();
+    const url = query ? `/api/reports/store/${storeId}/cash-tracking?${query}` : `/api/reports/store/${storeId}/cash-tracking`;
+    return api.get(url);
   },
   getExpenseBreakdown: (storeId, startDate, endDate) => {
     const params = new URLSearchParams();

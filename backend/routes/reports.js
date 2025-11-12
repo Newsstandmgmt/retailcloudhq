@@ -1,6 +1,7 @@
 const express = require('express');
 const { query } = require('../config/database');
 const { authenticate, canAccessStore } = require('../middleware/auth');
+const CashOnHandService = require('../services/cashOnHandService');
 
 const router = express.Router();
 
@@ -1189,8 +1190,6 @@ router.get('/store/:storeId/vendor-payments', canAccessStore, async (req, res) =
     }
 });
 
-// Duplicate endpoint removed - cash-flow-detailed is now handled above at line 185
-
 /**
  * Daily Business Report
  * GET /api/reports/store/:storeId/daily-business?date=YYYY-MM-DD
@@ -2238,6 +2237,154 @@ router.get('/store/:storeId/inventory', canAccessStore, async (req, res) => {
     } catch (error) {
         console.error('Inventory report error:', error);
         res.status(500).json({ error: error.message || 'Failed to generate inventory report' });
+    }
+});
+
+/**
+ * Cash Tracking Report
+ * GET /api/reports/store/:storeId/cash-tracking?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&limit=500
+ */
+router.get('/store/:storeId/cash-tracking', canAccessStore, async (req, res) => {
+    try {
+        const storeId = req.params.storeId;
+        const { start_date, end_date, limit } = req.query;
+
+        const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 500, 1), 2000);
+
+        const params = [storeId];
+        let whereClauses = ['ct.store_id = $1'];
+        let paramIndex = 1;
+
+        if (start_date) {
+            paramIndex += 1;
+            params.push(start_date);
+            whereClauses.push(`ct.transaction_date >= $${paramIndex}`);
+        }
+
+        if (end_date) {
+            paramIndex += 1;
+            params.push(end_date);
+            whereClauses.push(`ct.transaction_date <= $${paramIndex}`);
+        }
+
+        paramIndex += 1;
+        params.push(parsedLimit);
+
+        const transactionsResult = await query(
+            `SELECT ct.*, u.email as entered_by_email, u.first_name, u.last_name
+             FROM cash_transactions ct
+             LEFT JOIN users u ON ct.entered_by = u.id
+             WHERE ${whereClauses.join(' AND ')}
+             ORDER BY ct.transaction_date ASC, ct.created_at ASC
+             LIMIT $${paramIndex}`,
+            params
+        );
+
+        const transactions = transactionsResult.rows.map((tx) => ({
+            id: tx.id,
+            transaction_date: tx.transaction_date,
+            transaction_type: tx.transaction_type,
+            transaction_id: tx.transaction_id,
+            amount: parseFloat(tx.amount || 0),
+            balance_before: parseFloat(tx.balance_before || 0),
+            balance_after: parseFloat(tx.balance_after || 0),
+            description: tx.description,
+            entered_by: tx.entered_by_email || [tx.first_name, tx.last_name].filter(Boolean).join(' ') || 'System',
+            created_at: tx.created_at
+        }));
+
+        const openingBalanceFromRange = transactions.length > 0
+            ? transactions[0].balance_before
+            : null;
+
+        let openingBalance = openingBalanceFromRange;
+
+        if (openingBalance === null && start_date) {
+            const priorResult = await query(
+                `SELECT balance_after
+                 FROM cash_transactions
+                 WHERE store_id = $1 AND transaction_date < $2
+                 ORDER BY transaction_date DESC, created_at DESC
+                 LIMIT 1`,
+                [storeId, start_date]
+            );
+            if (priorResult.rows.length > 0) {
+                openingBalance = parseFloat(priorResult.rows[0].balance_after || 0);
+            }
+        }
+
+        const currentBalanceResult = await query(
+            'SELECT current_balance FROM cash_on_hand WHERE store_id = $1',
+            [storeId]
+        );
+        const currentBalance = parseFloat(currentBalanceResult.rows[0]?.current_balance || 0);
+
+        let closingBalance;
+        if (transactions.length > 0) {
+            closingBalance = transactions[transactions.length - 1].balance_after;
+        } else {
+            closingBalance = openingBalance !== null ? openingBalance : currentBalance;
+        }
+
+        if (openingBalance === null) {
+            openingBalance = transactions.length > 0
+                ? transactions[0].balance_before
+                : currentBalance;
+        }
+
+        const totals = transactions.reduce((acc, tx) => {
+            if (tx.amount >= 0) {
+                acc.inflow += tx.amount;
+            } else {
+                acc.outflow += Math.abs(tx.amount);
+            }
+            acc.net += tx.amount;
+            return acc;
+        }, { inflow: 0, outflow: 0, net: 0 });
+
+        const breakdownMap = new Map();
+        transactions.forEach((tx) => {
+            const key = tx.transaction_type || 'other';
+            if (!breakdownMap.has(key)) {
+                breakdownMap.set(key, {
+                    type: key,
+                    inflow: 0,
+                    outflow: 0,
+                    net: 0,
+                    count: 0
+                });
+            }
+            const bucket = breakdownMap.get(key);
+            if (tx.amount >= 0) {
+                bucket.inflow += tx.amount;
+            } else {
+                bucket.outflow += Math.abs(tx.amount);
+            }
+            bucket.net += tx.amount;
+            bucket.count += 1;
+        });
+
+        res.json({
+            filters: {
+                start_date: start_date || null,
+                end_date: end_date || null,
+                limit: parsedLimit
+            },
+            summary: {
+                opening_balance: openingBalance,
+                closing_balance: closingBalance,
+                net_change: closingBalance - openingBalance,
+                total_inflow: totals.inflow,
+                total_outflow: totals.outflow,
+                transaction_count: transactions.length,
+                current_cash_on_hand: currentBalance
+            },
+            breakdown: Array.from(breakdownMap.values()).sort((a, b) => Math.abs(b.net) - Math.abs(a.net)),
+            transactions
+        });
+    } catch (error) {
+        console.error('Cash tracking report error:', error);
+        res.status(500).json({ error: 'Failed to generate cash tracking report' });
     }
 });
 

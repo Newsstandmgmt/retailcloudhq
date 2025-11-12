@@ -27,6 +27,7 @@ const Reports = () => {
     { id: 'profit-loss', name: 'Profit & Loss' },
     { id: 'revenue-calculation', name: 'Revenue Calculation' },
     { id: 'cash-flow', name: 'Cash Flow' },
+    { id: 'cash-tracking', name: 'Cash Tracking' },
     { id: 'expense-breakdown', name: 'Expense Breakdown' },
     { id: 'vendor-payments', name: 'Vendor Payments' },
     { id: 'sales-trends', name: 'Sales Trends' },
@@ -66,6 +67,9 @@ const Reports = () => {
           break;
         case 'cash-flow':
           response = await reportsAPI.getCashFlowDetailed(selectedStore.id, startDate, endDate);
+          break;
+        case 'cash-tracking':
+          response = await reportsAPI.getCashTracking(selectedStore.id, startDate, endDate);
           break;
         case 'expense-breakdown':
           response = await reportsAPI.getExpenseBreakdown(selectedStore.id, startDate, endDate);
@@ -172,6 +176,8 @@ const Reports = () => {
         return prepareRevenueCalculationExport();
       case 'cash-flow':
         return prepareCashFlowExport();
+      case 'cash-tracking':
+        return prepareCashTrackingExport();
       case 'expense-breakdown':
         return prepareExpenseBreakdownExport();
       case 'vendor-payments':
@@ -203,6 +209,8 @@ const Reports = () => {
         return prepareRevenueCalculationHTML();
       case 'cash-flow':
         return prepareCashFlowHTML();
+      case 'cash-tracking':
+        return prepareCashTrackingHTML();
       case 'expense-breakdown':
         return prepareExpenseBreakdownHTML();
       case 'vendor-payments':
@@ -398,6 +406,176 @@ const Reports = () => {
             </div>
           </div>
         )}
+      </div>
+    );
+  };
+
+  const formatTransactionType = (type) => {
+    if (!type) return 'Other';
+    return type
+      .replace(/_/g, ' ')
+      .replace(/\w/g, (char) => char.toUpperCase());
+  };
+
+  const renderCashTracking = () => {
+    if (!reportData || typeof reportData !== 'object') return null;
+    const {
+      summary = {},
+      breakdown = [],
+      transactions = [],
+      filters = {}
+    } = reportData || {};
+
+    const totalInflow = summary.total_inflow || 0;
+    const totalOutflow = summary.total_outflow || 0;
+    const netChange = summary.net_change || 0;
+    const openingBalance = summary.opening_balance || 0;
+    const closingBalance = summary.closing_balance || 0;
+    const currentBalance = summary.current_cash_on_hand || closingBalance;
+
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-gray-500">
+            <h3 className="text-sm font-medium text-gray-600 mb-2">Opening Balance</h3>
+            <div className="text-3xl font-bold text-gray-800">{formatCurrency(openingBalance)}</div>
+            {filters?.start_date && (
+              <div className="text-xs text-gray-500 mt-2">
+                As of {new Date(filters.start_date).toLocaleDateString()}
+              </div>
+            )}
+          </div>
+          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
+            <h3 className="text-sm font-medium text-gray-600 mb-2">Total Inflow</h3>
+            <div className="text-3xl font-bold text-green-600">{formatCurrency(totalInflow)}</div>
+            <div className="text-xs text-gray-500 mt-2">Cash entering the drawer during this period</div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-red-500">
+            <h3 className="text-sm font-medium text-gray-600 mb-2">Total Outflow</h3>
+            <div className="text-3xl font-bold text-red-600">{formatCurrency(totalOutflow)}</div>
+            <div className="text-xs text-gray-500 mt-2">Cash leaving the drawer during this period</div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+            <h3 className="text-sm font-medium text-gray-600 mb-2">Net Change</h3>
+            <div className={`text-3xl font-bold ${netChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {netChange >= 0 ? '+' : ''}{formatCurrency(netChange)}
+            </div>
+            <div className="text-xs text-gray-500 mt-2">Transactions: {summary.transaction_count || 0}</div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-gray-400">
+            <h3 className="text-sm font-medium text-gray-600 mb-2">Closing Balance (Range)</h3>
+            <div className="text-2xl font-semibold text-gray-800">{formatCurrency(closingBalance)}</div>
+            {filters?.end_date && (
+              <div className="text-xs text-gray-500 mt-2">
+                As of {new Date(filters.end_date).toLocaleDateString()}
+              </div>
+            )}
+          </div>
+          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-indigo-500">
+            <h3 className="text-sm font-medium text-gray-600 mb-2">Current Cash On Hand</h3>
+            <div className="text-2xl font-semibold text-indigo-600">{formatCurrency(currentBalance)}</div>
+            <div className="text-xs text-gray-500 mt-2">Live cash drawer balance</div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-purple-500">
+            <h3 className="text-sm font-medium text-gray-600 mb-2">Period Coverage</h3>
+            <div className="text-sm text-gray-800">
+              {filters?.start_date ? new Date(filters.start_date).toLocaleDateString() : '—'}
+              {' '}→{' '}
+              {filters?.end_date ? new Date(filters.end_date).toLocaleDateString() : 'Latest'}
+            </div>
+            <div className="text-xs text-gray-500 mt-2">Showing up to {filters?.limit || 0} transactions</div>
+          </div>
+        </div>
+
+        {breakdown && breakdown.length > 0 && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Breakdown by Transaction Type</h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Inflow</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Outflow</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Net</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {breakdown.map((item) => (
+                    <tr key={item.type} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900">{formatTransactionType(item.type)}</td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-600">{item.count || 0}</td>
+                      <td className="px-4 py-3 text-sm text-right text-green-600">{formatCurrency(item.inflow || 0)}</td>
+                      <td className="px-4 py-3 text-sm text-right text-red-600">{formatCurrency(item.outflow || 0)}</td>
+                      <td className={`px-4 py-3 text-sm text-right ${item.net >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {item.net >= 0 ? '+' : '-'}{formatCurrency(Math.abs(item.net || 0))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-white rounded-lg shadow">
+          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Cash Transactions</h3>
+              <p className="text-sm text-gray-500">Chronological view of every cash movement with running balance.</p>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Balance Before</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Balance After</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entered By</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reference</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {transactions.length === 0 && (
+                  <tr>
+                    <td colSpan="8" className="px-4 py-6 text-center text-sm text-gray-500">
+                      No cash transactions found for this range.
+                    </td>
+                  </tr>
+                )}
+                {transactions.map((tx) => {
+                  const amountClass = tx.amount >= 0 ? 'text-green-600' : 'text-red-600';
+                  return (
+                    <tr key={tx.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {tx.transaction_date ? new Date(tx.transaction_date).toLocaleDateString() : 'N/A'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{formatTransactionType(tx.transaction_type)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" title={tx.description || ''}>
+                        {tx.description || '—'}
+                      </td>
+                      <td className={`px-4 py-3 text-sm text-right font-semibold ${amountClass}`}>
+                        {tx.amount >= 0 ? '+' : '-'}{formatCurrency(Math.abs(tx.amount || 0))}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-600">{formatCurrency(tx.balance_before || 0)}</td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-900 font-medium">{formatCurrency(tx.balance_after || 0)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{tx.entered_by || 'System'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{tx.transaction_id || '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     );
   };
@@ -2118,7 +2296,7 @@ const Reports = () => {
     );
   };
 
-  const needsDateRange = ['profit-loss', 'revenue-calculation', 'cash-flow', 'expense-breakdown', 'vendor-payments', 'lottery-sales', 'deposits', 'payroll', 'sales-trends'].includes(activeTab);
+  const needsDateRange = ['profit-loss', 'revenue-calculation', 'cash-flow', 'cash-tracking', 'expense-breakdown', 'vendor-payments', 'lottery-sales', 'deposits', 'payroll', 'sales-trends'].includes(activeTab);
   const needsSingleDate = ['daily-business'].includes(activeTab);
   const needsMonthYear = ['monthly-business'].includes(activeTab);
 
@@ -3416,6 +3594,103 @@ const Reports = () => {
     return sections.join('\n');
   };
 
+  const prepareCashTrackingHTML = () => {
+    if (!reportData) return '<p>No data available</p>';
+    const {
+      summary = {},
+      breakdown = [],
+      transactions = [],
+      filters = {}
+    } = reportData || {};
+
+    const breakdownRows = (breakdown || []).map((item) => `
+      <tr>
+        <td>${formatTransactionType(item.type)}</td>
+        <td class="text-right">${item.count || 0}</td>
+        <td class="text-right currency">${formatCurrency(item.inflow || 0)}</td>
+        <td class="text-right currency">${formatCurrency(item.outflow || 0)}</td>
+        <td class="text-right currency">${formatCurrency(item.net || 0)}</td>
+      </tr>
+    `).join('');
+
+    const transactionRows = (transactions || []).map((tx) => `
+      <tr>
+        <td>${tx.transaction_date ? new Date(tx.transaction_date).toLocaleDateString() : 'N/A'}</td>
+        <td>${formatTransactionType(tx.transaction_type)}</td>
+        <td>${tx.description || ''}</td>
+        <td class="text-right currency">${formatCurrency(tx.amount || 0)}</td>
+        <td class="text-right currency">${formatCurrency(tx.balance_before || 0)}</td>
+        <td class="text-right currency">${formatCurrency(tx.balance_after || 0)}</td>
+        <td>${tx.entered_by || 'System'}</td>
+        <td>${tx.transaction_id || ''}</td>
+      </tr>
+    `).join('');
+
+    return `
+      <div class="summary-cards">
+        <div class="summary-card neutral">
+          <div class="label">Opening Balance</div>
+          <div class="value">${formatCurrency(summary.opening_balance || 0)}</div>
+        </div>
+        <div class="summary-card positive">
+          <div class="label">Total Inflow</div>
+          <div class="value">${formatCurrency(summary.total_inflow || 0)}</div>
+        </div>
+        <div class="summary-card negative">
+          <div class="label">Total Outflow</div>
+          <div class="value">${formatCurrency(summary.total_outflow || 0)}</div>
+        </div>
+        <div class="summary-card positive">
+          <div class="label">Net Change</div>
+          <div class="value">${formatCurrency(summary.net_change || 0)}</div>
+        </div>
+        <div class="summary-card neutral">
+          <div class="label">Closing Balance</div>
+          <div class="value">${formatCurrency(summary.closing_balance || summary.current_cash_on_hand || 0)}</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Breakdown by Type</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th class="text-right">Count</th>
+              <th class="text-right">Inflow</th>
+              <th class="text-right">Outflow</th>
+              <th class="text-right">Net</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${breakdownRows || '<tr><td colspan="5">No transactions found.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Transactions (${transactions.length})</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Description</th>
+              <th class="text-right">Amount</th>
+              <th class="text-right">Balance Before</th>
+              <th class="text-right">Balance After</th>
+              <th>Entered By</th>
+              <th>Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${transactionRows || '<tr><td colspan="8">No transactions available.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    `;
+  };
+
   const renderActiveTabContent = () => {
     switch (activeTab) {
       case 'profit-loss':
@@ -3424,6 +3699,8 @@ const Reports = () => {
         return renderRevenueCalculation();
       case 'cash-flow':
         return renderCashFlow();
+      case 'cash-tracking':
+        return renderCashTracking();
       case 'expense-breakdown':
         return renderExpenseBreakdown();
       case 'vendor-payments':
