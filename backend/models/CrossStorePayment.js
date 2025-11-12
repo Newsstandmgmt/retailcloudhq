@@ -1,5 +1,6 @@
 const { query, getClient } = require('../config/database');
 const DailyOperatingExpenses = require('./DailyOperatingExpenses');
+const CashOnHandService = require('../services/cashOnHandService');
 
 class CrossStorePayment {
     static async create(paymentData, allocations = []) {
@@ -148,12 +149,18 @@ class CrossStorePayment {
                 doe.reimbursement_status AS expense_reimbursement_status,
                 doe.reimbursement_date AS expense_reimbursement_date,
                 doe.reimbursement_amount AS expense_reimbursement_amount,
+                doe.reimbursement_payment_method,
+                doe.reimbursement_check_number,
+                doe.reimbursement_bank_id,
+                rb.bank_name AS reimbursement_bank_name,
+                rb.bank_short_name AS reimbursement_bank_short_name,
                 et.expense_type_name AS expense_type_name
              FROM cross_store_payment_allocations a
              JOIN stores target_store ON target_store.id = a.target_store_id
              LEFT JOIN users approver ON approver.id = a.approved_by
              LEFT JOIN daily_operating_expenses doe ON doe.cross_store_payment_id = a.payment_id AND doe.cross_store_allocation_id = a.id
              LEFT JOIN expense_types et ON doe.expense_type_id = et.id
+             LEFT JOIN banks rb ON rb.id = doe.reimbursement_bank_id
              WHERE a.payment_id = $1
              ORDER BY a.created_at`,
             [paymentId]
@@ -257,12 +264,18 @@ class CrossStorePayment {
                 doe.reimbursement_status AS expense_reimbursement_status,
                 doe.reimbursement_date AS expense_reimbursement_date,
                 doe.reimbursement_amount AS expense_reimbursement_amount,
+                doe.reimbursement_payment_method,
+                doe.reimbursement_check_number,
+                doe.reimbursement_bank_id,
+                rb.bank_name AS reimbursement_bank_name,
+                rb.bank_short_name AS reimbursement_bank_short_name,
                 et.expense_type_name AS expense_type_name
              FROM cross_store_payment_allocations a
              JOIN stores target_store ON target_store.id = a.target_store_id
              LEFT JOIN users approver ON approver.id = a.approved_by
              LEFT JOIN daily_operating_expenses doe ON doe.cross_store_allocation_id = a.id
              LEFT JOIN expense_types et ON doe.expense_type_id = et.id
+             LEFT JOIN banks rb ON rb.id = doe.reimbursement_bank_id
              WHERE a.payment_id = ANY($1::uuid[])
              ORDER BY a.created_at`,
             [paymentIds]
@@ -306,7 +319,13 @@ class CrossStorePayment {
                 status,
                 reimbursed_amount,
                 reimbursement_note,
-                reimbursement_required
+                reimbursement_required,
+                reimbursement_method,
+                reimbursement_reference,
+                reimbursed_cash_amount,
+                reimbursement_payment_method,
+                reimbursement_check_number,
+                reimbursement_bank_id
             } = updates;
 
             let newRequired =
@@ -322,6 +341,20 @@ class CrossStorePayment {
                 reimbursement_note !== undefined
                     ? reimbursement_note
                     : allocation.reimbursement_note;
+            let newMethod =
+                reimbursement_method !== undefined && reimbursement_method !== null
+                    ? reimbursement_method
+                    : allocation.reimbursement_method;
+            let newReference =
+                reimbursement_reference !== undefined
+                    ? reimbursement_reference
+                    : allocation.reimbursement_reference;
+            let newCashAmount =
+                reimbursed_cash_amount !== undefined && reimbursed_cash_amount !== null
+                    ? parseFloat(reimbursed_cash_amount)
+                    : allocation.reimbursed_cash_amount;
+            let sourceCashTransactionId = allocation.source_cash_transaction_id;
+            let targetCashTransactionId = allocation.target_cash_transaction_id;
 
             if (status) {
                 if (!['pending', 'completed', 'not_required'].includes(status)) {
@@ -364,6 +397,106 @@ class CrossStorePayment {
                 }
             }
 
+            // Handle cash reimbursement reversal if previously completed and now not completed
+            if (
+                allocation.reimbursement_status === 'completed' &&
+                newStatus !== 'completed' &&
+                allocation.reimbursement_method === 'cash' &&
+                (allocation.reimbursed_cash_amount || allocation.reimbursed_amount) &&
+                (allocation.source_cash_transaction_id || allocation.target_cash_transaction_id)
+            ) {
+                const reversalAmount = parseFloat(
+                    allocation.reimbursed_cash_amount ||
+                        allocation.reimbursed_amount ||
+                        allocation.allocated_amount
+                );
+                if (reversalAmount && reversalAmount > 0) {
+                    const reversalDate = new Date().toISOString().split('T')[0];
+                    const description = `Reversal of cross-store reimbursement ${allocationId}`;
+                    await CashOnHandService.addCash(
+                        allocation.target_store_id,
+                        reversalAmount,
+                        'cross_store_reimbursement_reversal',
+                        allocationId,
+                        reversalDate,
+                        description,
+                        userId,
+                        client
+                    );
+                    await CashOnHandService.subtractCash(
+                        allocation.source_store_id,
+                        reversalAmount,
+                        'cross_store_reimbursement_reversal',
+                        allocationId,
+                        reversalDate,
+                        description,
+                        userId,
+                        client
+                    );
+                }
+                sourceCashTransactionId = null;
+                targetCashTransactionId = null;
+                newCashAmount = null;
+                if (newStatus !== 'completed') {
+                    newMethod = newStatus === 'not_required' ? null : newMethod;
+                    newReference = newStatus === 'not_required' ? null : newReference;
+                }
+            }
+
+            // Handle cash reimbursement posting
+            if (newStatus === 'completed') {
+                newMethod = newMethod || reimbursement_method || allocation.reimbursement_method || null;
+                newReference = newReference || reimbursement_reference || allocation.reimbursement_reference || null;
+                if (newMethod === 'cash') {
+                    const cashAmount = Number.isFinite(newCashAmount)
+                        ? newCashAmount
+                        : newReimbursedAmount;
+                    if (!cashAmount || cashAmount <= 0) {
+                        throw new Error('Cash reimbursements must include a positive cash amount.');
+                    }
+                    newCashAmount = parseFloat(cashAmount.toFixed(2));
+                    const transactionDate = (newReimbursedAt || new Date()).toISOString().split('T')[0];
+                    const description = `Cross-store reimbursement ${allocationId}`;
+
+                    if (!targetCashTransactionId) {
+                        const subtractResult = await CashOnHandService.subtractCash(
+                            allocation.target_store_id,
+                            newCashAmount,
+                            'cross_store_reimbursement',
+                            allocationId,
+                            transactionDate,
+                            description,
+                            userId,
+                            client
+                        );
+                        targetCashTransactionId = subtractResult.transaction?.id || null;
+                    }
+
+                    if (!sourceCashTransactionId) {
+                        const addResult = await CashOnHandService.addCash(
+                            allocation.source_store_id,
+                            newCashAmount,
+                            'cross_store_reimbursement',
+                            allocationId,
+                            transactionDate,
+                            description,
+                            userId,
+                            client
+                        );
+                        sourceCashTransactionId = addResult.transaction?.id || null;
+                    }
+                } else {
+                    newCashAmount = null;
+                    sourceCashTransactionId = null;
+                    targetCashTransactionId = null;
+                }
+            } else if (newStatus !== 'completed') {
+                newCashAmount =
+                    newMethod === 'cash' && allocation.reimbursement_status === 'completed'
+                        ? allocation.reimbursed_cash_amount
+                        : null;
+            }
+
             const updateResult = await client.query(
                 `UPDATE cross_store_payment_allocations
                  SET reimbursement_required = $2,
@@ -372,6 +505,11 @@ class CrossStorePayment {
                      reimbursed_amount = $5,
                      reimbursed_by = $6,
                      reimbursement_note = $7,
+                     reimbursement_method = $8,
+                     reimbursement_reference = $9,
+                     reimbursed_cash_amount = $10,
+                     source_cash_transaction_id = $11,
+                     target_cash_transaction_id = $12,
                      updated_at = CURRENT_TIMESTAMP
                  WHERE id = $1
                  RETURNING *`,
@@ -382,7 +520,12 @@ class CrossStorePayment {
                     newReimbursedAt,
                     newReimbursedAmount,
                     newReimbursedBy,
-                    newNote
+                    newNote,
+                    newMethod,
+                    newReference,
+                    newCashAmount,
+                    sourceCashTransactionId,
+                    targetCashTransactionId
                 ]
             );
 
@@ -404,9 +547,13 @@ class CrossStorePayment {
                             ? newReimbursedAt.toISOString().split('T')[0]
                             : new Date().toISOString().split('T')[0],
                         reimbursement_amount: newReimbursedAmount || updatedAllocation.allocated_amount,
-                        reimbursement_payment_method: updates.reimbursement_payment_method || null,
-                        reimbursement_check_number: updates.reimbursement_check_number || null,
-                        reimbursement_bank_id: updates.reimbursement_bank_id || null
+                        reimbursement_payment_method:
+                            reimbursement_payment_method || newMethod || null,
+                        reimbursement_check_number:
+                            reimbursement_check_number ||
+                            (newMethod === 'check' ? newReference : null) ||
+                            null,
+                        reimbursement_bank_id: reimbursement_bank_id || null
                     });
                 } else if (newStatus === 'pending') {
                     await query(

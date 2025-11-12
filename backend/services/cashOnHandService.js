@@ -1,11 +1,19 @@
 const { query } = require('../config/database');
 
 class CashOnHandService {
+    static getExecutor(client) {
+        if (client && typeof client.query === 'function') {
+            return (text, params) => client.query(text, params);
+        }
+        return query;
+    }
+
     /**
      * Initialize cash on hand for a store (if not exists)
      */
-    static async initialize(storeId, initialBalance = 0) {
-        const result = await query(
+    static async initialize(storeId, initialBalance = 0, client = null) {
+        const exec = this.getExecutor(client);
+        const result = await exec(
             `INSERT INTO cash_on_hand (store_id, current_balance)
              VALUES ($1, $2)
              ON CONFLICT (store_id) DO NOTHING
@@ -15,7 +23,7 @@ class CashOnHandService {
         
         if (result.rows.length === 0) {
             // Already exists, return existing
-            const existing = await query(
+            const existing = await exec(
                 'SELECT * FROM cash_on_hand WHERE store_id = $1',
                 [storeId]
             );
@@ -28,15 +36,16 @@ class CashOnHandService {
     /**
      * Get current cash on hand balance for a store
      */
-    static async getBalance(storeId) {
-        const result = await query(
+    static async getBalance(storeId, client = null) {
+        const exec = this.getExecutor(client);
+        const result = await exec(
             'SELECT * FROM cash_on_hand WHERE store_id = $1',
             [storeId]
         );
         
         if (result.rows.length === 0) {
             // Initialize if doesn't exist
-            return await this.initialize(storeId);
+            return await this.initialize(storeId, 0, client);
         }
         
         return result.rows[0];
@@ -59,18 +68,20 @@ class CashOnHandService {
         transactionId = null,
         transactionDate = new Date().toISOString().split('T')[0],
         description = null,
-        enteredBy = null
+        enteredBy = null,
+        client = null
     ) {
+        const exec = this.getExecutor(client);
         // Initialize if doesn't exist
-        await this.initialize(storeId);
+        await this.initialize(storeId, 0, client);
         
         // Get current balance
-        const current = await this.getBalance(storeId);
+        const current = await this.getBalance(storeId, client);
         const balanceBefore = parseFloat(current.current_balance) || 0;
         const balanceAfter = balanceBefore + parseFloat(amount);
         
         // Update cash on hand
-        await query(
+        await exec(
             `UPDATE cash_on_hand
              SET current_balance = $1,
                  last_updated = CURRENT_TIMESTAMP,
@@ -82,11 +93,12 @@ class CashOnHandService {
         );
         
         // Record transaction history
-        await query(
+        const transactionResult = await exec(
             `INSERT INTO cash_transactions (
                 store_id, transaction_date, transaction_type, transaction_id,
                 amount, balance_before, balance_after, description, entered_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING *`,
             [
                 storeId,
                 transactionDate,
@@ -100,17 +112,20 @@ class CashOnHandService {
             ]
         );
         
+        const transaction = transactionResult.rows[0] || null;
+
         return {
             balanceBefore,
             balanceAfter,
-            amount: parseFloat(amount)
+            amount: parseFloat(amount),
+            transaction
         };
     }
 
     /**
      * Add cash (revenue, reimbursement received)
      */
-    static async addCash(storeId, amount, transactionType, transactionId, transactionDate, description, enteredBy) {
+    static async addCash(storeId, amount, transactionType, transactionId, transactionDate, description, enteredBy, client = null) {
         return await this.updateBalance(
             storeId,
             Math.abs(amount),
@@ -118,14 +133,15 @@ class CashOnHandService {
             transactionId,
             transactionDate,
             description,
-            enteredBy
+            enteredBy,
+            client
         );
     }
 
     /**
      * Subtract cash (expense, payment, reimbursement paid)
      */
-    static async subtractCash(storeId, amount, transactionType, transactionId, transactionDate, description, enteredBy) {
+    static async subtractCash(storeId, amount, transactionType, transactionId, transactionDate, description, enteredBy, client = null) {
         return await this.updateBalance(
             storeId,
             -Math.abs(amount),
@@ -133,7 +149,8 @@ class CashOnHandService {
             transactionId,
             transactionDate,
             description,
-            enteredBy
+            enteredBy,
+            client
         );
     }
 

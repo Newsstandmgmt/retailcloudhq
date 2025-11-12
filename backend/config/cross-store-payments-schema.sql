@@ -57,7 +57,12 @@ ALTER TABLE cross_store_payment_allocations
     ADD COLUMN IF NOT EXISTS reimbursed_amount NUMERIC(12, 2),
     ADD COLUMN IF NOT EXISTS reimbursed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     ADD COLUMN IF NOT EXISTS reimbursement_note TEXT,
-    ADD COLUMN IF NOT EXISTS allocation_percentage NUMERIC(6, 3);
+    ADD COLUMN IF NOT EXISTS allocation_percentage NUMERIC(6, 3),
+    ADD COLUMN IF NOT EXISTS reimbursement_method VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS reimbursement_reference VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS reimbursed_cash_amount NUMERIC(12, 2),
+    ADD COLUMN IF NOT EXISTS source_cash_transaction_id UUID REFERENCES cash_transactions(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS target_cash_transaction_id UUID REFERENCES cash_transactions(id) ON DELETE SET NULL;
 
 UPDATE cross_store_payment_allocations
 SET reimbursement_status = CASE

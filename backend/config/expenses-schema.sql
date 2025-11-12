@@ -86,7 +86,10 @@ ALTER TABLE daily_operating_expenses
     ADD COLUMN IF NOT EXISTS notes TEXT,
     ADD COLUMN IF NOT EXISTS entered_by UUID REFERENCES users(id),
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS paid_by_store_id UUID REFERENCES stores(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS cross_store_payment_id UUID REFERENCES cross_store_payments(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS cross_store_allocation_id UUID UNIQUE REFERENCES cross_store_payment_allocations(id) ON DELETE SET NULL;
 
 ALTER TABLE daily_operating_expenses
     ALTER COLUMN reimbursement_status SET DEFAULT 'none';
@@ -95,6 +98,7 @@ CREATE INDEX IF NOT EXISTS idx_daily_operating_expenses_store_date ON daily_oper
 CREATE INDEX IF NOT EXISTS idx_daily_operating_expenses_store_type ON daily_operating_expenses(store_id, expense_type_id);
 CREATE INDEX IF NOT EXISTS idx_daily_operating_expenses_payment_method ON daily_operating_expenses(store_id, payment_method);
 CREATE INDEX IF NOT EXISTS idx_daily_operating_expenses_reimbursement_status ON daily_operating_expenses(store_id, reimbursement_status);
+CREATE INDEX IF NOT EXISTS idx_daily_operating_expenses_paid_by_store ON daily_operating_expenses(paid_by_store_id, reimbursement_status);
 
 DROP TRIGGER IF EXISTS update_daily_operating_expenses_updated_at ON daily_operating_expenses;
 CREATE TRIGGER update_daily_operating_expenses_updated_at

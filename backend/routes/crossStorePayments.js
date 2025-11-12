@@ -376,7 +376,13 @@ router.post('/allocations/:allocationId/reimbursement', authorize('admin', 'supe
             reimbursement_required:
                 typeof req.body.reimbursement_required === 'boolean'
                     ? req.body.reimbursement_required
-                    : undefined
+                    : undefined,
+            reimbursement_method: req.body.reimbursement_method,
+            reimbursement_reference: req.body.reimbursement_reference,
+            reimbursed_cash_amount: req.body.reimbursed_cash_amount,
+            reimbursement_payment_method: req.body.reimbursement_payment_method,
+            reimbursement_check_number: req.body.reimbursement_check_number,
+            reimbursement_bank_id: req.body.reimbursement_bank_id
         };
 
         const updateResult = await CrossStorePayment.updateAllocationReimbursement(
@@ -401,13 +407,17 @@ router.post('/allocations/:allocationId/reimbursement', authorize('admin', 'supe
                     reimbursement_status: allocation.reimbursement_status,
                     reimbursement_required: allocation.reimbursement_required,
                     reimbursed_amount: allocation.reimbursed_amount,
-                    reimbursement_note: allocation.reimbursement_note
+                    reimbursement_note: allocation.reimbursement_note,
+                    reimbursement_method: allocation.reimbursement_method,
+                    reimbursement_reference: allocation.reimbursement_reference
                 },
                 new_values: {
                     reimbursement_status: updateResult.allocation.reimbursement_status,
                     reimbursement_required: updateResult.allocation.reimbursement_required,
                     reimbursed_amount: updateResult.allocation.reimbursed_amount,
-                    reimbursement_note: updateResult.allocation.reimbursement_note
+                    reimbursement_note: updateResult.allocation.reimbursement_note,
+                    reimbursement_method: updateResult.allocation.reimbursement_method,
+                    reimbursement_reference: updateResult.allocation.reimbursement_reference
                 }
             });
         } catch (auditError) {
