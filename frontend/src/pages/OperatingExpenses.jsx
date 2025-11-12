@@ -654,14 +654,21 @@ const OperatingExpenses = () => {
     }
   };
 
-  const handleDeleteExpense = async (expenseId) => {
+  const handleDeleteExpense = async (expense) => {
+    if (!expense) return;
+
     if (!window.confirm('Are you sure you want to delete this expense entry? This action cannot be undone.')) {
       return;
     }
 
     try {
-      await expensesAPI.delete(selectedStore.id, expenseId);
-      alert('Expense entry deleted successfully!');
+      if (expense.cross_store_allocation_id) {
+        await crossStorePaymentsAPI.deleteAllocation(expense.cross_store_allocation_id);
+        alert('Cross-store expense allocation removed. The paying store will absorb the amount.');
+      } else {
+        await expensesAPI.delete(selectedStore.id, expense.id);
+        alert('Expense entry deleted successfully!');
+      }
       loadExpenses();
       loadPendingReimbursements();
       if (selectedStore) {
@@ -673,6 +680,16 @@ const OperatingExpenses = () => {
   };
 
   const handleReimburse = (expense) => {
+    if (expense?.cross_store_allocation_id) {
+      const details = findCrossStoreAllocationById(expense.cross_store_allocation_id);
+      if (!details) {
+        alert('Unable to load the cross-store allocation details for this expense. Please refresh and try again.');
+        return;
+      }
+      handleOpenCrossStoreReimbursementModal(details.allocation);
+      return;
+    }
+
     setReimbursingExpense(expense);
     setReimburseForm({
       reimbursement_date: new Date().toISOString().split('T')[0],
@@ -1105,6 +1122,17 @@ const OperatingExpenses = () => {
       )
   );
 
+  const findCrossStoreAllocationById = (allocationId) => {
+    if (!allocationId) return null;
+    for (const payment of crossStorePayments) {
+      const allocation = (payment.allocations || []).find((alloc) => alloc.id === allocationId);
+      if (allocation) {
+        return { payment, allocation };
+      }
+    }
+    return null;
+  };
+
   const crossStoreExpenseAllocations = crossStoreExpensePayments.flatMap((payment) =>
     (payment.allocations || []).map((allocation) => ({
       payment,
@@ -1425,7 +1453,7 @@ const OperatingExpenses = () => {
         </div>
       </div>
 
-      {(user?.role === 'admin' || user?.role === 'super_admin') && selectedStore && (
+      {/* Legacy cross-store summary card disabled in favor of tab */ false && (
         <div className="bg-white rounded-lg shadow p-4 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
             <div>
@@ -2726,6 +2754,11 @@ const OperatingExpenses = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {expense.expense_type_name || '-'}
+                      {expense.cross_store_allocation_id && (
+                        <span className="ml-2 px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded uppercase tracking-wide">
+                          Cross-Store
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-right">
                       {formatCurrency(expense.amount)}
@@ -2799,7 +2832,7 @@ const OperatingExpenses = () => {
                           </button>
                         )}
                         <button 
-                          onClick={() => handleDeleteExpense(expense.id)}
+                          onClick={() => handleDeleteExpense(expense)}
                           className="text-red-600 hover:text-red-900"
                         >
                           Delete

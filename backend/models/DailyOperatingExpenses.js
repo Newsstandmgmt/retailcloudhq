@@ -286,6 +286,11 @@ class DailyOperatingExpenses {
         return result.rows[0] || null;
     }
 
+    static async deleteByCrossStoreAllocation(allocationId, client = null) {
+        const exec = getExecutor(client);
+        await exec('DELETE FROM daily_operating_expenses WHERE cross_store_allocation_id = $1', [allocationId]);
+    }
+
     static async deleteByCrossStorePayment(paymentId, client = null) {
         const exec = getExecutor(client);
         await exec(

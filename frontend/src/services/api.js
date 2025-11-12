@@ -835,6 +835,8 @@ export const crossStorePaymentsAPI = {
   delete: (paymentId) => api.delete(`/api/cross-store-payments/${paymentId}`),
   updateAllocationReimbursement: (allocationId, data) =>
     api.post(`/api/cross-store-payments/allocations/${allocationId}/reimbursement`, data),
+  deleteAllocation: (allocationId) =>
+    api.delete(`/api/cross-store-payments/allocations/${allocationId}`),
 };
 
 export const squareAPI = {

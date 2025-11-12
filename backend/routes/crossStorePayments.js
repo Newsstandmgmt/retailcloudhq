@@ -453,6 +453,17 @@ router.put('/:paymentId', authorize('admin', 'super_admin'), async (req, res) =>
     }
 });
 
+router.delete('/allocations/:allocationId', authorize('admin', 'super_admin', 'manager'), async (req, res) => {
+    try {
+        const allocationId = req.params.allocationId;
+        const updatedPayment = await CrossStorePayment.removeAllocation(allocationId, req.user.id);
+        res.json({ payment: updatedPayment });
+    } catch (error) {
+        console.error('Delete cross-store allocation error:', error);
+        res.status(500).json({ error: error.message || 'Failed to delete cross-store allocation.' });
+    }
+});
+
 router.delete('/:paymentId', authorize('admin', 'super_admin'), async (req, res) => {
     try {
         const paymentId = req.params.paymentId;

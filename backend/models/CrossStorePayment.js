@@ -858,6 +858,113 @@ class CrossStorePayment {
             client.release();
         }
     }
+
+    static async removeAllocation(allocationId, userId) {
+        const client = await getClient();
+        try {
+            await client.query('BEGIN');
+
+            const allocationResult = await client.query(
+                `SELECT 
+                    a.*, 
+                    p.source_store_id, 
+                    p.amount AS payment_amount,
+                    p.payment_date,
+                    p.payment_method,
+                    p.payment_reference,
+                    p.paid_to,
+                    p.notes,
+                    p.id as payment_id
+                 FROM cross_store_payment_allocations a
+                 JOIN cross_store_payments p ON p.id = a.payment_id
+                 WHERE a.id = $1
+                 FOR UPDATE`,
+                [allocationId]
+            );
+
+            if (allocationResult.rows.length === 0) {
+                throw new Error('Cross-store allocation not found.');
+            }
+
+            const allocation = allocationResult.rows[0];
+
+            if (allocation.reimbursement_status === 'completed') {
+                throw new Error('Cannot remove an allocation that has already been reimbursed.');
+            }
+
+            const canAccessTarget = await client.query('SELECT can_user_access_store($1, $2) AS can_access', [userId, allocation.target_store_id]);
+            const canAccessSource = await client.query('SELECT can_user_access_store($1, $2) AS can_access', [userId, allocation.source_store_id]);
+            if (!canAccessTarget.rows[0]?.can_access && !canAccessSource.rows[0]?.can_access) {
+                throw new Error('Access denied for this allocation.');
+            }
+
+            const allocationAmount = parseFloat(allocation.allocated_amount) || 0;
+
+            await DailyOperatingExpenses.deleteByCrossStoreAllocation(allocationId, client);
+            await client.query('DELETE FROM cross_store_payment_allocations WHERE id = $1', [allocationId]);
+
+            if (allocationAmount > 0) {
+                const sourceAllocResult = await client.query(
+                    `SELECT * FROM cross_store_payment_allocations 
+                     WHERE payment_id = $1 AND target_store_id = $2
+                     FOR UPDATE`,
+                    [allocation.payment_id, allocation.source_store_id]
+                );
+
+                if (sourceAllocResult.rows.length > 0) {
+                    const sourceAllocation = sourceAllocResult.rows[0];
+                    const updatedAmount = parseFloat(sourceAllocation.allocated_amount) + allocationAmount;
+                    await client.query(
+                        `UPDATE cross_store_payment_allocations
+                         SET allocated_amount = $1,
+                             reimbursement_required = false,
+                             reimbursement_status = 'not_required',
+                             updated_at = CURRENT_TIMESTAMP
+                         WHERE id = $2`,
+                        [updatedAmount, sourceAllocation.id]
+                    );
+                } else {
+                    await client.query(
+                        `INSERT INTO cross_store_payment_allocations (
+                            payment_id,
+                            target_store_id,
+                            allocated_amount,
+                            reimbursement_required,
+                            reimbursement_status,
+                            allocation_percentage
+                        ) VALUES ($1, $2, $3, false, 'not_required', NULL)`,
+                        [allocation.payment_id, allocation.source_store_id, allocationAmount]
+                    );
+                }
+            }
+
+            if (allocation.payment_amount && allocation.payment_amount > 0) {
+                const remainingAllocations = await client.query(
+                    'SELECT id, allocated_amount FROM cross_store_payment_allocations WHERE payment_id = $1',
+                    [allocation.payment_id]
+                );
+
+                for (const row of remainingAllocations.rows) {
+                    const percent = (parseFloat(row.allocated_amount) / parseFloat(allocation.payment_amount)) * 100;
+                    await client.query(
+                        `UPDATE cross_store_payment_allocations
+                         SET allocation_percentage = $1,
+                             updated_at = CURRENT_TIMESTAMP
+                         WHERE id = $2`,
+                        [Number.isFinite(percent) ? parseFloat(percent.toFixed(3)) : null, row.id]
+                    );
+                }
+            }
+
+            await client.query('COMMIT');
+            return await CrossStorePayment.findById(allocation.payment_id);
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
 }
 
 module.exports = CrossStorePayment;
