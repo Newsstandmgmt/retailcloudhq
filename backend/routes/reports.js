@@ -2317,19 +2317,48 @@ router.get('/store/:storeId/cash-tracking', canAccessStore, async (req, res) => 
             'SELECT current_balance FROM cash_on_hand WHERE store_id = $1',
             [storeId]
         );
-        const currentBalance = parseFloat(currentBalanceResult.rows[0]?.current_balance || 0);
+        const ledgerCurrentBalance = parseFloat(currentBalanceResult.rows[0]?.current_balance || 0);
+
+        const latestRevenueResult = await query(
+            `SELECT entry_date, calculated_business_cash, total_cash, business_credit_card, credit_card_transaction_fees, other_cash_expense, store_closed
+             FROM daily_revenue
+             WHERE store_id = $1
+             ORDER BY entry_date DESC
+             LIMIT 1`,
+            [storeId]
+        );
+
+        let derivedCurrentCash = ledgerCurrentBalance;
+        if (latestRevenueResult.rows.length > 0) {
+            const latest = latestRevenueResult.rows[0];
+            const storeClosed = latest.store_closed === true || latest.store_closed === 'true';
+            if (!storeClosed) {
+                if (latest.calculated_business_cash !== null && latest.calculated_business_cash !== undefined) {
+                    derivedCurrentCash = parseFloat(latest.calculated_business_cash || 0);
+                } else {
+                    derivedCurrentCash = (
+                        parseFloat(latest.total_cash || 0) +
+                        parseFloat(latest.business_credit_card || 0) -
+                        parseFloat(latest.credit_card_transaction_fees || 0) +
+                        parseFloat(latest.other_cash_expense || 0)
+                    );
+                }
+            } else {
+                derivedCurrentCash = 0;
+            }
+        }
 
         let closingBalance;
         if (transactions.length > 0) {
             closingBalance = transactions[transactions.length - 1].balance_after;
         } else {
-            closingBalance = openingBalance !== null ? openingBalance : currentBalance;
+            closingBalance = openingBalance !== null ? openingBalance : derivedCurrentCash;
         }
 
         if (openingBalance === null) {
             openingBalance = transactions.length > 0
                 ? transactions[0].balance_before
-                : currentBalance;
+                : derivedCurrentCash;
         }
 
         const totals = transactions.reduce((acc, tx) => {
@@ -2377,7 +2406,8 @@ router.get('/store/:storeId/cash-tracking', canAccessStore, async (req, res) => 
                 total_inflow: totals.inflow,
                 total_outflow: totals.outflow,
                 transaction_count: transactions.length,
-                current_cash_on_hand: currentBalance
+                current_cash_on_hand: derivedCurrentCash,
+                ledger_cash_on_hand: ledgerCurrentBalance
             },
             breakdown: Array.from(breakdownMap.values()).sort((a, b) => Math.abs(b.net) - Math.abs(a.net)),
             transactions
