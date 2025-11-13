@@ -884,19 +884,19 @@ const Reports = () => {
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span className="text-gray-700">Cash</span>
-                <span className="font-medium">{formatCurrency(safeRevenueBreakdown.cash || 0)}</span>
+                <span className="font-medium">{formatCurrency(safeRevenue.cash || 0)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-700">Credit Card</span>
-                <span className="font-medium">{formatCurrency(safeRevenueBreakdown.credit_card || 0)}</span>
+                <span className="font-medium">{formatCurrency(safeRevenue.credit_card || 0)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-700">Online</span>
-                <span className="font-medium">{formatCurrency(safeRevenueBreakdown.online || 0)}</span>
+                <span className="font-medium">{formatCurrency(safeRevenue.online || 0)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-700">Instant Pay</span>
-                <span className="font-medium">{formatCurrency(safeRevenueBreakdown.instant_pay || 0)}</span>
+                <span className="font-medium">{formatCurrency(safeRevenue.instant_pay || 0)}</span>
               </div>
             </div>
           </div>
@@ -1058,19 +1058,19 @@ const Reports = () => {
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span className="text-gray-700">Cash</span>
-                <span className="font-medium">{formatCurrency(safeRevenueBreakdown.cash || 0)}</span>
+                <span className="font-medium">{formatCurrency(safeRevenue.cash || 0)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-700">Credit Card</span>
-                <span className="font-medium">{formatCurrency(safeRevenueBreakdown.credit_card || 0)}</span>
+                <span className="font-medium">{formatCurrency(safeRevenue.credit_card || 0)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-700">Online</span>
-                <span className="font-medium">{formatCurrency(safeRevenueBreakdown.online || 0)}</span>
+                <span className="font-medium">{formatCurrency(safeRevenue.online || 0)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-700">Instant Pay</span>
-                <span className="font-medium">{formatCurrency(safeRevenueBreakdown.instant_pay || 0)}</span>
+                <span className="font-medium">{formatCurrency(safeRevenue.instant_pay || 0)}</span>
               </div>
             </div>
             <div className="mt-4 pt-4 border-t">
@@ -1587,11 +1587,11 @@ const Reports = () => {
   // Sales Trends Report
   const renderSalesTrends = () => {
     if (!reportData || typeof reportData !== 'object') return null;
-    const {
-      summary = { total_revenue: 0, avg_daily_revenue: 0, max_daily_revenue: 0, min_daily_revenue: 0, days_with_data: 0 },
-      daily_trends = [],
-      weekly_trends = [],
-      monthly_trends = []
+    const { 
+      summary = { total_revenue: 0, avg_daily_revenue: 0, max_daily_revenue: 0, min_daily_revenue: 0, days_with_data: 0 }, 
+      daily_trends = [], 
+      weekly_trends = [], 
+      monthly_trends = [] 
     } = reportData || {};
 
     const sections = [];
@@ -1601,24 +1601,24 @@ const Reports = () => {
         <div class="summary-card positive">
           <div class="label">Total Revenue</div>
           <div class="value">${formatCurrency(summary.total_revenue)}</div>
-        </div>
+          </div>
         <div class="summary-card neutral">
           <div class="label">Avg Daily Revenue</div>
           <div class="value">${formatCurrency(summary.avg_daily_revenue)}</div>
-        </div>
+          </div>
         <div class="summary-card positive">
           <div class="label">Max Daily Revenue</div>
           <div class="value">${formatCurrency(summary.max_daily_revenue)}</div>
-        </div>
+          </div>
         <div class="summary-card negative">
           <div class="label">Min Daily Revenue</div>
           <div class="value">${formatCurrency(summary.min_daily_revenue)}</div>
-        </div>
+          </div>
         <div class="summary-card neutral">
           <div class="label">Days with Data</div>
           <div class="value">${summary.days_with_data}</div>
+          </div>
         </div>
-      </div>
     `);
 
     if (daily_trends.length > 0) {
@@ -1646,13 +1646,13 @@ const Reports = () => {
                 <th class="text-right">Cash</th>
                 <th class="text-right">Credit Card</th>
                 <th class="text-right">Online</th>
-              </tr>
-            </thead>
+                  </tr>
+                </thead>
             <tbody>
               ${dailyRows}
-            </tbody>
-          </table>
-        </div>
+                </tbody>
+              </table>
+            </div>
       `);
     }
 
@@ -1665,7 +1665,7 @@ const Reports = () => {
             <td class="text-right currency">${formatCurrency(trend?.weekly_revenue || 0)}</td>
             <td class="text-right currency">${formatCurrency(trend?.avg_daily_revenue || 0)}</td>
             <td class="text-right">${trend?.days_count || 0}</td>
-          </tr>
+                  </tr>
         `;
       }).join('');
 
@@ -1679,13 +1679,13 @@ const Reports = () => {
                 <th class="text-right">Weekly Revenue</th>
                 <th class="text-right">Avg Daily Revenue</th>
                 <th class="text-right">Days with Data</th>
-              </tr>
+                    </tr>
             </thead>
             <tbody>
               ${weeklyRows}
-            </tbody>
-          </table>
-        </div>
+                </tbody>
+              </table>
+            </div>
       `);
     }
 
@@ -1698,7 +1698,7 @@ const Reports = () => {
             <td class="text-right currency">${formatCurrency(trend?.monthly_revenue || 0)}</td>
             <td class="text-right currency">${formatCurrency(trend?.avg_daily_revenue || 0)}</td>
             <td class="text-right">${trend?.days_count || 0}</td>
-          </tr>
+                  </tr>
         `;
       }).join('');
 
@@ -1712,13 +1712,13 @@ const Reports = () => {
                 <th class="text-right">Monthly Revenue</th>
                 <th class="text-right">Avg Daily Revenue</th>
                 <th class="text-right">Days with Data</th>
-              </tr>
+                    </tr>
             </thead>
             <tbody>
               ${monthlyRows}
-            </tbody>
-          </table>
-        </div>
+                </tbody>
+              </table>
+            </div>
       `);
     }
 
@@ -3466,11 +3466,11 @@ const Reports = () => {
 
   const prepareSalesTrendsHTML = () => {
     if (!reportData) return '<p>No data available</p>';
-    const {
-      summary = { total_revenue: 0, avg_daily_revenue: 0, max_daily_revenue: 0, min_daily_revenue: 0, days_with_data: 0 },
-      daily_trends = [],
-      weekly_trends = [],
-      monthly_trends = []
+    const { 
+      summary = { total_revenue: 0, avg_daily_revenue: 0, max_daily_revenue: 0, min_daily_revenue: 0, days_with_data: 0 }, 
+      daily_trends = [], 
+      weekly_trends = [], 
+      monthly_trends = [] 
     } = reportData || {};
 
     const sections = [];
@@ -3515,23 +3515,23 @@ const Reports = () => {
       }).join('');
 
       sections.push(`
-        <div class="section">
-          <div class="section-title">Daily Revenue Trends</div>
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th class="text-right">Total Revenue</th>
-                <th class="text-right">Cash</th>
-                <th class="text-right">Credit Card</th>
-                <th class="text-right">Online</th>
-              </tr>
-            </thead>
-            <tbody>
+      <div class="section">
+        <div class="section-title">Daily Revenue Trends</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th class="text-right">Total Revenue</th>
+              <th class="text-right">Cash</th>
+              <th class="text-right">Credit Card</th>
+              <th class="text-right">Online</th>
+            </tr>
+          </thead>
+          <tbody>
               ${dailyRows}
-            </tbody>
-          </table>
-        </div>
+          </tbody>
+        </table>
+      </div>
       `);
     }
 
@@ -3549,22 +3549,22 @@ const Reports = () => {
       }).join('');
 
       sections.push(`
-        <div class="section">
-          <div class="section-title">Weekly Revenue Trends</div>
-          <table>
-            <thead>
-              <tr>
+      <div class="section">
+        <div class="section-title">Weekly Revenue Trends</div>
+        <table>
+          <thead>
+            <tr>
                 <th>Week Start</th>
-                <th class="text-right">Weekly Revenue</th>
+              <th class="text-right">Weekly Revenue</th>
                 <th class="text-right">Avg Daily Revenue</th>
                 <th class="text-right">Days with Data</th>
-              </tr>
-            </thead>
-            <tbody>
+            </tr>
+          </thead>
+          <tbody>
               ${weeklyRows}
-            </tbody>
-          </table>
-        </div>
+          </tbody>
+        </table>
+      </div>
       `);
     }
 
@@ -3582,18 +3582,18 @@ const Reports = () => {
       }).join('');
 
       sections.push(`
-        <div class="section">
-          <div class="section-title">Monthly Revenue Trends</div>
-          <table>
-            <thead>
-              <tr>
-                <th>Month</th>
-                <th class="text-right">Monthly Revenue</th>
+      <div class="section">
+        <div class="section-title">Monthly Revenue Trends</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Month</th>
+              <th class="text-right">Monthly Revenue</th>
                 <th class="text-right">Avg Daily Revenue</th>
                 <th class="text-right">Days with Data</th>
-              </tr>
-            </thead>
-            <tbody>
+            </tr>
+          </thead>
+          <tbody>
               ${monthlyRows}
             </tbody>
           </table>
@@ -3620,7 +3620,7 @@ const Reports = () => {
         <td class="text-right currency">${formatCurrency(item.inflow || 0)}</td>
         <td class="text-right currency">${formatCurrency(item.outflow || 0)}</td>
         <td class="text-right currency">${formatCurrency(item.net || 0)}</td>
-      </tr>
+              </tr>
     `).join('');
 
     const transactionRows = (transactions || []).map((tx) => `
@@ -3840,30 +3840,30 @@ const Reports = () => {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
+            <button
             type="button"
-            onClick={() => handleExport('csv')}
+              onClick={() => handleExport('csv')}
             className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
             disabled={!reportData || loading}
-          >
+            >
             Export CSV
-          </button>
-          <button
+            </button>
+            <button
             type="button"
-            onClick={() => handleExport('excel')}
+              onClick={() => handleExport('excel')}
             className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
             disabled={!reportData || loading}
-          >
+            >
             Export Excel
-          </button>
-          <button
+            </button>
+            <button
             type="button"
-            onClick={() => handleExport('pdf')}
+              onClick={() => handleExport('pdf')}
             className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-60"
             disabled={!reportData || loading}
-          >
+            >
             Export PDF
-          </button>
+            </button>
           <button
             type="button"
             onClick={loadReport}
@@ -3895,11 +3895,11 @@ const Reports = () => {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTab;
           return (
-            <button
+                  <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
@@ -3910,31 +3910,31 @@ const Reports = () => {
               }`}
             >
               {tab.name}
-            </button>
+                  </button>
           );
         })}
-      </div>
+              </div>
 
       <div className="flex flex-wrap items-end gap-4 bg-white border border-gray-200 rounded-lg p-4">
         {needsDateRange && (
           <>
-            <div>
+              <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Start Date</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
+                />
+              </div>
+              <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">End Date</label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+                />
             </div>
           </>
         )}
@@ -3987,7 +3987,7 @@ const Reports = () => {
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
           {error}
-        </div>
+      </div>
       )}
 
       {loading ? (
@@ -3998,10 +3998,10 @@ const Reports = () => {
         renderActiveTabContent() || (
           <div className="bg-white border border-gray-200 rounded-lg p-8 text-center text-gray-500">
             No data available for the selected period.
-          </div>
+        </div>
         )
       )}
-    </div>
+        </div>
 
       {showCashReconcileModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4">
@@ -4049,9 +4049,9 @@ const Reports = () => {
             {cashReconcileError && (
               <div className="mt-2 text-red-500 text-sm">
                 {cashReconcileError}
-              </div>
-            )}
-          </div>
+        </div>
+      )}
+    </div>
         </div>
       )}
     </>

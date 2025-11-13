@@ -355,6 +355,14 @@ router.get('/store/:storeId/profit-loss', canAccessStore, async (req, res) => {
             expectedRevenueSummary.variance_highlights = expectedVarianceHighlights;
         }
 
+        const revenueSummary = {
+            total_cash: parseFloat(revenueResult.rows[0]?.total_revenue || 0),
+            total_card_sales: parseFloat(revenueResult.rows[0]?.total_card_sales || 0),
+            total_online_sales: parseFloat(revenueResult.rows[0]?.total_online_sales || 0),
+            total_instant_sales: parseFloat(revenueResult.rows[0]?.total_instant_sales || 0),
+            daily_business_total: parseFloat(revenueResult.rows[0]?.daily_business_total || 0)
+        };
+
         res.json({
             period: { start_date, end_date },
             revenue: {
@@ -377,7 +385,11 @@ router.get('/store/:storeId/profit-loss', canAccessStore, async (req, res) => {
             },
             net_profit: netProfit,
             margin_percentage: totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(2) : 0,
-            expected_revenue: expectedRevenueSummary
+            expected_revenue: expectedRevenueSummary,
+            revenue_breakdown: revenueSummary,
+            invoices: expectedDailyTrends,
+            vendors: expectedVendorSummary,
+            variance_summary: expectedVarianceHighlights
         });
     } catch (error) {
         console.error('Profit & Loss error:', error);
