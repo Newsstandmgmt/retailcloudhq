@@ -1,8 +1,10 @@
 const express = require('express');
-const { canAccessStore } = require('../middleware/auth');
+const { authenticate, canAccessStore } = require('../middleware/auth');
 const LotteryRawReport = require('../models/LotteryRawReport');
 
 const router = express.Router();
+
+router.use(authenticate);
 
 router.get('/store/:storeId', canAccessStore, async (req, res) => {
     try {

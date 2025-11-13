@@ -78,8 +78,7 @@ router.get('/gmail/callback', async (req, res) => {
 // Now apply authentication middleware to all other routes
 router.use(authenticate);
 
-// Get OAuth URL for Gmail connection
-router.get('/stores/:storeId/gmail/connect', canAccessStore, authorize('super_admin', 'admin'), async (req, res) => {
+const sendAuthUrl = async (req, res) => {
     try {
         console.log('Getting Gmail auth URL for store:', req.params.storeId);
         console.log('Environment check:', {
@@ -99,6 +98,14 @@ router.get('/stores/:storeId/gmail/connect', canAccessStore, authorize('super_ad
             details: error.message,
             stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
+    }
+};
+
+// Legacy endpoint kept for compatibility
+router.get('/stores/:storeId/gmail/connect', canAccessStore, authorize('super_admin', 'admin'), sendAuthUrl);
+
+// Preferred endpoint used by the frontend service layer
+router.get('/stores/:storeId/auth-url', canAccessStore, authorize('super_admin', 'admin'), sendAuthUrl);
     }
 });
 
@@ -315,7 +322,7 @@ router.delete('/rules/:id', authorize('super_admin', 'admin'), async (req, res) 
 });
 
 // Manually check emails for an account
-router.post('/accounts/:accountId/check', authorize('super_admin', 'admin'), async (req, res) => {
+const handleManualCheck = async (req, res) => {
     try {
         const { query } = require('../config/database');
         
@@ -352,15 +359,20 @@ router.post('/accounts/:accountId/check', authorize('super_admin', 'admin'), asy
         console.error('Check emails error:', error);
         res.status(500).json({ error: 'Failed to check emails', details: error.message });
     }
-});
+};
 
-// Disconnect email account
-router.delete('/accounts/:id', authorize('super_admin', 'admin'), async (req, res) => {
+// Legacy endpoint
+router.post('/accounts/:accountId/check', authorize('super_admin', 'admin'), handleManualCheck);
+
+// Preferred endpoint used by frontend
+router.post('/accounts/:accountId/check-emails', authorize('super_admin', 'admin'), handleManualCheck);
+
+const disconnectAccount = async (req, res) => {
     try {
         const { query } = require('../config/database');
         
         // Get email account to check store access
-        const account = await LotteryEmailAccount.findById(req.params.id);
+        const account = await LotteryEmailAccount.findById(req.params.id || req.params.accountId);
         if (!account) {
             return res.status(404).json({ error: 'Email account not found' });
         }
@@ -382,19 +394,22 @@ router.delete('/accounts/:id', authorize('super_admin', 'admin'), async (req, re
             return res.status(403).json({ error: 'Access denied to this store.' });
         }
 
-        // Delete the account and all its rules
         // Delete all rules first
-        await query('DELETE FROM lottery_email_rules WHERE email_account_id = $1', [req.params.id]);
+        await query('DELETE FROM lottery_email_rules WHERE email_account_id = $1', [account.id]);
         
         // Delete the account
-        await query('DELETE FROM lottery_email_accounts WHERE id = $1', [req.params.id]);
+        await query('DELETE FROM lottery_email_accounts WHERE id = $1', [account.id]);
         
         res.json({ message: 'Email account disconnected successfully' });
     } catch (error) {
         console.error('Disconnect email account error:', error);
         res.status(500).json({ error: 'Failed to disconnect email account', details: error.message });
     }
-});
+};
+
+// Disconnect email account
+router.delete('/accounts/:id', authorize('super_admin', 'admin'), disconnectAccount);
+router.post('/accounts/:accountId/disconnect', authorize('super_admin', 'admin'), disconnectAccount);
 
 module.exports = router;
 
