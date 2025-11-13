@@ -46,23 +46,27 @@ const BusinessAnalytics = () => {
     if (selectedStore) {
       loadBanks();
       calculateBankBalances();
-      loadCashSummary();
     }
   }, [selectedStore]);
 
   useEffect(() => {
     if (selectedStore && dateRange.start && dateRange.end) {
       loadRevenueData();
+      loadCashSummary(selectedStore, dateRange.start, dateRange.end);
     }
   }, [selectedStore, dateRange]);
 
-  const loadCashSummary = async () => {
-    if (!selectedStore) return;
+  const loadCashSummary = async (storeId, startDate, endDate) => {
+    if (!storeId) return;
     try {
-      const response = await reportsAPI.getCashTracking(selectedStore);
+      const response = await reportsAPI.getCashTracking(storeId, startDate, endDate);
       const summary = response.data?.summary;
       if (summary) {
-        const businessValue = parseFloat(summary.current_cash_on_hand ?? summary.closing_balance ?? 0) || 0;
+        const currentValue = parseFloat(summary.current_cash_on_hand ?? summary.closing_balance ?? 0);
+        const ledgerValue = parseFloat(summary.ledger_cash_on_hand ?? 0);
+        const businessValue = !Number.isNaN(currentValue) && currentValue !== 0
+          ? currentValue
+          : (!Number.isNaN(ledgerValue) ? ledgerValue : 0);
         setSummaryBusinessCash(businessValue);
         setLatestCashOnHand((prev) => ({
           ...prev,
