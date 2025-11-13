@@ -310,6 +310,14 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
   };
 
   const calculateDailyBusinessAmount = (revenue, tabTotals = { credits: 0, debits: 0 }) => {
+    const apiDailyBusiness = revenue?.daily_business_total ?? revenue?.daily_business_amount;
+    if (apiDailyBusiness !== undefined && apiDailyBusiness !== null) {
+      const parsedApiValue = parseFloat(apiDailyBusiness);
+      if (!isNaN(parsedApiValue)) {
+        return parsedApiValue;
+      }
+    }
+
     const calculatedBusinessCashRaw = revenue?.calculated_business_cash;
     if (calculatedBusinessCashRaw !== undefined && calculatedBusinessCashRaw !== null) {
       const parsedCalculated = parseFloat(calculatedBusinessCashRaw);
