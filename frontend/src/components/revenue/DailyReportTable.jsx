@@ -347,7 +347,6 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
     const dailyBusiness =
       totalCash +
       businessCreditCard -
-      creditCardFees +
       otherIncome +
       vendorPaymentsTotal +
       customerTabAdjustment -

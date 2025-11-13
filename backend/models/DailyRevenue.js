@@ -319,18 +319,17 @@ class DailyRevenue {
                 dr.*,
                 CASE
                     WHEN dr.calculated_business_cash IS NOT NULL AND dr.calculated_business_cash > 0
-                        THEN dr.calculated_business_cash
-                    ELSE (
-                        COALESCE(dr.total_cash, 0) +
-                        COALESCE(dr.business_credit_card, 0) -
-                        COALESCE(dr.credit_card_transaction_fees, 0) +
-                        COALESCE(dr.other_cash_expense, 0) -
-                        COALESCE(dr.online_net, 0) -
-                        COALESCE(dr.total_instant, 0) +
-                        COALESCE(dr.total_instant_adjustment, 0) +
-                        COALESCE(dr.instant_pay, 0) +
-                        COALESCE(dr.lottery_credit_card, 0)
-                    )
+                         THEN dr.calculated_business_cash
+                     ELSE (
+                         COALESCE(dr.total_cash, 0) +
+                         COALESCE(dr.business_credit_card, 0) +
+                         COALESCE(dr.other_cash_expense, 0) -
+                         COALESCE(dr.online_net, 0) -
+                         COALESCE(dr.total_instant, 0) +
+                         COALESCE(dr.total_instant_adjustment, 0) +
+                         COALESCE(dr.instant_pay, 0) +
+                         COALESCE(dr.lottery_credit_card, 0)
+                     )
                 END AS daily_business_total
             FROM daily_revenue dr
             WHERE dr.store_id = $1 
