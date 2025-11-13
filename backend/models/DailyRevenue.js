@@ -323,7 +323,7 @@ class DailyRevenue {
                      ELSE (
                          COALESCE(dr.total_cash, 0) +
                          COALESCE(dr.business_credit_card, 0) +
-                         COALESCE(dr.other_cash_expense, 0) -
+                         GREATEST(COALESCE(dr.other_cash_expense, 0), 0) -
                          COALESCE(dr.online_net, 0) -
                          COALESCE(dr.total_instant, 0) +
                          COALESCE(dr.total_instant_adjustment, 0) +
