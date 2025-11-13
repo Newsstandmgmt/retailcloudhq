@@ -498,6 +498,12 @@ const handleSyncSquareSales = async () => {
       ...formData,
       [name]: numericValue,
     };
+    if (name === 'total_cash') {
+      setCashOnHand(prev => ({
+        ...prev,
+        businessCashOnHand: numericValue === '' ? 0 : numericValue,
+      }));
+    }
     setFormData(newFormData);
     
     // Auto-save after 2 seconds of no changes

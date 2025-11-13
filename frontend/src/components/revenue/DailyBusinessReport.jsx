@@ -37,18 +37,16 @@ const DailyBusinessReport = ({ storeId, date, revenueData }) => {
       setLoading(true);
       const response = await expensesAPI.getAll(storeId, {
         start_date: date,
-        end_date: date,
-        payment_method: 'cash'
+        end_date: date
       });
       
       const expenses = response.data.expenses || [];
       
-      // Keep all expenses for display
+      const cashOnly = expenses.filter(exp => (exp.payment_method || '').toLowerCase() === 'cash');
+
       setCashExpenses(expenses);
       
-      // Calculate total cash expenses (including vendor payments)
-      // All expenses paid from cash are included in the total
-      const total = expenses.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0);
+      const total = cashOnly.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0);
       setExpensesTotal(total);
     } catch (error) {
       console.error('Error loading cash expenses:', error);
@@ -94,7 +92,10 @@ const DailyBusinessReport = ({ storeId, date, revenueData }) => {
   // Calculate vendor payments from cash expenses
   // Vendor payments are marked with [Vendor Payment] in the notes
   const vendorPaymentsTotal = cashExpenses
-    .filter(exp => exp && exp.notes && exp.notes.includes('[Vendor Payment]'))
+    .filter(exp => {
+      const paymentMethod = (exp?.payment_method || '').toLowerCase();
+      return paymentMethod === 'cash' && exp && exp.notes && exp.notes.includes('[Vendor Payment]');
+    })
     .reduce((sum, exp) => sum + safeParse(exp.amount, 0), 0);
   
   // Other cash expenses (excluding vendor payments)
@@ -252,17 +253,21 @@ const DailyBusinessReport = ({ storeId, date, revenueData }) => {
               <tbody className="divide-y divide-gray-200">
                 {cashExpenses.map((expense) => {
                   const isVendorPayment = expense.notes && expense.notes.includes('[Vendor Payment]');
+                  const paymentMethodLabel = (expense.payment_method || 'N/A').replace('_', ' ');
+                  const isAutoCardFee = (expense.expense_type_name || '').toLowerCase() === 'credit card fees' || (expense.notes || '').includes('credit card processing fees');
                   return (
                     <tr key={expense.id} className={`hover:bg-gray-100 ${isVendorPayment ? 'bg-blue-50' : ''}`}>
                       <td className="px-3 py-2 text-gray-900">
                         {expense.expense_type_name || 'N/A'}
                         {isVendorPayment && <span className="ml-2 text-xs text-blue-600">(Vendor)</span>}
+                        {isAutoCardFee && <span className="ml-2 text-xs text-purple-600">(Auto)</span>}
                       </td>
                       <td className="px-3 py-2 text-gray-600">
                         {expense.notes || '-'}
+                        <div className="text-xs text-gray-400 mt-1">Payment Method: {paymentMethodLabel}</div>
                       </td>
-                      <td className="px-3 py-2 text-right font-semibold text-red-600">
-                        ${parseFloat(expense.amount || 0).toFixed(2)}
+                      <td className={`px-3 py-2 text-right font-semibold ${isVendorPayment ? 'text-red-600' : 'text-gray-800'}`}>
+                        ${safeParse(expense.amount, 0).toFixed(2)}
                       </td>
                     </tr>
                   );
