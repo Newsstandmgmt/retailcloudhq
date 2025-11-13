@@ -852,6 +852,8 @@ const Reports = () => {
       net_income = 0 
     } = reportData || {};
 
+    const businessCashOnHand = Number.isFinite(parseFloat(cash_on_hand)) ? parseFloat(cash_on_hand) : 0;
+
     return (
       <div className="space-y-6">
         <div className="bg-white rounded-lg shadow p-6">
@@ -903,7 +905,7 @@ const Reports = () => {
 
           <div className="bg-white rounded-lg shadow p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Cash on Hand</h3>
-            <div className="text-3xl font-bold text-gray-900">{formatCurrency(safeCashOnHand)}</div>
+            <div className="text-3xl font-bold text-gray-900">{formatCurrency(businessCashOnHand)}</div>
           </div>
         </div>
 
