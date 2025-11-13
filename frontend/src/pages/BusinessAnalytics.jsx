@@ -5,7 +5,7 @@
  * Focused on viewing and analyzing data, not data entry.
  */
 import { useState, useEffect } from 'react';
-import { revenueAPI, banksAPI } from '../services/api';
+import { revenueAPI, banksAPI, reportsAPI } from '../services/api';
 import { useStore } from '../contexts/StoreContext';
 import DailyReportTable from '../components/revenue/DailyReportTable';
 
@@ -15,6 +15,7 @@ const BusinessAnalytics = () => {
   const [loading, setLoading] = useState(false);
   const [revenueData, setRevenueData] = useState([]);
   const [latestCashOnHand, setLatestCashOnHand] = useState({ businessCashOnHand: 0, lotteryCashOnHand: 0 });
+  const [summaryBusinessCash, setSummaryBusinessCash] = useState(null);
   const [banks, setBanks] = useState([]);
   const [weeklyLotteryData, setWeeklyLotteryData] = useState(null);
   const [bankBalances, setBankBalances] = useState({ business: 0, lottery: 0 });
@@ -45,6 +46,7 @@ const BusinessAnalytics = () => {
     if (selectedStore) {
       loadBanks();
       calculateBankBalances();
+      loadCashSummary();
     }
   }, [selectedStore]);
 
@@ -54,6 +56,23 @@ const BusinessAnalytics = () => {
     }
   }, [selectedStore, dateRange]);
 
+  const loadCashSummary = async () => {
+    if (!selectedStore) return;
+    try {
+      const response = await reportsAPI.getCashTracking(selectedStore);
+      const summary = response.data?.summary;
+      if (summary) {
+        const businessValue = parseFloat(summary.current_cash_on_hand ?? summary.closing_balance ?? 0) || 0;
+        setSummaryBusinessCash(businessValue);
+        setLatestCashOnHand((prev) => ({
+          ...prev,
+          businessCashOnHand: businessValue,
+        }));
+      }
+    } catch (error) {
+      console.error('Error loading cash summary:', error);
+    }
+  };
 
   const calculateDateRange = () => {
     // Get today's date in local timezone
@@ -448,33 +467,33 @@ const BusinessAnalytics = () => {
       {/* Summary Cards */}
        {revenueData.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
             <div className="text-sm font-medium text-gray-600 mb-1">Total Business Cash</div>
             <div className="text-2xl font-bold text-green-600">
               {formatCurrency(totalBusinessCashValue)}
             </div>
             <div className="text-xs text-gray-500 mt-1">Daily business total minus credit card sales</div>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-white rounded-lg shadow p-4 border-l-4 border-teal-500">
             <div className="text-sm font-medium text-gray-600 mb-1">Total Online Sales</div>
             <div className="text-2xl font-bold text-teal-600">
               {formatCurrency(totalOnlineSalesValue)}
             </div>
           </div>
-          <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+          <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-400">
             <div className="text-sm font-medium text-gray-600 mb-1">Total Cash On Hand</div>
             <div className="text-2xl font-bold text-blue-600">
-              {formatCurrency(latestCashOnHand.businessCashOnHand)}
+              {formatCurrency((summaryBusinessCash ?? latestCashOnHand.businessCashOnHand) || 0)}
             </div>
             <div className="text-xs text-gray-500 mt-1">Latest balance</div>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-400">
             <div className="text-sm font-medium text-gray-600 mb-1">Total Credit Card Sales</div>
             <div className="text-2xl font-bold text-blue-600">
               {formatCurrency(totalCreditCardSalesValue)}
             </div>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-white rounded-lg shadow p-4 border-l-4 border-orange-500">
             <div className="text-sm font-medium text-gray-600 mb-1">Total Instant Sales</div>
             <div className="text-2xl font-bold text-orange-600">
               {formatCurrency(totalInstantSalesValue)}
@@ -548,7 +567,18 @@ const BusinessAnalytics = () => {
             window.location.href = `/revenue?storeId=${selectedStore}&date=${dateStr}`;
           }}
           onCashOnHandLoaded={(cashOnHand) => {
-            setLatestCashOnHand(cashOnHand);
+            const parsedBusiness = parseFloat(cashOnHand?.businessCashOnHand ?? cashOnHand?.business_cash_on_hand ?? 0) || 0;
+            const parsedLottery = parseFloat(cashOnHand?.lotteryCashOnHand ?? cashOnHand?.lottery_cash_on_hand ?? 0) || 0;
+
+            setLatestCashOnHand((prev) => ({
+              ...prev,
+              businessCashOnHand: summaryBusinessCash !== null ? summaryBusinessCash : parsedBusiness,
+              lotteryCashOnHand: parsedLottery,
+            }));
+
+            if (summaryBusinessCash === null && !Number.isNaN(parsedBusiness)) {
+              setSummaryBusinessCash(parsedBusiness);
+            }
           }}
         />
       )}
