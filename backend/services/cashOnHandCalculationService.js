@@ -30,27 +30,7 @@ class CashOnHandCalculationService {
         const changes = await this.calculateChangesForDate(storeId, entryDate, store.cash_drawer_type);
  
          // Calculate final balances by adding changes to previous balance
-        let businessCashOnHand;
-        try {
-            const latestRevenue = await query(
-                `SELECT calculated_business_cash
-                 , total_cash
-                 FROM daily_revenue
-                 WHERE store_id = $1 AND entry_date <= $2
-                 ORDER BY entry_date DESC
-                 LIMIT 1`,
-                [storeId, entryDate]
-            );
-            if (latestRevenue.rows.length > 0) {
-                businessCashOnHand = parseFloat(latestRevenue.rows[0].total_cash || latestRevenue.rows[0].calculated_business_cash || 0);
-                changes.businessChange = businessCashOnHand - previousBalance.businessCashOnHand;
-            } else {
-                businessCashOnHand = previousBalance.businessCashOnHand + changes.businessChange;
-            }
-        } catch (trackingError) {
-            console.error('Cash tracking lookup error:', trackingError);
-            businessCashOnHand = previousBalance.businessCashOnHand + changes.businessChange;
-        }
+        const businessCashOnHand = previousBalance.businessCashOnHand + changes.businessChange;
         const lotteryCashOnHand = previousBalance.lotteryCashOnHand + changes.lotteryChange;
         
         return {
