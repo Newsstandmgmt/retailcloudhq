@@ -32,9 +32,15 @@ class CashOnHandCalculationService {
          // Calculate final balances by adding changes to previous balance
         const businessCashOnHand = previousBalance.businessCashOnHand + changes.businessChange;
         const lotteryCashOnHand = previousBalance.lotteryCashOnHand + changes.lotteryChange;
-        
-        return {
-            businessCashOnHand: Math.max(0, businessCashOnHand), // Don't go negative
+
+        const balanceAsOfDate = await CashOnHandService.getBalanceAsOf(storeId, entryDate);
+        let finalBusinessCash = businessCashOnHand;
+        if (!Number.isNaN(balanceAsOfDate) && balanceAsOfDate !== null && balanceAsOfDate !== undefined) {
+            finalBusinessCash = balanceAsOfDate;
+        }
+         
+         return {
+            businessCashOnHand: Math.max(0, finalBusinessCash), // Don't go negative
             lotteryCashOnHand: Math.max(0, lotteryCashOnHand),
             previousBalance,
             changes

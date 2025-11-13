@@ -208,6 +208,24 @@ class CashOnHandService {
 
         return this.getBalance(storeId);
     }
+
+    static async getBalanceAsOf(storeId, entryDate, client = null) {
+        const exec = this.getExecutor(client);
+        const result = await exec(
+            `SELECT balance_after
+             FROM cash_transactions
+             WHERE store_id = $1 AND transaction_date <= $2
+             ORDER BY transaction_date DESC, created_at DESC
+             LIMIT 1`,
+            [storeId, entryDate]
+        );
+
+        if (result.rows.length > 0) {
+            return parseFloat(result.rows[0].balance_after || 0);
+        }
+
+        return 0;
+    }
 }
 
 module.exports = CashOnHandService;
