@@ -312,10 +312,31 @@ class DailyRevenue {
     
     // Get revenue entries for date range
     static async findByDateRange(storeId, startDate, endDate) {
-        // Ensure dates are in YYYY-MM-DD format and use inclusive range
-        // PostgreSQL BETWEEN is inclusive, but we want to make sure we include the full end date
-        const result = await query(
-            'SELECT * FROM daily_revenue WHERE store_id = $1 AND entry_date >= $2::date AND entry_date <= $3::date ORDER BY entry_date ASC',
+         // Ensure dates are in YYYY-MM-DD format and use inclusive range
+         // PostgreSQL BETWEEN is inclusive, but we want to make sure we include the full end date
+         const result = await query(
+            `SELECT 
+                dr.*,
+                CASE
+                    WHEN dr.calculated_business_cash IS NOT NULL AND dr.calculated_business_cash > 0
+                        THEN dr.calculated_business_cash
+                    ELSE (
+                        COALESCE(dr.total_cash, 0) +
+                        COALESCE(dr.business_credit_card, 0) -
+                        COALESCE(dr.credit_card_transaction_fees, 0) +
+                        COALESCE(dr.other_cash_expense, 0) -
+                        COALESCE(dr.online_net, 0) -
+                        COALESCE(dr.total_instant, 0) +
+                        COALESCE(dr.total_instant_adjustment, 0) +
+                        COALESCE(dr.instant_pay, 0) +
+                        COALESCE(dr.lottery_credit_card, 0)
+                    )
+                END AS daily_business_total
+            FROM daily_revenue dr
+            WHERE dr.store_id = $1 
+              AND dr.entry_date >= $2::date 
+              AND dr.entry_date <= $3::date
+            ORDER BY dr.entry_date ASC`,
             [storeId, startDate, endDate]
         );
         return result.rows;
