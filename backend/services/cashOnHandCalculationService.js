@@ -34,14 +34,15 @@ class CashOnHandCalculationService {
         try {
             const latestRevenue = await query(
                 `SELECT calculated_business_cash
+                 , total_cash
                  FROM daily_revenue
                  WHERE store_id = $1 AND entry_date <= $2
                  ORDER BY entry_date DESC
                  LIMIT 1`,
                 [storeId, entryDate]
             );
-            if (latestRevenue.rows.length > 0 && latestRevenue.rows[0].calculated_business_cash !== null) {
-                businessCashOnHand = parseFloat(latestRevenue.rows[0].calculated_business_cash || 0);
+            if (latestRevenue.rows.length > 0) {
+                businessCashOnHand = parseFloat(latestRevenue.rows[0].total_cash || latestRevenue.rows[0].calculated_business_cash || 0);
                 changes.businessChange = businessCashOnHand - previousBalance.businessCashOnHand;
             } else {
                 businessCashOnHand = previousBalance.businessCashOnHand + changes.businessChange;
@@ -84,7 +85,7 @@ class CashOnHandCalculationService {
             // For combined drawer, we need to calculate from daily revenue
             if (store && store.cash_drawer_type === 'same') {
                 // Get previous day's calculated business cash - this is the running balance
-                const businessCash = parseFloat(prev.calculated_business_cash || prev.total_cash || 0);
+                const businessCash = parseFloat(prev.total_cash || prev.calculated_business_cash || 0);
                 const lotteryOwed = parseFloat(prev.calculated_lottery_owed || 0);
                 
                 // For combined drawer: business cash is tracked separately
@@ -177,8 +178,8 @@ class CashOnHandCalculationService {
                 
                 if (prevRevenue.rows.length > 0) {
                     const prev = prevRevenue.rows[0];
-                    const prevBusinessCash = parseFloat(prev.calculated_business_cash || prev.total_cash || 0);
-                    const businessCash = parseFloat(rev.calculated_business_cash || rev.total_cash || 0);
+                    const prevBusinessCash = parseFloat(prev.total_cash || prev.calculated_business_cash || 0);
+                    const businessCash = parseFloat(rev.total_cash || rev.calculated_business_cash || 0);
                     
                     // Business cash change = difference in calculated business cash
                     changes.businessChange = businessCash - prevBusinessCash;
@@ -194,7 +195,7 @@ class CashOnHandCalculationService {
                     changes.lotteryChange = onlineNet + totalInstant - instantPay + instantAdjustment - lotteryCreditCard;
                 } else {
                     // First entry: use current values
-                    const businessCash = parseFloat(rev.calculated_business_cash || rev.total_cash || 0);
+                    const businessCash = parseFloat(rev.total_cash || rev.calculated_business_cash || 0);
                     changes.businessChange = businessCash;
                     
                     const onlineNet = parseFloat(rev.online_net || 0);
