@@ -465,6 +465,17 @@ export const purchaseInvoicesAPI = {
   createVendor: (storeId, data) => api.post(`/api/purchase-invoices/store/${storeId}/vendors`, data),
 };
 
+export const lotteryDailyReportsAPI = {
+  getByStore: (storeId, params = {}) => {
+    const search = new URLSearchParams();
+    if (params.start_date) search.append('start_date', params.start_date);
+    if (params.end_date) search.append('end_date', params.end_date);
+    if (params.limit) search.append('limit', params.limit);
+    const query = search.toString();
+    return api.get(`/api/lottery-daily-reports/store/${storeId}${query ? `?${query}` : ''}`);
+  },
+};
+
 // Payroll API
 export const payrollAPI = {
   getByStore: (storeId, filters = {}) => {

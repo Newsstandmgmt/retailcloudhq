@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { lotteryEmailOAuthAPI } from '../../services/api';
+import { lotteryEmailOAuthAPI, lotteryDailyReportsAPI } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 
 const LotteryEmailSettings = ({ storeId }) => {
   const { user, loading: authLoading } = useAuth();
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [recentReports, setRecentReports] = useState([]);
   const [showRuleModal, setShowRuleModal] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [ruleForm, setRuleForm] = useState({
@@ -21,6 +23,7 @@ const LotteryEmailSettings = ({ storeId }) => {
     // Only load accounts if user is authenticated
     if (!authLoading && user && storeId) {
       loadAccounts();
+      loadRecentReports();
     }
   }, [storeId, user, authLoading]);
 
@@ -59,6 +62,26 @@ const LotteryEmailSettings = ({ storeId }) => {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadRecentReports = async () => {
+    if (!user || !storeId) return;
+
+    setReportsLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setReportsLoading(false);
+        return;
+      }
+
+      const response = await lotteryDailyReportsAPI.getByStore(storeId, { limit: 10 });
+      setRecentReports(response.data.reports || []);
+    } catch (error) {
+      console.error('Error loading lottery reports:', error);
+    } finally {
+      setReportsLoading(false);
     }
   };
 
@@ -122,6 +145,7 @@ const LotteryEmailSettings = ({ storeId }) => {
         message: `Checked emails. Processed ${response.data.processedCount} email(s).` 
       });
       loadAccounts();
+      loadRecentReports();
     } catch (error) {
       console.error('Error checking emails:', error);
       setAlert({ type: 'error', message: 'Failed to check emails' });
@@ -316,6 +340,60 @@ const LotteryEmailSettings = ({ storeId }) => {
                 ))}
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-6 mt-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold">Recent Lottery Daily Reports</h3>
+          <button
+            onClick={loadRecentReports}
+            className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+          >
+            Refresh
+          </button>
+        </div>
+        {reportsLoading ? (
+          <div className="text-center py-6 text-gray-500">Loading reports...</div>
+        ) : recentReports.length === 0 ? (
+          <div className="text-center py-6 text-gray-500">
+            No reports imported yet. Once emails are processed, they will appear here.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {recentReports.map((report) => {
+              const columns = Array.isArray(report.data?.__columns)
+                ? report.data.__columns.filter((key) => key !== '__columns')
+                : Object.keys(report.data || {}).filter((key) => key !== '__columns');
+              const previewEntries = columns.slice(0, 4).map((key) => `${key}: ${report.data?.[key]}`).join(' | ');
+
+              return (
+                <div key={report.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div>
+                      <h4 className="font-semibold text-gray-800">
+                        {report.report_date ? new Date(report.report_date).toLocaleDateString() : 'Unknown Date'}
+                      </h4>
+                      <p className="text-sm text-gray-600">
+                        File: {report.filename || 'N/A'} • Retailer: {report.retailer_number || 'N/A'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Imported: {report.created_at ? new Date(report.created_at).toLocaleString() : 'N/A'}
+                      </p>
+                    </div>
+                    <div className="text-sm text-gray-700">
+                      <p>Columns Detected: {columns.length}</p>
+                      {previewEntries && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Sample: {previewEntries}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

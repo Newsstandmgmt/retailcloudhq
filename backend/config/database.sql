@@ -211,6 +211,33 @@ ALTER TABLE daily_revenue
 -- LOTTERY TRACKING TABLES
 -- ============================================
 
+-- Raw lottery daily reports (JSON storage for flexible mappings)
+CREATE TABLE IF NOT EXISTS lottery_daily_reports (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    store_id UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+    report_date DATE NOT NULL,
+    retailer_number VARCHAR(100),
+    location_name VARCHAR(255),
+    data JSONB NOT NULL,
+    source_email_id VARCHAR(255),
+    source_email_subject TEXT,
+    filename VARCHAR(255),
+    received_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_lottery_daily_reports_store_date 
+    ON lottery_daily_reports(store_id, report_date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_lottery_daily_reports_email 
+    ON lottery_daily_reports(store_id, source_email_id);
+
+CREATE TRIGGER update_lottery_daily_reports_updated_at
+    BEFORE UPDATE ON lottery_daily_reports
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 -- Daily lottery entries
 CREATE TABLE IF NOT EXISTS daily_lottery (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

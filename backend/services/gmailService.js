@@ -200,13 +200,22 @@ class GmailService {
 
         // Process based on report type
         let result;
+        const receivedAt = fullMessage.data.internalDate
+            ? new Date(parseInt(fullMessage.data.internalDate, 10))
+            : new Date();
+        const metadata = {
+            filename: attachment.filename || null,
+            receivedAt,
+        };
+
         if (rule.report_type === 'daily') {
             result = await LotteryEmailService.processDailySalesEmail(
                 account.store_id,
                 csvContent,
                 messageId,
                 subject,
-                rule.retailer_number
+                rule.retailer_number,
+                metadata
             );
         } else if (rule.report_type === 'settlement') {
             result = await LotteryEmailService.processSettlementEmail(
@@ -224,7 +233,8 @@ class GmailService {
                 csvContent,
                 messageId,
                 subject,
-                rule.retailer_number
+                rule.retailer_number,
+                metadata
             );
         } else {
             throw new Error(`Report type ${rule.report_type} not yet implemented for email processing`);

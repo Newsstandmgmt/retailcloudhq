@@ -100,10 +100,15 @@ router.post('/webhook/process-email', upload.single('attachment'), async (req, r
         let result;
         if (report_type === 'daily' || emailConfig.report_type === 'daily') {
             result = await LotteryEmailService.processDailySalesEmail(
-                emailConfig.id,
+                emailConfig.store_id,
                 csvContent,
                 email_id,
-                email_subject || 'Daily Sales Report'
+                email_subject || 'Daily Sales Report',
+                emailConfig.retailer_number || null,
+                {
+                    filename: req.file?.originalname || null,
+                    receivedAt: new Date(),
+                }
             );
         } else if (report_type === 'weekly' || emailConfig.report_type === 'weekly') {
             result = await LotteryEmailService.processWeeklySalesEmail(
@@ -165,10 +170,15 @@ router.post('/stores/:storeId/upload-report', canAccessStore, authorize('super_a
         let result;
         if (report_type === 'daily' || emailConfig.report_type === 'daily') {
             result = await LotteryEmailService.processDailySalesEmail(
-                emailConfig.id,
+                emailConfig.store_id,
                 csvContent,
                 emailId,
-                req.file.originalname
+                req.file.originalname,
+                emailConfig.retailer_number || null,
+                {
+                    filename: req.file.originalname,
+                    receivedAt: new Date(),
+                }
             );
         } else {
             return res.status(400).json({ error: 'Unsupported report type for manual upload' });

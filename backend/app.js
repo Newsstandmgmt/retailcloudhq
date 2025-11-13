@@ -76,6 +76,7 @@ app.use('/api/lottery-sales-data', require('./routes/lotterySalesData'));
 app.use('/api/lottery-analytics', require('./routes/lotteryAnalytics'));
 app.use('/api/lottery-email', require('./routes/lotteryEmail'));
 app.use('/api/lottery-email-oauth', require('./routes/lotteryEmailOAuth'));
+app.use('/api/lottery-daily-reports', require('./routes/lotteryDailyReports'));
 app.use('/api/state-lottery-configs', require('./routes/stateLotteryConfigs'));
 app.use('/api/weekly-lottery', require('./routes/weeklyLottery'));
 app.use('/api/cashflow', require('./routes/cashflow'));

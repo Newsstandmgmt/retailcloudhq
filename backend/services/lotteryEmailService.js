@@ -91,6 +91,10 @@ class LotteryEmailService {
                 }
 
                 const row = records[0];
+                const rawRow = {};
+                Object.keys(row).forEach((key) => {
+                    rawRow[key] = row[key];
+                });
 
                 // Helper function to clean and parse numeric values
                 const parseNumeric = (value) => {
@@ -150,6 +154,8 @@ class LotteryEmailService {
                     gift_cards: parseNumeric(getValue('gift_cards')),
                     prepaid: parseNumeric(getValue('prepaid')),
                     total_due: parseNumeric(getValue('total_due')),
+                    raw_data: rawRow,
+                    raw_columns: Object.keys(rawRow)
                 };
             } else {
                 // Legacy format with "Date" column
@@ -164,6 +170,10 @@ class LotteryEmailService {
                 }
 
                 const row = records[0];
+                const rawRow = {};
+                Object.keys(row).forEach((key) => {
+                    rawRow[key] = row[key];
+                });
 
                 parsedData = {
                     date: this.parseDate(row.Date),
@@ -197,6 +207,8 @@ class LotteryEmailService {
                     gift_cards: parseFloat(row['Gift Cards']?.replace(/,/g, '') || 0),
                     prepaid: parseFloat(row['Prepaid ']?.replace(/,/g, '') || 0),
                     total_due: parseFloat(row['Total Due']?.replace(/,/g, '') || 0),
+                    raw_data: rawRow,
+                    raw_columns: Object.keys(rawRow)
                 };
             }
 
@@ -245,16 +257,19 @@ class LotteryEmailService {
     /**
      * Process daily sales email
      */
-    static async processDailySalesEmail(storeId, csvContent, emailId, emailSubject, retailerNumber = null) {
+    static async processDailySalesEmail(storeId, csvContent, emailId, emailSubject, retailerNumber = null, metadata = {}) {
         const DailyLottery = require('../models/DailyLottery');
         const Store = require('../models/Store');
         const StateLotteryConfig = require('../models/StateLotteryConfig');
+        const LotteryDailyReport = require('../models/LotteryDailyReport');
         
         // Get store's state lottery configuration
         const stateConfig = await StateLotteryConfig.findByStoreId(storeId);
         
         // Parse CSV using state-specific configuration
         const parsedData = await this.parseDailySalesCSV(csvContent, stateConfig);
+        const rawData = parsedData.raw_data || {};
+        const rawColumns = parsedData.raw_columns || Object.keys(rawData);
 
         // Get store's lottery_retailer_id if rule doesn't specify one
         let expectedRetailerNumber = retailerNumber;
@@ -269,6 +284,22 @@ class LotteryEmailService {
         if (expectedRetailerNumber && parsedData.retailer_number && parsedData.retailer_number !== expectedRetailerNumber) {
             throw new Error(`Retailer number mismatch. Expected: ${expectedRetailerNumber}, Got: ${parsedData.retailer_number}`);
         }
+
+        // Store raw report data for future mapping
+        await LotteryDailyReport.upsert({
+            storeId,
+            reportDate: parsedData.date,
+            retailerNumber: parsedData.retailer_number,
+            locationName: parsedData.location_name,
+            data: {
+                ...rawData,
+                __columns: rawColumns,
+            },
+            sourceEmailId: emailId,
+            sourceEmailSubject: emailSubject,
+            filename: metadata.filename || null,
+            receivedAt: metadata.receivedAt || new Date(),
+        });
 
         // Save to daily_lottery table (this is the main storage for daily sales data)
         const dailyLottery = await DailyLottery.upsert(storeId, parsedData.date, {
