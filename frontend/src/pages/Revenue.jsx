@@ -424,10 +424,10 @@ const handleSyncSquareSales = async () => {
       
       // Load cash on hand balances
       if (response.data.cashOnHand) {
-        setCashOnHand(response.data.cashOnHand);
-      } else {
-        // Default to 0 if not provided
-        setCashOnHand({ businessCashOnHand: 0, lotteryCashOnHand: 0 });
+        setCashOnHand(prev => ({
+          businessCashOnHand: parseFloat(response.data.cashOnHand.businessCashOnHand ?? prev.businessCashOnHand ?? 0) || 0,
+          lotteryCashOnHand: parseFloat(response.data.cashOnHand.lotteryCashOnHand ?? prev.lotteryCashOnHand ?? 0) || 0,
+        }));
       }
     } catch (error) {
       if (error.response?.status !== 404) {
@@ -598,10 +598,10 @@ const handleSyncSquareSales = async () => {
         const savedRevenue = response.data.revenue;
         setCurrentRevenueData(savedRevenue);
         const savedBusinessCash = parseFloat(savedRevenue.calculated_business_cash ?? savedRevenue.daily_business_total ?? savedRevenue.total_cash ?? 0) || 0;
-        setCashOnHand({
+        setCashOnHand(prev => ({
           businessCashOnHand: savedBusinessCash,
           lotteryCashOnHand: response.data.cashOnHand?.lotteryCashOnHand ?? cashOnHand.lotteryCashOnHand,
-        });
+        }));
       } else {
         // Only reload if response doesn't have data
         await loadRevenueData(true); // Preserve form data
