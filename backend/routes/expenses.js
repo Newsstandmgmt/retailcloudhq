@@ -146,6 +146,22 @@ router.delete('/:storeId/:expenseId', canAccessStore, async (req, res) => {
         }
         
         await DailyOperatingExpenses.delete(req.params.expenseId);
+
+        if ((expense.payment_method || '').toLowerCase() === 'cash') {
+            try {
+                await CashOnHandService.addCash(
+                    req.params.storeId,
+                    parseFloat(expense.amount || 0),
+                    'expense_reversal',
+                    expense.id,
+                    expense.entry_date,
+                    `Expense deleted: ${expense.expense_type_name || 'Expense'} - $${parseFloat(expense.amount || 0).toFixed(2)}`,
+                    req.user.id
+                );
+            } catch (cashError) {
+                console.error('Error reversing cash on hand for deleted expense (non-blocking):', cashError);
+            }
+        }
         
         res.json({ message: 'Expense entry deleted successfully' });
     } catch (error) {
