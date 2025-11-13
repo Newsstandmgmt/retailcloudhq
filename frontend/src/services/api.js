@@ -460,6 +460,7 @@ export const purchaseInvoicesAPI = {
   update: (invoiceId, data) => api.put(`/api/purchase-invoices/${invoiceId}`, data),
   delete: (invoiceId) => api.delete(`/api/purchase-invoices/${invoiceId}`),
   markPaid: (invoiceId, data) => api.post(`/api/purchase-invoices/${invoiceId}/mark-paid`, data),
+  recordPayments: (storeId, data) => api.post(`/api/purchase-invoices/store/${storeId}/record-payments`, data),
   getVendors: (storeId) => api.get(`/api/purchase-invoices/store/${storeId}/vendors`),
   createVendor: (storeId, data) => api.post(`/api/purchase-invoices/store/${storeId}/vendors`, data),
 };

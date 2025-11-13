@@ -474,189 +474,125 @@ router.delete('/taxes/:taxId', async (req, res) => {
 
 // ========== Payment Routes ==========
 
-// Record payments for multiple invoices
-router.post('/store/:storeId/payments', canAccessStore, async (req, res) => {
-    try {
+router.post('/store/:storeId/record-payments', canAccessStore, async (req, res) => {
         const { invoice_ids, payment_date, payment_method, check_number, credit_card_id, split_payments } = req.body;
         
-        if (!invoice_ids || !Array.isArray(invoice_ids) || invoice_ids.length === 0) {
-            return res.status(400).json({ error: 'At least one invoice ID is required' });
+    if (!Array.isArray(invoice_ids) || invoice_ids.length === 0) {
+        return res.status(400).json({ error: 'No invoices selected for payment.' });
         }
-        
         if (!payment_date) {
-            return res.status(400).json({ error: 'Payment date is required' });
+        return res.status(400).json({ error: 'Payment date is required.' });
+    }
+
+    try {
+        const { getClient } = require('../config/database');
+        const client = await getClient();
+        const cashAdjustments = [];
+
+        try {
+            await client.query('BEGIN');
+
+            const invoicesResult = await client.query(
+                `SELECT * FROM purchase_invoices 
+                 WHERE store_id = $1 AND id = ANY($2)
+                 FOR UPDATE`,
+                [req.params.storeId, invoice_ids]
+            );
+
+            const invoices = invoicesResult.rows;
+            if (invoices.length !== invoice_ids.length) {
+                throw new Error('Unable to locate all selected invoices.');
+            }
+
+            invoices.forEach(inv => {
+                if (inv.status === 'paid') {
+                    throw new Error(`Invoice ${inv.invoice_number || inv.id} is already paid.`);
+                }
+            });
+
+            const totalInvoiceAmount = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || 0), 0);
+
+            let payments = [];
+            if (Array.isArray(split_payments) && split_payments.length > 0) {
+                payments = split_payments.map(split => ({
+                    payment_method: split.payment_method,
+                    amount: parseFloat(split.amount || 0),
+                    check_number: split.check_number || null,
+                    credit_card_id: split.payment_method === 'card' ? split.credit_card_id || null : null,
+                }));
+            } else {
+                payments = [{
+                    payment_method: payment_method || 'cash',
+                    amount: totalInvoiceAmount,
+                    check_number: payment_method === 'check' ? (check_number || null) : null,
+                    credit_card_id: payment_method === 'card' ? (credit_card_id || null) : null,
+                }];
+            }
+
+            const totalPaymentAmount = payments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+            if (Math.abs(totalPaymentAmount - totalInvoiceAmount) > 0.01) {
+                throw new Error('Payment total does not match selected invoice total.');
+            }
+
+            const remainingByMethod = payments.map(p => ({ ...p, remaining: parseFloat(p.amount || 0) }));
+
+            for (const invoice of invoices) {
+                let amountRemaining = parseFloat(invoice.amount || 0);
+                const vendorName = invoice.vendor_name || 'Vendor';
+
+                for (const payment of remainingByMethod) {
+                    if (amountRemaining <= 0) break;
+                    if (payment.remaining <= 0) continue;
+
+                    const applied = Math.min(payment.remaining, amountRemaining);
+                    payment.remaining -= applied;
+                    amountRemaining -= applied;
+
+                    if (payment.payment_method === 'cash') {
+                        cashAdjustments.push({
+                            storeId: req.params.storeId,
+                            amount: applied,
+                            invoiceId: invoice.id,
+                            paymentDate: payment_date,
+                            vendorName: vendorName,
+                        });
+                    }
+                }
+
+                const primaryMethod = payments.length > 1 ? 'split' : payments[0].payment_method;
+                const primaryCheckNumber = payments.length === 1 && payments[0].payment_method === 'check'
+                    ? payments[0].check_number || null
+                    : null;
+
+                await client.query(
+                    `UPDATE purchase_invoices
+                     SET status = 'paid',
+                         payment_date = $1,
+                         payment_method = $2,
+                         check_number = $3,
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $4`,
+                    [payment_date, primaryMethod, primaryCheckNumber, invoice.id]
+                );
+            }
+
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
         }
 
-        // If split payments, validate and process each split
-        if (split_payments && split_payments.length > 0) {
-            const totalAmount = split_payments.reduce((sum, split) => sum + parseFloat(split.amount || 0), 0);
-            
-            // Get total amount of selected invoices
-            const { query } = require('../config/database');
-            const invoiceResult = await query(
-                'SELECT SUM(amount) as total FROM purchase_invoices WHERE id = ANY($1) AND store_id = $2',
-                [invoice_ids, req.params.storeId]
-            );
-            const invoiceTotal = parseFloat(invoiceResult.rows[0]?.total || 0);
-            
-            if (Math.abs(totalAmount - invoiceTotal) > 0.01) {
-                return res.status(400).json({ 
-                    error: `Split payment total ($${totalAmount.toFixed(2)}) must equal invoice total ($${invoiceTotal.toFixed(2)})` 
-                });
-            }
-
-            // Process each split payment
-            const results = [];
-            let remainingInvoiceIds = [...invoice_ids];
-            
-            for (const split of split_payments) {
-                if (!split.payment_method || !split.amount) {
-                    continue;
-                }
-                
-                if (split.payment_method === 'check' && !split.check_number) {
-                    return res.status(400).json({ error: 'Check number is required for check payments' });
-                }
-                
-                if (split.payment_method === 'card' && !split.credit_card_id) {
-                    return res.status(400).json({ error: 'Credit card is required for card payments' });
-                }
-
-                const splitAmount = parseFloat(split.amount);
-                let amountRemaining = splitAmount;
-                
-                // Distribute this split payment across invoices
-                for (const invoiceId of remainingInvoiceIds) {
-                    if (amountRemaining <= 0) break;
-                    
-                    const invoice = await PurchaseInvoice.findById(invoiceId);
-                    if (!invoice || invoice.status === 'paid') continue;
-                    
-                    // Check access
-                    const accessResult = await query(
-                        'SELECT can_user_access_store($1, $2) as can_access',
-                        [req.user.id, invoice.store_id]
-                    );
-                    
-                    if (!accessResult.rows[0]?.can_access) {
-                        continue;
-                    }
-                    
-                    const invoiceAmount = parseFloat(invoice.amount || 0);
-                    const amountToApply = Math.min(amountRemaining, invoiceAmount);
-                    
-                    await PurchaseInvoice.update(invoiceId, {
-                        status: 'paid',
-                        payment_date: payment_date,
-                        payment_method: split.payment_method,
-                        check_number: split.payment_method === 'check' ? split.check_number : null
-                    });
-
-                    // Auto-post payment to General Ledger
-                    try {
-                        const paidInvoice = await PurchaseInvoice.findById(invoiceId);
-                        await AutoPostingService.postPayment(paidInvoice, {
-                            payment_date,
-                            payment_method: split.payment_method,
-                            check_number: split.check_number || null,
-                            amount: amountToApply,
-                            entered_by: req.user.id
-                        });
-                    } catch (glError) {
-                        console.error('Error auto-posting payment to GL (non-blocking):', glError);
-                    }
-
-                    // Update cash on hand if cash payment
-                    if (split.payment_method === 'cash') {
-                        try {
-                            const vendorName = invoice.vendor_name || 'Vendor';
-                            await CashOnHandService.subtractCash(
-                                invoice.store_id,
-                                amountToApply,
-                                'payment',
-                                invoiceId,
-                                payment_date,
-                                `Invoice payment: ${vendorName} - $${amountToApply.toFixed(2)}`,
-                                req.user.id
-                            );
-                        } catch (cashError) {
-                            console.error('Error updating cash on hand (non-blocking):', cashError);
-                        }
-                    }
-                    
-                    amountRemaining -= amountToApply;
-                    remainingInvoiceIds = remainingInvoiceIds.filter(id => id !== invoiceId);
-                    results.push({ invoice_id: invoiceId, amount_applied: amountToApply, payment_method: split.payment_method });
-                }
-            }
-            
-            res.json({
-                message: 'Payments recorded successfully',
-                results
-            });
-        } else {
-            // Single payment method for all invoices
-            if (!payment_method) {
-                return res.status(400).json({ error: 'Payment method is required' });
-            }
-            
-            if (payment_method === 'check' && !check_number) {
-                return res.status(400).json({ error: 'Check number is required for check payments' });
-            }
-            
-            if (payment_method === 'card' && !credit_card_id) {
-                return res.status(400).json({ error: 'Credit card is required for card payments' });
-            }
-
-            const { query } = require('../config/database');
-            const results = [];
-            for (const invoiceId of invoice_ids) {
-                const invoice = await PurchaseInvoice.findById(invoiceId);
-                if (!invoice) continue;
-                
-                // Check access to this invoice's store
-                const accessResult = await query(
-                    'SELECT can_user_access_store($1, $2) as can_access',
-                    [req.user.id, invoice.store_id]
-                );
-                
-                if (!accessResult.rows[0]?.can_access) {
-                    continue;
-                }
-                
-                await PurchaseInvoice.update(invoiceId, {
-                    status: 'paid',
-                    payment_date: payment_date,
-                    payment_method: payment_method,
-                    check_number: payment_method === 'check' ? check_number : null,
-                    credit_card_id: payment_method === 'card' ? credit_card_id : null
-                });
-
-                // Auto-post payment to General Ledger
-                try {
-                    const paidInvoice = await PurchaseInvoice.findById(invoiceId);
-                    await AutoPostingService.postPayment(paidInvoice, {
-                        payment_date,
-                        payment_method,
-                        check_number: check_number || null,
-                        amount: parseFloat(invoice.amount || 0),
-                        entered_by: req.user.id
-                    });
-                } catch (glError) {
-                    console.error('Error auto-posting payment to GL (non-blocking):', glError);
-                }
-
-                // Update cash on hand if cash payment
-                if (payment_method === 'cash') {
-                    try {
-                        const vendorName = invoice.vendor_name || 'Vendor';
+        for (const adjustment of cashAdjustments) {
+            try {
                         await CashOnHandService.subtractCash(
-                            invoice.store_id,
-                            parseFloat(invoice.amount || 0),
+                    adjustment.storeId,
+                    adjustment.amount,
                             'payment',
-                            invoiceId,
+                    adjustment.invoiceId,
                             payment_date,
-                            `Invoice payment: ${vendorName} - $${parseFloat(invoice.amount || 0).toFixed(2)}`,
+                    `Invoice payment: ${adjustment.vendorName} - $${adjustment.amount.toFixed(2)}`,
                             req.user.id
                         );
                     } catch (cashError) {
@@ -664,14 +600,7 @@ router.post('/store/:storeId/payments', canAccessStore, async (req, res) => {
                     }
                 }
                 
-                results.push({ invoice_id: invoiceId, success: true });
-            }
-            
-            res.json({
-                message: 'Payments recorded successfully',
-                results
-            });
-        }
+        res.json({ message: 'Payments recorded successfully' });
     } catch (error) {
         console.error('Record payments error:', error);
         res.status(500).json({ error: error.message || 'Failed to record payments' });
