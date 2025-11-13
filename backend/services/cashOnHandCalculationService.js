@@ -4,8 +4,8 @@
  * Calculates Business and Lottery Cash On Hand for a given date
  * based on previous balances, revenue, expenses, bank deposits, and owner distributions
  */
-const { query } = require('../config/database');
 const CashOnHandService = require('./cashOnHandService');
+const { query } = require('../config/database');
 
 class CashOnHandCalculationService {
     /**
@@ -28,9 +28,28 @@ class CashOnHandCalculationService {
         
         // Calculate changes from previous date to this date
         const changes = await this.calculateChangesForDate(storeId, entryDate, store.cash_drawer_type);
-        
-        // Calculate final balances by adding changes to previous balance
-        const businessCashOnHand = previousBalance.businessCashOnHand + changes.businessChange;
+ 
+         // Calculate final balances by adding changes to previous balance
+        let businessCashOnHand;
+        try {
+            const latestRevenue = await query(
+                `SELECT calculated_business_cash
+                 FROM daily_revenue
+                 WHERE store_id = $1 AND entry_date <= $2
+                 ORDER BY entry_date DESC
+                 LIMIT 1`,
+                [storeId, entryDate]
+            );
+            if (latestRevenue.rows.length > 0 && latestRevenue.rows[0].calculated_business_cash !== null) {
+                businessCashOnHand = parseFloat(latestRevenue.rows[0].calculated_business_cash || 0);
+                changes.businessChange = businessCashOnHand - previousBalance.businessCashOnHand;
+            } else {
+                businessCashOnHand = previousBalance.businessCashOnHand + changes.businessChange;
+            }
+        } catch (trackingError) {
+            console.error('Cash tracking lookup error:', trackingError);
+            businessCashOnHand = previousBalance.businessCashOnHand + changes.businessChange;
+        }
         const lotteryCashOnHand = previousBalance.lotteryCashOnHand + changes.lotteryChange;
         
         return {
