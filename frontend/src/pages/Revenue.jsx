@@ -74,6 +74,7 @@ const Revenue = () => {
   const [currentRevenueData, setCurrentRevenueData] = useState(null);
   const [storeSettings, setStoreSettings] = useState(null);
   const [banks, setBanks] = useState([]);
+  const [previousBusinessCash, setPreviousBusinessCash] = useState(0);
   const [businessBankDepositAmount, setBusinessBankDepositAmount] = useState('');
   const [lotteryBankDepositAmount, setLotteryBankDepositAmount] = useState('');
   const [cashOnHand, setCashOnHand] = useState({ businessCashOnHand: 0, lotteryCashOnHand: 0 });
@@ -387,7 +388,6 @@ const handleSyncSquareSales = async () => {
         setCurrentRevenueData(revenue);
         const displayBusinessCash = parseFloat(revenue.calculated_business_cash ?? revenue.daily_business_total ?? revenue.total_cash ?? 0) || 0;
         setCashOnHand(prev => ({
-          ...prev,
           businessCashOnHand: displayBusinessCash,
         }));
       } else {
@@ -424,9 +424,10 @@ const handleSyncSquareSales = async () => {
       
       // Load cash on hand balances
       if (response.data.cashOnHand) {
+        setPreviousBusinessCash(prev => response.data.cashOnHand?.businessCashOnHand ?? prev);
         setCashOnHand(prev => ({
-          businessCashOnHand: parseFloat(response.data.cashOnHand.businessCashOnHand ?? prev.businessCashOnHand ?? 0) || 0,
-          lotteryCashOnHand: parseFloat(response.data.cashOnHand.lotteryCashOnHand ?? prev.lotteryCashOnHand ?? 0) || 0,
+          businessCashOnHand: parseFloat(response.data.cashOnHand?.businessCashOnHand ?? previousBusinessCash ?? 0) || 0,
+          lotteryCashOnHand: parseFloat(response.data.cashOnHand?.lotteryCashOnHand ?? prev.lotteryCashOnHand ?? 0) || 0,
         }));
       }
     } catch (error) {
@@ -597,7 +598,8 @@ const handleSyncSquareSales = async () => {
       if (response.data.revenue) {
         const savedRevenue = response.data.revenue;
         setCurrentRevenueData(savedRevenue);
-        const savedBusinessCash = parseFloat(savedRevenue.calculated_business_cash ?? savedRevenue.daily_business_total ?? savedRevenue.total_cash ?? 0) || 0;
+        const savedBusinessCash = parseFloat(savedRevenue.calculated_business_cash ?? savedRevenue.daily_business_total ?? savedRevenue.total_cash ?? previousBusinessCash ?? 0) || 0;
+        setPreviousBusinessCash(savedBusinessCash);
         setCashOnHand(prev => ({
           businessCashOnHand: savedBusinessCash,
           lotteryCashOnHand: response.data.cashOnHand?.lotteryCashOnHand ?? cashOnHand.lotteryCashOnHand,
