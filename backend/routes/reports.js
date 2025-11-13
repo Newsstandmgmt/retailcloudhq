@@ -2344,12 +2344,13 @@ router.get('/store/:storeId/cash-tracking', canAccessStore, async (req, res) => 
         }
 
         const totals = transactions.reduce((acc, tx) => {
-            if (tx.amount >= 0) {
+            if (tx.amount > 0) {
                 acc.inflow += tx.amount;
-            } else {
+                acc.net += tx.amount;
+            } else if (tx.amount < 0) {
                 acc.outflow += Math.abs(tx.amount);
+                acc.net += tx.amount;
             }
-            acc.net += tx.amount;
             return acc;
         }, { inflow: 0, outflow: 0, net: 0 });
 
@@ -2366,13 +2367,15 @@ router.get('/store/:storeId/cash-tracking', canAccessStore, async (req, res) => 
                 });
             }
             const bucket = breakdownMap.get(key);
-            if (tx.amount >= 0) {
+            if (tx.amount > 0) {
                 bucket.inflow += tx.amount;
-            } else {
+                bucket.net += tx.amount;
+                bucket.count += 1;
+            } else if (tx.amount < 0) {
                 bucket.outflow += Math.abs(tx.amount);
+                bucket.net += tx.amount;
+                bucket.count += 1;
             }
-            bucket.net += tx.amount;
-            bucket.count += 1;
         });
 
         res.json({
