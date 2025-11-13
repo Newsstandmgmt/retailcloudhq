@@ -385,6 +385,11 @@ const handleSyncSquareSales = async () => {
         
         // Always update current revenue data for the report
         setCurrentRevenueData(revenue);
+        const displayBusinessCash = parseFloat(revenue.calculated_business_cash ?? revenue.daily_business_total ?? revenue.total_cash ?? 0) || 0;
+        setCashOnHand(prev => ({
+          ...prev,
+          businessCashOnHand: displayBusinessCash,
+        }));
       } else {
         // Only reset form if we're not preserving it
         if (!preserveFormData) {
@@ -590,11 +595,13 @@ const handleSyncSquareSales = async () => {
       
       // Update current revenue data and cash on hand in one call
       if (response.data.revenue) {
-        setCurrentRevenueData(response.data.revenue);
-        // Load cash on hand if provided
-        if (response.data.cashOnHand) {
-          setCashOnHand(response.data.cashOnHand);
-        }
+        const savedRevenue = response.data.revenue;
+        setCurrentRevenueData(savedRevenue);
+        const savedBusinessCash = parseFloat(savedRevenue.calculated_business_cash ?? savedRevenue.daily_business_total ?? savedRevenue.total_cash ?? 0) || 0;
+        setCashOnHand({
+          businessCashOnHand: savedBusinessCash,
+          lotteryCashOnHand: response.data.cashOnHand?.lotteryCashOnHand ?? cashOnHand.lotteryCashOnHand,
+        });
       } else {
         // Only reload if response doesn't have data
         await loadRevenueData(true); // Preserve form data
