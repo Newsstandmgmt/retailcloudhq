@@ -61,16 +61,28 @@ const BusinessAnalytics = () => {
     try {
       const response = await reportsAPI.getCashTracking(storeId, startDate, endDate);
       const summary = response.data?.summary;
+      console.log('Cash summary response:', summary);
       if (summary) {
         const currentValue = parseFloat(summary.current_cash_on_hand ?? summary.closing_balance ?? 0);
         const ledgerValue = parseFloat(summary.ledger_cash_on_hand ?? 0);
-        const businessValue = !Number.isNaN(currentValue) && currentValue !== 0
-          ? currentValue
-          : (!Number.isNaN(ledgerValue) ? ledgerValue : 0);
-        setSummaryBusinessCash(businessValue);
+        const fallbackLedger = !Number.isNaN(ledgerValue) ? ledgerValue : 0;
+        const rawBusiness = !Number.isNaN(currentValue) ? currentValue : fallbackLedger;
+        const finalBusiness = rawBusiness && rawBusiness !== 0 ? rawBusiness
+          : (summaryBusinessCash !== null && summaryBusinessCash !== 0 ? summaryBusinessCash : fallbackLedger);
+
+        setSummaryBusinessCash((prev) => {
+          if (finalBusiness && finalBusiness !== 0) {
+            return finalBusiness;
+          }
+          if (prev !== null && prev !== undefined && prev !== 0) {
+            return prev;
+          }
+          return 0;
+        });
+
         setLatestCashOnHand((prev) => ({
           ...prev,
-          businessCashOnHand: businessValue,
+          businessCashOnHand: finalBusiness,
         }));
       }
     } catch (error) {
@@ -571,7 +583,8 @@ const BusinessAnalytics = () => {
             window.location.href = `/revenue?storeId=${selectedStore}&date=${dateStr}`;
           }}
           onCashOnHandLoaded={(cashOnHand) => {
-            const parsedBusiness = parseFloat(cashOnHand?.businessCashOnHand ?? cashOnHand?.business_cash_on_hand ?? 0) || 0;
+            const parsedBusinessRaw = cashOnHand?.businessCashOnHand ?? cashOnHand?.business_cash_on_hand;
+            const parsedBusiness = parseFloat(parsedBusinessRaw);
             const parsedLottery = parseFloat(cashOnHand?.lotteryCashOnHand ?? cashOnHand?.lottery_cash_on_hand ?? 0) || 0;
 
             setLatestCashOnHand((prev) => ({
@@ -580,7 +593,7 @@ const BusinessAnalytics = () => {
               lotteryCashOnHand: parsedLottery,
             }));
 
-            if (summaryBusinessCash === null && !Number.isNaN(parsedBusiness)) {
+            if (summaryBusinessCash === null && !Number.isNaN(parsedBusiness) && parsedBusiness !== 0) {
               setSummaryBusinessCash(parsedBusiness);
             }
           }}
