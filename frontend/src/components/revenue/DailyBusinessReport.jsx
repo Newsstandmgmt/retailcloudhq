@@ -111,7 +111,6 @@ const DailyBusinessReport = ({ storeId, date, revenueData }) => {
   // Daily Business Calculation (per user's formula for Combined Drawer):
   // Total cash: Add
   // Business credit card: Add
-  // Credit card fee: Subtract
   // Other Income: Add
   // Paid Vendor From Register Cash: Add
   // Customer Tab: Subtract if positive, add if negative
@@ -137,7 +136,6 @@ const DailyBusinessReport = ({ storeId, date, revenueData }) => {
   let dailyBusinessStepByStep = {
     totalCash: totalCash,
     businessCreditCard: businessCreditCard,
-    creditCardFees: -creditCardFees,
     otherIncome: otherIncome,
     vendorPaymentsTotal: vendorPaymentsTotal,
     customerTabAdjustment: customerTabAdjustment,
@@ -150,7 +148,6 @@ const DailyBusinessReport = ({ storeId, date, revenueData }) => {
   
   const dailyBusiness = totalCash 
     + businessCreditCard 
-    - creditCardFees 
     + otherIncome 
     + vendorPaymentsTotal 
     + customerTabAdjustment 
@@ -164,7 +161,7 @@ const DailyBusinessReport = ({ storeId, date, revenueData }) => {
   // Cash + Vendor Payments + Business Credit Card - Credit Card Fees + Other Income + Customer Tab Credits - Customer Tab Debits
   // NOTE: Lottery fields (online_net, total_instant, instant_pay, instant_adjustment, lottery_credit_card) are NOT included in business revenue
   // This is for combined drawer businesses where lottery affects the drawer but is tracked separately
-  const totalRevenue = totalCash + vendorPaymentsTotal + businessCreditCard - creditCardFees + customerTabCredits - customerTabDebits + otherIncome;
+  const totalRevenue = totalCash + vendorPaymentsTotal + businessCreditCard + customerTabCredits - customerTabDebits + otherIncome;
   
   // Total Expenses = Vendor Payments + Other Cash Expenses
   // This shows all expenses paid from cash
@@ -306,8 +303,8 @@ const DailyBusinessReport = ({ storeId, date, revenueData }) => {
               <span className="font-medium">+ ${businessCreditCard.toFixed(2)}</span>
             </div>
             <div className="flex justify-between">
-              <span>Credit Card Fees:</span>
-              <span className="font-medium text-red-600">- ${creditCardFees.toFixed(2)}</span>
+              <span>Credit Card Fees (logged as expense):</span>
+              <span className="font-medium text-gray-700">${creditCardFees.toFixed(2)}</span>
             </div>
             <div className="flex justify-between">
               <span>Other Income:</span>
@@ -359,11 +356,16 @@ const DailyBusinessReport = ({ storeId, date, revenueData }) => {
                 <span className="font-medium">+ ${lotteryCreditCard.toFixed(2)}</span>
               </div>
             )}
-            <div className="border-t border-blue-300 pt-2 mt-2">
-              <div className="flex justify-between font-bold">
-                <span>Daily Business Total:</span>
-                <span className="text-blue-900">${dailyBusiness.toFixed(2)}</span>
-              </div>
+          </div>
+          {creditCardFees > 0 && (
+            <div className="text-xs text-blue-500 mt-3">
+              Credit card processing fees are automatically logged as an operating expense for this date and are not deducted from the daily business total.
+            </div>
+          )}
+          <div className="border-t border-blue-300 pt-2 mt-2">
+            <div className="flex justify-between font-bold">
+              <span>Daily Business Total:</span>
+              <span className="text-blue-900">${dailyBusiness.toFixed(2)}</span>
             </div>
           </div>
         </div>
