@@ -305,6 +305,7 @@ const BusinessAnalytics = () => {
     acc.otherCashExpense += parseFloat(entry.other_cash_expense || 0);
     acc.calculatedBusinessCash += parseFloat(entry.calculated_business_cash || 0);
     acc.calculatedLotteryOwed += parseFloat(entry.calculated_lottery_owed || 0);
+    acc.dailyBusinessTotal += parseFloat(entry.calculated_business_cash || 0) || 0;
     return acc;
   }, {
     totalCash: 0,
@@ -318,7 +319,17 @@ const BusinessAnalytics = () => {
     otherCashExpense: 0,
     calculatedBusinessCash: 0,
     calculatedLotteryOwed: 0,
+    dailyBusinessTotal: 0,
   });
+
+  const calculatedDailyBusinessTotal = totals.dailyBusinessTotal > 0
+    ? totals.dailyBusinessTotal
+    : totals.totalCash + totals.businessCreditCard;
+
+  const totalBusinessCashValue = Math.max(0, calculatedDailyBusinessTotal - totals.businessCreditCard);
+  const totalCreditCardSalesValue = totals.businessCreditCard;
+  const totalOnlineSalesValue = totals.onlineSales > 0 ? totals.onlineSales : totals.onlineNet;
+  const totalInstantSalesValue = totals.totalInstant;
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-US', {
@@ -435,65 +446,83 @@ const BusinessAnalytics = () => {
       </div>
 
       {/* Summary Cards */}
-      {revenueData.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm font-medium text-gray-600 mb-1">Total Business Cash</div>
-            <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(totals.calculatedBusinessCash || totals.totalCash)}
+       {revenueData.length > 0 && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            <div className="space-y-4">
+              <div className="bg-white rounded-lg shadow p-4">
+                <div className="text-sm font-medium text-gray-600 mb-1">Total Business Cash</div>
+                <div className="text-2xl font-bold text-green-600">
+                  {formatCurrency(totalBusinessCashValue)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Daily business total minus credit card sales</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-4">
+                <div className="text-sm font-medium text-gray-600 mb-1">Total Credit Card Sales</div>
+                <div className="text-2xl font-bold text-blue-600">
+                  {formatCurrency(totalCreditCardSalesValue)}
+                </div>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="bg-white rounded-lg shadow p-4">
+                <div className="text-sm font-medium text-gray-600 mb-1">Total Online Sales</div>
+                <div className="text-2xl font-bold text-teal-600">
+                  {formatCurrency(totalOnlineSalesValue)}
+                </div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-4">
+                <div className="text-sm font-medium text-gray-600 mb-1">Total Instant Sales</div>
+                <div className="text-2xl font-bold text-orange-600">
+                  {formatCurrency(totalInstantSalesValue)}
+                </div>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+                <div className="text-sm font-medium text-gray-600 mb-1">Total Cash On Hand</div>
+                <div className="text-2xl font-bold text-blue-600">
+                  {formatCurrency(latestCashOnHand.businessCashOnHand)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Latest balance</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
+                <div className="text-sm font-medium text-gray-600 mb-1">Lottery Cash On Hand</div>
+                <div className="text-2xl font-bold text-purple-600">
+                  {formatCurrency(latestCashOnHand.lotteryCashOnHand)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Latest balance</div>
+              </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm font-medium text-gray-600 mb-1">Total Lottery Owed</div>
-            <div className="text-2xl font-bold text-purple-600">
-              {formatCurrency(totals.calculatedLotteryOwed)}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            <div className="bg-white rounded-lg shadow p-4">
+              <div className="text-sm font-medium text-gray-600 mb-1">Total Lottery Owed</div>
+              <div className="text-2xl font-bold text-purple-600">
+                {formatCurrency(totals.calculatedLotteryOwed)}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
+              <div className="text-sm font-medium text-gray-600 mb-1">Current Business Bank Balance</div>
+              <div className="text-2xl font-bold text-green-600">
+                {formatCurrency(bankBalances.business)}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {banks.find(b => b.is_default_bank)?.bank_name || 'No default bank'}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-indigo-500">
+              <div className="text-sm font-medium text-gray-600 mb-1">Current Lottery Bank Balance</div>
+              <div className="text-2xl font-bold text-indigo-600">
+                {formatCurrency(bankBalances.lottery)}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {banks.find(b => b.is_default_lottery_bank)?.bank_name || 'No default lottery bank'}
+              </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm font-medium text-gray-600 mb-1">Total Credit Card Sales</div>
-            <div className="text-2xl font-bold text-blue-600">
-              {formatCurrency(totals.businessCreditCard)}
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm font-medium text-gray-600 mb-1">Total Instant Sales</div>
-            <div className="text-2xl font-bold text-orange-600">
-              {formatCurrency(totals.totalInstant)}
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
-            <div className="text-sm font-medium text-gray-600 mb-1">Business Cash On Hand</div>
-            <div className="text-2xl font-bold text-blue-600">
-              {formatCurrency(latestCashOnHand.businessCashOnHand)}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">Latest balance</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
-            <div className="text-sm font-medium text-gray-600 mb-1">Lottery Cash On Hand</div>
-            <div className="text-2xl font-bold text-purple-600">
-              {formatCurrency(latestCashOnHand.lotteryCashOnHand)}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">Latest balance</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
-            <div className="text-sm font-medium text-gray-600 mb-1">Current Business Bank Balance</div>
-            <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(bankBalances.business)}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              {banks.find(b => b.is_default_bank)?.bank_name || 'No default bank'}
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4 border-l-4 border-indigo-500">
-            <div className="text-sm font-medium text-gray-600 mb-1">Current Lottery Bank Balance</div>
-            <div className="text-2xl font-bold text-indigo-600">
-              {formatCurrency(bankBalances.lottery)}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              {banks.find(b => b.is_default_lottery_bank)?.bank_name || 'No default lottery bank'}
-            </div>
-          </div>
-        </div>
+        </>
       )}
 
       {/* Weekly Lottery Info Section */}
