@@ -7,10 +7,18 @@ const app = express();
 // Security middleware
 app.use(helmet());
 
+// Helper to sanitize origins coming from environment variables (Railway often auto-wraps with quotes)
+const sanitizeOrigin = origin => origin.replace(/^['"]+|['"]+$/g, '').trim();
+
 // CORS configuration - allow multiple origins in development
-const allowedOrigins = process.env.CORS_ORIGIN 
-    ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-    : ['http://localhost:5173', 'http://localhost:3001', 'http://localhost:5174'];
+const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(sanitizeOrigin).filter(Boolean)
+    : [
+        'http://localhost:5173',
+        'http://localhost:3001',
+        'http://localhost:5174',
+        'https://retailcloudhq.netlify.app'
+    ];
 
 app.use(cors({
     origin: (origin, callback) => {
