@@ -2345,9 +2345,7 @@ router.get('/store/:storeId/cash-tracking', canAccessStore, async (req, res) => 
         if (latestRevenueResult.rows.length > 0) {
             const latest = latestRevenueResult.rows[0];
             const storeClosed = latest.store_closed === true || latest.store_closed === 'true';
-            if (storeClosed) {
-                derivedCurrentCash = 0;
-            } else if (derivedCurrentCash === 0) {
+            if (!storeClosed) {
                 const revenueBalance = parseFloat(latest.total_cash || latest.calculated_business_cash || 0);
                 if (!Number.isNaN(revenueBalance) && revenueBalance !== 0) {
                     derivedCurrentCash = revenueBalance;
