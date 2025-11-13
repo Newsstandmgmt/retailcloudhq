@@ -40,8 +40,9 @@ router.post('/:storeId', canAccessStore, async (req, res) => {
         };
         
         const expense = await DailyOperatingExpenses.create(expenseData);
-        
-        // Auto-post to General Ledger
+ 
+         // Auto-post to General Ledger
+        let expenseTypeName = 'Operating Expense';
         try {
             // Get expense type name for posting
             const { query } = require('../config/database');
@@ -49,7 +50,7 @@ router.post('/:storeId', canAccessStore, async (req, res) => {
                 'SELECT expense_type_name FROM expense_types WHERE id = $1',
                 [expense.expense_type_id]
             );
-            const expenseTypeName = expenseTypeResult.rows[0]?.expense_type_name || 'Operating Expense';
+            expenseTypeName = expenseTypeResult.rows[0]?.expense_type_name || 'Operating Expense';
             
             // Get full expense with type name
             const fullExpense = await DailyOperatingExpenses.findById(expense.id);
