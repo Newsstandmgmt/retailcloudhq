@@ -65,7 +65,11 @@ class CashOnHandCalculationService {
             // For combined drawer, we need to calculate from daily revenue
             if (store && store.cash_drawer_type === 'same') {
                 // Get previous day's calculated business cash - this is the running balance
-                const businessCash = parseFloat(prev.total_cash || prev.calculated_business_cash || 0);
+                let businessCash = parseFloat(prev.total_cash || prev.calculated_business_cash || 0);
+                const ledgerFallback = parseFloat(cashOnHand.current_balance || 0);
+                if ((!businessCash || Math.abs(businessCash) < 0.0001) && ledgerFallback) {
+                    businessCash = ledgerFallback;
+                }
                 const lotteryOwed = parseFloat(prev.calculated_lottery_owed || 0);
                 
                 // For combined drawer: business cash is tracked separately
