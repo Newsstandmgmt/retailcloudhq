@@ -4,6 +4,7 @@ const LotteryInstantDay = require('../models/LotteryInstantDay');
 const LotteryWeeklySettlement = require('../models/LotteryWeeklySettlement');
 const { query } = require('../config/database');
 const { parse } = require('csv-parse/sync');
+const LotteryRawReport = require('../models/LotteryRawReport');
 
 class LotteryEmailService {
     /**
@@ -286,7 +287,7 @@ class LotteryEmailService {
         }
 
         // Store raw report data for future mapping
-        await LotteryDailyReport.upsert({
+        await LotteryRawReport.upsert({
             storeId,
             reportDate: parsedData.date,
             retailerNumber: parsedData.retailer_number,

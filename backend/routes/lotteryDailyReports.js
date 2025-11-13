@@ -1,13 +1,13 @@
 const express = require('express');
 const { canAccessStore } = require('../middleware/auth');
-const LotteryDailyReport = require('../models/LotteryDailyReport');
+const LotteryRawReport = require('../models/LotteryRawReport');
 
 const router = express.Router();
 
 router.get('/store/:storeId', canAccessStore, async (req, res) => {
     try {
         const { start_date: startDate, end_date: endDate, limit } = req.query;
-        const records = await LotteryDailyReport.listByStore(req.params.storeId, {
+        const records = await LotteryRawReport.listByStore(req.params.storeId, {
             startDate,
             endDate,
             limit: limit ? parseInt(limit, 10) : 50,
