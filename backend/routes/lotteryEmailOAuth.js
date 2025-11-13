@@ -106,8 +106,6 @@ router.get('/stores/:storeId/gmail/connect', canAccessStore, authorize('super_ad
 
 // Preferred endpoint used by the frontend service layer
 router.get('/stores/:storeId/auth-url', canAccessStore, authorize('super_admin', 'admin'), sendAuthUrl);
-    }
-});
 
 // Get email accounts for a store
 router.get('/stores/:storeId/accounts', canAccessStore, async (req, res) => {
