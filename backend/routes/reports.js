@@ -121,11 +121,12 @@ router.get('/store/:storeId/profit-loss', canAccessStore, async (req, res) => {
         // Purchase Invoices (COGS)
         const cogsResult = await query(
             `SELECT 
-                COALESCE(SUM(amount), 0) as total_cogs
+                COALESCE(SUM(amount), 0) AS total_cogs
              FROM purchase_invoices
              WHERE store_id = $1 
              AND purchase_date BETWEEN $2 AND $3
-             AND payment_option != 'credit_memo'`,
+             AND payment_option <> 'credit_memo'
+             AND (status IS NULL OR status <> 'cancelled')`,
             [storeId, start_date, end_date]
         );
 
