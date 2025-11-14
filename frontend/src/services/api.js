@@ -140,6 +140,7 @@ export const banksAPI = {
   update: (id, data) => api.put(`/api/banks/${id}`, data),
   delete: (id) => api.delete(`/api/banks/${id}`),
   setDefault: (storeId, bankId, type) => api.post(`/api/banks/store/${storeId}/default/${bankId}`, { type }),
+  updateDefault: (storeId, bankId, type) => api.post(`/api/banks/store/${storeId}/default/${bankId}`, { type }),
 };
 
 // Credit Cards API

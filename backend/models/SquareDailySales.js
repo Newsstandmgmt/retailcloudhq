@@ -59,6 +59,29 @@ class SquareDailySales {
         );
         return result.rows[0] || null;
     }
+
+    static async getLatestSyncDate(storeId) {
+        const result = await query(
+            `SELECT sales_date 
+             FROM square_daily_sales 
+             WHERE store_id = $1 
+             ORDER BY sales_date DESC 
+             LIMIT 1`,
+            [storeId]
+        );
+        return result.rows[0]?.sales_date || null;
+    }
+
+    static async getNextSyncDate(storeId, fallbackStartDate) {
+        const latest = await this.getLatestSyncDate(storeId);
+        if (!latest) {
+            return fallbackStartDate;
+        }
+
+        const next = new Date(`${latest}T00:00:00Z`);
+        next.setUTCDate(next.getUTCDate() + 1);
+        return next.toISOString().slice(0, 10);
+    }
 }
 
 module.exports = SquareDailySales;

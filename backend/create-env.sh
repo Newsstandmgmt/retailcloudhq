@@ -33,11 +33,15 @@ CORS_ORIGIN=http://localhost:3001
 SQUARE_CLIENT_ID=
 SQUARE_CLIENT_SECRET=
 SQUARE_REDIRECT_URI=https://retailcloudhq-production.up.railway.app/api/square/oauth/callback
-SQUARE_SCOPES="PAYMENTS_READ SETTLEMENTS_READ"
+SQUARE_SCOPES="MERCHANT_PROFILE_READ PAYMENTS_READ PAYOUTS_READ"
 SQUARE_ENVIRONMENT=production
 SQUARE_DEFAULT_TIMEZONE=America/New_York
 # Generate a 64-character hex string: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 SQUARE_STATE_SECRET=
+SQUARE_SYNC_START_DATE=2025-11-01
+SQUARE_SYNC_CRON="*/5 * * * *"
+SQUARE_SYNC_MAX_DAYS=3
+ENABLE_SQUARE_SYNC_CRON=true
 
 # Optional: Create super admin during initialization
 SUPER_ADMIN_EMAIL=patelmit101@gmail.com

@@ -2,6 +2,7 @@ const app = require('./app');
 require('dotenv').config();
 const scheduler = require('./services/scheduler');
 const EmailMonitorCron = require('./services/emailMonitorCron');
+const SquareSyncCron = require('./services/squareSyncCron');
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -86,5 +87,9 @@ app.listen(PORT, HOST, () => {
     // Start email monitoring cron
     if (process.env.ENABLE_EMAIL_MONITOR !== 'false') {
         EmailMonitorCron.start();
+    }
+
+    if (process.env.ENABLE_SQUARE_SYNC_CRON !== 'false') {
+        SquareSyncCron.start();
     }
 });

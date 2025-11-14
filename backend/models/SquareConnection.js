@@ -108,6 +108,14 @@ class SquareConnection {
         return this.hydrate(result.rows[0]);
     }
 
+    static async findActiveConnections() {
+        const result = await query(
+            'SELECT * FROM square_connections WHERE is_active = true'
+        );
+        if (result.rows.length === 0) return [];
+        return this.hydrateArray(result.rows);
+    }
+
     static async findById(id) {
         const result = await query(
             'SELECT * FROM square_connections WHERE id = $1',

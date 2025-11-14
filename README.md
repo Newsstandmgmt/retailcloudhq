@@ -145,6 +145,7 @@ RetailCloudHQ/
 - **Gmail lottery monitor:** When `ENABLE_EMAIL_MONITOR=true`, the cron defined in `services/emailMonitorCron.js` polls linked mailbox accounts to automate lottery report ingestion.
 - **Recurring expenses:** `services/recurringExpensesService.js` generates expenses daily at 3 AM (America/New_York) and exposes manual triggers via `/api/recurring-expenses/process`.
 - **Notifications:** Alerts for overdue invoices, payment reminders, device lock statuses, etc., are generated nightly at 4 AM and surfaced in the admin UI (`/notifications` routes).
+- **Square POS auto-sync:** Provide production credentials via `SQUARE_CLIENT_ID`, `SQUARE_CLIENT_SECRET`, `SQUARE_REDIRECT_URI`, and scopes such as `SQUARE_SCOPES="MERCHANT_PROFILE_READ PAYMENTS_READ PAYOUTS_READ"`. Set `ENABLE_SQUARE_SYNC_CRON=true` (default) and optionally `SQUARE_SYNC_START_DATE=2025-11-01` to control the first day to ingest. Backfill historical card totals with `node scripts/square-backfill.js --all --start=2025-11-01`, then the cron defined in `services/squareSyncCron.js` keeps every connected store updated roughly every five minutes (tune `SQUARE_SYNC_CRON` if you need a different cadence).
 
 ## Deployment Notes
 
