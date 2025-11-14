@@ -97,6 +97,8 @@ class GmailService {
         const processedEmails = [];
 
         for (const rule of activeRules) {
+            const legacyConfigId = await this.ensureLegacyConfig(account, rule);
+
             // Build Gmail query
             const searchQuery = this.buildGmailQuery(rule, account.email_address);
             console.log('GmailService.checkEmails: searching', {
@@ -143,7 +145,7 @@ class GmailService {
                     }
 
                     // Process the email
-                    await this.processEmail(fullMessage.data, rule, account, message.id, client);
+                    await this.processEmail(fullMessage.data, rule, account, message.id, client, legacyConfigId);
                     
                     processedEmails.push({
                         messageId: message.id,
@@ -155,9 +157,25 @@ class GmailService {
                     console.error(`Error processing email ${message.id}:`, error);
                     // Log error
                     await dbQuery(
-                        `INSERT INTO lottery_email_logs (email_account_id, email_rule_id, email_id, email_subject, received_at, status, error_message)
-                         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'error', $5)`,
-                        [emailAccountId, rule.id, message.id, 'Unknown', error.message]
+                        `INSERT INTO lottery_email_logs (
+                            email_account_id,
+                            email_rule_id,
+                            email_config_id,
+                            email_id,
+                            email_subject,
+                            received_at,
+                            status,
+                            error_message
+                        )
+                        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, 'error', $6)`,
+                        [
+                            emailAccountId,
+                            rule.id,
+                            legacyConfigId,
+                            message.id,
+                            'Unknown',
+                            error.message
+                        ]
                     );
                 }
             }
@@ -194,7 +212,7 @@ class GmailService {
     /**
      * Process a Gmail message
      */
-    static async processEmail(message, rule, account, messageId, gmailClient) {
+    static async processEmail(message, rule, account, messageId, gmailClient, legacyConfigId) {
         const LotteryEmailService = require('./lotteryEmailService');
         
         // Extract email details
@@ -258,9 +276,20 @@ class GmailService {
 
         // Log success
         await dbQuery(
-            `INSERT INTO lottery_email_logs (email_account_id, email_rule_id, email_id, email_subject, email_from, received_at, processed_at, status, records_processed)
-             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'success', 1)`,
-            [account.id, rule.id, messageId, subject, from]
+            `INSERT INTO lottery_email_logs (
+                email_account_id,
+                email_rule_id,
+                email_config_id,
+                email_id,
+                email_subject,
+                email_from,
+                received_at,
+                processed_at,
+                status,
+                records_processed
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'success', 1)`,
+            [account.id, rule.id, legacyConfigId, messageId, subject, from]
         );
 
         try {
@@ -310,6 +339,52 @@ class GmailService {
         const data = response.data.data;
         const buffer = Buffer.from(data, 'base64');
         return buffer.toString('utf-8');
+    }
+
+    static async ensureLegacyConfig(account, rule) {
+        try {
+            const existing = await dbQuery(
+                `SELECT id FROM lottery_email_configs 
+                 WHERE store_id = $1 AND report_type = $2
+                 ORDER BY created_at DESC
+                 LIMIT 1`,
+                [account.store_id, rule.report_type]
+            );
+
+            if (existing.rows[0]) {
+                return existing.rows[0].id;
+            }
+
+            const targetEmail = rule.to_address || account.email_address;
+            const insert = await dbQuery(
+                `INSERT INTO lottery_email_configs (
+                    store_id,
+                    report_type,
+                    email_address,
+                    retailer_number,
+                    is_active
+                )
+                VALUES ($1, $2, $3, $4, true)
+                ON CONFLICT (store_id, report_type) DO UPDATE
+                SET email_address = EXCLUDED.email_address,
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING id`,
+                [account.store_id, rule.report_type, targetEmail, rule.retailer_number || null]
+            );
+
+            return insert.rows[0].id;
+        } catch (error) {
+            console.warn('Failed to ensure legacy lottery_email_configs entry:', error.message);
+            // Return a placeholder UUID to satisfy NOT NULL constraint while still logging
+            const placeholder = await dbQuery(`
+                INSERT INTO lottery_email_configs (store_id, report_type, email_address, is_active)
+                VALUES ($1, $2, $3, true)
+                ON CONFLICT (store_id, report_type) DO UPDATE
+                SET email_address = EXCLUDED.email_address
+                RETURNING id
+            `, [account.store_id, rule.report_type, rule.to_address || account.email_address]);
+            return placeholder.rows[0].id;
+        }
     }
 }
 
