@@ -3,6 +3,7 @@ const SquareConnection = require('../models/SquareConnection');
 const SquareDailySales = require('../models/SquareDailySales');
 const DailyRevenue = require('../models/DailyRevenue');
 const Store = require('../models/Store');
+const { syncCreditCardFeeExpense } = require('./creditCardFeeExpenseService');
 
 function getEnv(name, fallback) {
     const raw = process.env[name];
@@ -281,6 +282,11 @@ async function syncDailySales(storeId, salesDate, options = {}) {
             square_synced_at: new Date().toISOString(),
             entered_by: options.enteredBy || null,
         });
+        try {
+            await syncCreditCardFeeExpense(storeId, salesDate, totals.card_fees, options.enteredBy || null);
+        } catch (feeError) {
+            console.error('Square sync: failed to sync credit card fee expense', feeError);
+        }
 
         return totals;
     } catch (error) {
@@ -304,6 +310,11 @@ async function syncDailySales(storeId, salesDate, options = {}) {
                 square_synced_at: new Date().toISOString(),
                 entered_by: options.enteredBy || null,
             });
+            try {
+                await syncCreditCardFeeExpense(storeId, salesDate, totals.card_fees, options.enteredBy || null);
+            } catch (feeError) {
+                console.error('Square sync (post-refresh): failed to sync credit card fee expense', feeError);
+            }
             return totals;
         }
         throw error;
