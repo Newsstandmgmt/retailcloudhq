@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../contexts/StoreContext';
 import { useAuth } from '../contexts/AuthContext';
 import { purchaseInvoicesAPI, banksAPI, creditCardsAPI, productsAPI, inventoryOrdersAPI, crossStorePaymentsAPI } from '../services/api';
@@ -6,6 +7,8 @@ import { purchaseInvoicesAPI, banksAPI, creditCardsAPI, productsAPI, inventoryOr
 const PurchasePayments = () => {
   const { selectedStore, stores } = useStore();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddInvoiceModal, setShowAddInvoiceModal] = useState(false);
@@ -101,6 +104,8 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const costSectionRef = useRef(null);
+  const [focusCostSection, setFocusCostSection] = useState(false);
   
   // Payment details modal state
   const [showPaymentDetailsModal, setShowPaymentDetailsModal] = useState(false);
@@ -146,6 +151,48 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       }));
     }
   }, [selectedStore]);
+
+  useEffect(() => {
+    if (!showEditModal || !focusCostSection) return;
+    const timeout = setTimeout(() => {
+      if (costSectionRef.current) {
+        costSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      setFocusCostSection(false);
+    }, 200);
+    return () => clearTimeout(timeout);
+  }, [showEditModal, focusCostSection]);
+
+  useEffect(() => {
+    if (!selectedStore) return;
+    const params = new URLSearchParams(location.search);
+    const invoiceId = params.get('invoiceId');
+    if (!invoiceId) return;
+
+    const openLinkedInvoice = async () => {
+      try {
+        const response = await purchaseInvoicesAPI.getById(invoiceId);
+        const invoice = response?.data?.invoice;
+        if (invoice) {
+          handleEditInvoice(invoice, { focusCost: params.get('action') === 'cost' });
+        } else {
+          alert('Invoice not found.');
+        }
+      } catch (error) {
+        console.error('Failed to load invoice for editing', error);
+        alert('Unable to open the requested invoice. It may have been deleted.');
+      } finally {
+        params.delete('invoiceId');
+        params.delete('action');
+        navigate({
+          pathname: location.pathname,
+          search: params.toString() ? `?${params.toString()}` : ''
+        }, { replace: true });
+      }
+    };
+
+    openLinkedInvoice();
+  }, [location.pathname, location.search, navigate, selectedStore]);
   
   useEffect(() => {
     if (showAddInvoiceModal && selectedStore) {
@@ -291,7 +338,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     });
   };
 
-  const handleEditInvoice = (invoice) => {
+  const handleEditInvoice = (invoice, options = {}) => {
     setEditingInvoice(invoice);
     setEditForm({
       invoice_number: invoice.invoice_number || '',
@@ -309,16 +356,17 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       is_reimbursable: invoice.is_reimbursable || false,
       reimbursement_to: invoice.reimbursement_to || '',
       reimbursement_status: invoice.reimbursement_status || 'pending',
-        reimbursement_payment_method: invoice.reimbursement_payment_method || 'cash',
-        reimbursement_check_number: invoice.reimbursement_check_number || '',
-        is_cigarette_purchase: invoice.is_cigarette_purchase || false,
-        cigarette_cartons_purchased: invoice.cigarette_cartons_purchased ? String(invoice.cigarette_cartons_purchased) : '',
-        expected_revenue: invoice.expected_revenue || '',
-        revenue_calculation_method: invoice.revenue_calculation_method || 'none',
-        invoice_items: invoice.invoice_items || [],
-      });
-      setShowEditModal(true);
-    };
+      reimbursement_payment_method: invoice.reimbursement_payment_method || 'cash',
+      reimbursement_check_number: invoice.reimbursement_check_number || '',
+      is_cigarette_purchase: invoice.is_cigarette_purchase || false,
+      cigarette_cartons_purchased: invoice.cigarette_cartons_purchased ? String(invoice.cigarette_cartons_purchased) : '',
+      expected_revenue: invoice.expected_revenue || '',
+      revenue_calculation_method: invoice.revenue_calculation_method || 'none',
+      invoice_items: invoice.invoice_items || [],
+    });
+    setFocusCostSection(Boolean(options.focusCost));
+    setShowEditModal(true);
+  };
 
   const handleUpdateInvoice = async (e) => {
     e.preventDefault();
@@ -2212,7 +2260,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                             View Details
                           </button>
                         ) : (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-3 flex-wrap">
                             <button 
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -2221,6 +2269,15 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                               className="text-blue-600 hover:text-blue-900"
                             >
                               Edit
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEditInvoice(record, { focusCost: true });
+                              }}
+                              className="text-indigo-600 hover:text-indigo-900"
+                            >
+                              Cost Calc
                             </button>
                             <button 
                               onClick={(e) => {
@@ -2482,7 +2539,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                   </div>
 
                   {/* Revenue Calculation Section */}
-                  <div className="border-t pt-4 mt-4">
+                  <div className="border-t pt-4 mt-4" ref={costSectionRef}>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Revenue Calculation
                     </label>

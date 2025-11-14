@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { reportsAPI, purchaseInvoicesAPI } from '../services/api';
 import { useStore } from '../contexts/StoreContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,6 +10,7 @@ import {
 } from 'recharts';
 
 const Reports = () => {
+  const navigate = useNavigate();
   const { selectedStore } = useStore();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
@@ -35,7 +37,6 @@ const Reports = () => {
   const allTabs = [
     { id: 'profit-loss', name: 'Profit & Loss' },
     { id: 'revenue-calculation', name: 'Revenue Calculation' },
-    { id: 'cost-calculations', name: 'Cost Calculations' },
     { id: 'cash-flow', name: 'Cash Flow' },
     { id: 'cash-tracking', name: 'Cash Tracking' },
     { id: 'expense-breakdown', name: 'Expense Breakdown' },
@@ -75,12 +76,17 @@ const Reports = () => {
         case 'profit-loss':
           response = await reportsAPI.getProfitLoss(selectedStore.id, startDate, endDate);
           break;
-        case 'revenue-calculation':
-          response = await reportsAPI.getRevenueCalculation(selectedStore.id, startDate, endDate);
-          break;
-        case 'cost-calculations':
-          response = await purchaseInvoicesAPI.getCostCalculations(selectedStore.id, startDate, endDate);
-          break;
+        case 'revenue-calculation': {
+          const [revenueResp, costResp] = await Promise.all([
+            reportsAPI.getRevenueCalculation(selectedStore.id, startDate, endDate),
+            purchaseInvoicesAPI.getCostCalculations(selectedStore.id, startDate, endDate),
+          ]);
+          setReportData({
+            ...revenueResp.data,
+            cost_calculations: costResp.data,
+          });
+          return;
+        }
         case 'cash-flow':
           response = await reportsAPI.getCashFlowDetailed(selectedStore.id, startDate, endDate);
           break;
@@ -190,8 +196,6 @@ const Reports = () => {
         return prepareProfitLossExport();
       case 'revenue-calculation':
         return prepareRevenueCalculationExport();
-      case 'cost-calculations':
-        return prepareCostCalculationsExport();
       case 'cash-flow':
         return prepareCashFlowExport();
       case 'cash-tracking':
@@ -225,8 +229,6 @@ const Reports = () => {
         return prepareProfitLossHTML();
       case 'revenue-calculation':
         return prepareRevenueCalculationHTML();
-      case 'cost-calculations':
-        return prepareCostCalculationsHTML();
       case 'cash-flow':
         return prepareCashFlowHTML();
       case 'cash-tracking':
@@ -596,6 +598,23 @@ const Reports = () => {
             </table>
           </div>
         </div>
+
+        {reportData?.cost_calculations && (
+          <div className="pt-8 border-t border-gray-200">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">Cost Calculations</h3>
+                <p className="text-sm text-gray-500">
+                  Track inventory delivered, expected revenue, and product breakdowns for each invoice.
+                </p>
+              </div>
+              <div className="text-sm text-gray-600 mt-2 sm:mt-0">
+                {(reportData.cost_calculations.summary?.invoice_count || 0)} invoices in range
+              </div>
+            </div>
+            {renderCostCalculationsSection(reportData.cost_calculations)}
+          </div>
+        )}
       </div>
     );
   };
@@ -2095,6 +2114,11 @@ const Reports = () => {
     );
   };
 
+  const handleEditCostCalculation = (invoiceId) => {
+    if (!invoiceId) return;
+    navigate(`/purchase-payments?invoiceId=${invoiceId}&action=cost`);
+  };
+
   const renderRevenueCalculation = () => {
     if (!reportData || typeof reportData !== 'object') return null;
     const { summary = {}, daily_trends = [], invoices = [], vendors = [] } = reportData || {};
@@ -2324,10 +2348,10 @@ const Reports = () => {
     );
   };
 
-  const renderCostCalculations = () => {
-    if (!reportData || typeof reportData !== 'object') return null;
-    const summary = reportData.summary || {};
-    const invoices = Array.isArray(reportData.invoices) ? reportData.invoices : [];
+  const renderCostCalculationsSection = (data) => {
+    if (!data || typeof data !== 'object') return null;
+    const summary = data.summary || {};
+    const invoices = Array.isArray(data.invoices) ? data.invoices : [];
     const safeSummary = {
       invoice_count: summary.invoice_count || 0,
       total_expected: parseFloat(summary.total_expected || 0),
@@ -2381,6 +2405,7 @@ const Reports = () => {
                     <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Expected Revenue</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Method</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Products</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -2410,6 +2435,14 @@ const Reports = () => {
                               className="text-indigo-600 hover:text-indigo-800 font-medium"
                             >
                               {expandedCostCalcId === invoice.id ? 'Hide' : 'View'} ({items.length})
+                            </button>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            <button
+                              onClick={() => handleEditCostCalculation(invoice.id)}
+                              className="text-blue-600 hover:text-blue-900 font-medium"
+                            >
+                              Edit Calculation
                             </button>
                           </td>
                         </tr>
@@ -2465,7 +2498,7 @@ const Reports = () => {
     );
   };
 
-  const needsDateRange = ['profit-loss', 'revenue-calculation', 'cost-calculations', 'cash-flow', 'cash-tracking', 'expense-breakdown', 'vendor-payments', 'lottery-sales', 'deposits', 'payroll', 'sales-trends'].includes(activeTab);
+  const needsDateRange = ['profit-loss', 'revenue-calculation', 'cash-flow', 'cash-tracking', 'expense-breakdown', 'vendor-payments', 'lottery-sales', 'deposits', 'payroll', 'sales-trends'].includes(activeTab);
   const needsSingleDate = ['daily-business'].includes(activeTab);
   const needsMonthYear = ['monthly-business'].includes(activeTab);
 
@@ -2544,34 +2577,45 @@ const Reports = () => {
       ]) : [])
     ];
 
+    if (reportData?.cost_calculations) {
+      rows.push(['', '', '', '', '', '', '', '', '']);
+      rows.push(...buildCostCalculationExportRows(reportData.cost_calculations));
+    }
+
     return { headers, rows };
   };
 
-  const prepareCostCalculationsExport = () => {
-    if (!reportData) return { headers: [], rows: [] };
-    const { summary = {}, invoices = [] } = reportData || {};
-    const headers = ['Invoice #', 'Date', 'Vendor', 'Status', 'Purchase Cost', 'Expected Revenue', 'Method', 'Products Count'];
+  const buildCostCalculationExportRows = (data) => {
+    if (!data) return [];
+    const { summary = {}, invoices = [] } = data;
+    const blankRow = ['', '', '', '', '', '', '', '', ''];
     const rows = [
-      ['SUMMARY', '', '', '', '', '', '', ''],
-      ['Invoices counted', summary.invoice_count || 0, '', '', '', '', '', ''],
-      ['Total purchase cost', formatCurrency(parseFloat(summary.total_purchase_amount || 0)), '', '', '', '', '', ''],
-      ['Total expected revenue', formatCurrency(parseFloat(summary.total_expected || 0)), '', '', '', '', '', ''],
-      ['Total products', summary.total_products || 0, '', '', '', '', '', ''],
-      ['Total quantity', summary.total_quantity || 0, '', '', '', '', '', ''],
-      ['', '', '', '', '', '', '', ''],
-      ['DETAILS', '', '', '', '', '', '', ''],
-      ...(Array.isArray(invoices) ? invoices.map(inv => [
-        inv?.invoice_number || 'N/A',
-        inv?.purchase_date ? new Date(inv.purchase_date).toLocaleDateString() : 'N/A',
-        inv?.vendor_name || 'Unknown',
-        inv?.status || 'pending',
-        formatCurrency(parseFloat(inv?.amount || 0)),
-        formatCurrency(parseFloat(inv?.expected_revenue || 0)),
-        inv?.revenue_calculation_method || 'manual',
-        Array.isArray(inv?.invoice_items) ? inv.invoice_items.length : 0
-      ]) : [])
+      ['COST CALC SUMMARY', '', '', '', '', '', '', '', ''],
+      ['Invoices counted', `${summary.invoice_count || 0}`, '', '', '', '', '', '', ''],
+      ['Total purchase cost', '', '', '', formatCurrency(parseFloat(summary.total_purchase_amount || 0)), '', '', '', ''],
+      ['Total expected revenue', '', '', '', formatCurrency(parseFloat(summary.total_expected || 0)), '', '', '', ''],
+      ['Total products', `${summary.total_products || 0}`, '', '', '', '', '', '', ''],
+      ['Total quantity', `${summary.total_quantity || 0}`, '', '', '', '', '', '', ''],
+      blankRow,
+      ['COST CALC DETAILS', '', '', '', '', '', '', '', ''],
+      ...(Array.isArray(invoices)
+        ? invoices.map(inv => {
+            const itemsCount = Array.isArray(inv?.invoice_items) ? inv.invoice_items.length : 0;
+            return [
+              inv?.invoice_number || 'N/A',
+              inv?.purchase_date ? new Date(inv.purchase_date).toLocaleDateString() : 'N/A',
+              inv?.vendor_name || 'Unknown',
+              formatCurrency(parseFloat(inv?.amount || 0)),
+              formatCurrency(parseFloat(inv?.expected_revenue || 0)),
+              '',
+              '',
+              itemsCount ? `${itemsCount} products` : '',
+              `${inv?.revenue_calculation_method || 'manual'} (${inv?.status || 'pending'})`
+            ];
+          })
+        : [])
     ];
-    return { headers, rows };
+    return rows;
   };
 
   const prepareCashFlowExport = () => {
@@ -2942,6 +2986,8 @@ const Reports = () => {
         `).join('')
       : '<tr><td colspan="9" style="text-align:center;">No revenue calculation data available for this range.</td></tr>';
 
+    const costCalcHTML = buildCostCalculationsHTML(reportData?.cost_calculations);
+
     return `
       <h2>Revenue Calculation Summary</h2>
       <ul>
@@ -2970,16 +3016,17 @@ const Reports = () => {
           ${rowsHTML}
         </tbody>
       </table>
+      ${costCalcHTML}
     `;
   };
 
-  const prepareCostCalculationsHTML = () => {
-    if (!reportData) return '<p>No data available</p>';
-    const summary = reportData.summary || {};
-    const invoices = Array.isArray(reportData.invoices) ? reportData.invoices : [];
+  const buildCostCalculationsHTML = (data) => {
+    if (!data) return '';
+    const summary = data.summary || {};
+    const invoices = Array.isArray(data.invoices) ? data.invoices : [];
 
     const summaryHTML = `
-      <h2>Cost Calculation Summary</h2>
+      <h2 style="margin-top: 32px;">Cost Calculation Summary</h2>
       <ul>
         <li>Invoices with Calculations: ${summary.invoice_count || 0}</li>
         <li>Total Purchase Cost: ${formatCurrency(parseFloat(summary.total_purchase_amount || 0))}</li>
@@ -2997,10 +3044,9 @@ const Reports = () => {
           <td>${purchaseDate}</td>
           <td>${inv.invoice_number || 'N/A'}</td>
           <td>${inv.vendor_name || 'Unknown'}</td>
-          <td>${inv.status || 'pending'}</td>
           <td class="text-right currency">${formatCurrency(parseFloat(inv.amount || 0))}</td>
           <td class="text-right currency">${formatCurrency(parseFloat(inv.expected_revenue || 0))}</td>
-          <td>${inv.revenue_calculation_method || 'manual'}</td>
+          <td>${inv.revenue_calculation_method || 'manual'} (${inv.status || 'pending'})</td>
           <td>${productCount}</td>
         </tr>
       `;
@@ -3050,24 +3096,25 @@ const Reports = () => {
 
     return `
       ${summaryHTML}
-      <h2>Cost Calculation Details</h2>
-      <table border="1" cellPadding="6" cellSpacing="0" style="border-collapse: collapse; width: 100%;">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Invoice #</th>
-            <th>Vendor</th>
-            <th>Status</th>
-            <th>Purchase Cost</th>
-            <th>Expected Revenue</th>
-            <th>Method</th>
-            <th>Products</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${detailRows}
-        </tbody>
-      </table>
+      ${invoices.length > 0 ? `
+        <h2>Cost Calculation Details</h2>
+        <table border="1" cellPadding="6" cellSpacing="0" style="border-collapse: collapse; width: 100%;">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Invoice #</th>
+              <th>Vendor</th>
+              <th>Purchase Cost</th>
+              <th>Expected Revenue</th>
+              <th>Method / Status</th>
+              <th>Products</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${detailRows}
+          </tbody>
+        </table>
+      ` : '<p>No cost calculation details for this range.</p>'}
       ${productSections}
     `;
   };
@@ -3992,8 +4039,6 @@ const Reports = () => {
         return renderProfitLoss();
       case 'revenue-calculation':
         return renderRevenueCalculation();
-      case 'cost-calculations':
-        return renderCostCalculations();
       case 'cash-flow':
         return renderCashFlow();
       case 'cash-tracking':
