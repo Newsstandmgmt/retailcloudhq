@@ -220,6 +220,19 @@ class LotteryEmailService {
         }
     }
 
+    static parseDateFromFilename(filename) {
+        if (!filename) return null;
+        const match = filename.match(/(20\d{6})/);
+        if (match) {
+            const digits = match[1];
+            const year = digits.substring(0, 4);
+            const month = digits.substring(4, 6);
+            const day = digits.substring(6, 8);
+            return `${year}-${month}-${day}`;
+        }
+        return null;
+    }
+
     /**
      * Parse date from various formats
      */
@@ -269,6 +282,12 @@ class LotteryEmailService {
         
         // Parse CSV using state-specific configuration
         const parsedData = await this.parseDailySalesCSV(csvContent, stateConfig);
+        if (metadata.filename) {
+            const filenameDate = this.parseDateFromFilename(metadata.filename);
+            if (filenameDate) {
+                parsedData.date = filenameDate;
+            }
+        }
         const rawData = parsedData.raw_data || {};
         const rawColumns = parsedData.raw_columns || Object.keys(rawData);
 
