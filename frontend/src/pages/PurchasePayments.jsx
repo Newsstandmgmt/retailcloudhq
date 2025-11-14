@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../contexts/StoreContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -89,6 +89,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
   
   // Invoice form state
   const [invoiceForm, setInvoiceForm] = useState(() => createEmptyInvoiceForm());
+  const [storeTaxes, setStoreTaxes] = useState([]);
   
   // Products for revenue calculation
   const [products, setProducts] = useState([]);
@@ -155,11 +156,14 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       loadBanks();
       loadCreditCards();
       loadProducts();
+      loadStoreTaxes();
       loadCrossStorePayments(selectedStore.id);
       setCrossStoreForm((prev) => ({
         ...prev,
         source_store_id: selectedStore.id,
       }));
+    } else {
+      setStoreTaxes([]);
     }
   }, [selectedStore]);
 
@@ -239,6 +243,193 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       loadPendingOrderItems();
     }
   }, [invoiceForm.vendor_id, includeAllPendingItems]);
+
+  useEffect(() => {
+    if (!vapeTaxRate || productsById.size === 0) return;
+    setInvoiceForm(prev => {
+      if (!prev.invoice_items.some(item => item.vape_tax_paid && !item.vape_tax_amount_per_unit)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        invoice_items: normalizeInvoiceItems(prev.invoice_items, prev.payment_option),
+      };
+    });
+    setEditForm(prev => {
+      if (!prev || !Array.isArray(prev.invoice_items)) return prev;
+      if (!prev.invoice_items.some(item => item.vape_tax_paid && !item.vape_tax_amount_per_unit)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        invoice_items: normalizeInvoiceItems(prev.invoice_items, prev.payment_option),
+      };
+    });
+  }, [vapeTaxRate, productsById]);
+
+  const productsById = useMemo(() => {
+    const map = new Map();
+    products.forEach((product) => {
+      if (!map.has(product.id)) {
+        map.set(product.id, product);
+      }
+    });
+    return map;
+  }, [products]);
+
+  const vapeTaxConfig = useMemo(() => {
+    return storeTaxes.find(
+      (tax) => tax?.tax_type && tax.tax_type.toLowerCase().includes('vape')
+    );
+  }, [storeTaxes]);
+
+  const vapeTaxRate = useMemo(() => {
+    if (!vapeTaxConfig) return 0;
+    const rate = parseFloat(vapeTaxConfig.tax_rate || 0);
+    return isNaN(rate) ? 0 : rate;
+  }, [vapeTaxConfig]);
+
+  const vapeTaxLabel = useMemo(() => {
+    if (!vapeTaxConfig) return null;
+    const percent = parseFloat(vapeTaxConfig.tax_rate || 0) * 100;
+    if (!isFinite(percent)) return null;
+    return `${percent.toFixed(2)}%`;
+  }, [vapeTaxConfig]);
+
+  const getVariantKey = (variant, index = 0) => {
+    if (!variant) return `variant-${index}`;
+    return (
+      variant.id ||
+      variant.variant_id ||
+      variant.name ||
+      variant.label ||
+      variant.upc ||
+      `variant-${index}`
+    );
+  };
+
+  const parseProductVariants = (product) => {
+    if (!product) return [];
+    if (Array.isArray(product.variants) && product.variants.length > 0) {
+      return product.variants;
+    }
+    if (product.variants && typeof product.variants === 'string') {
+      try {
+        const parsed = JSON.parse(product.variants);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      } catch (error) {
+        console.warn('Failed to parse variants JSON for product', product.id, error);
+      }
+    }
+    if (product.variant) {
+      return [{ name: product.variant, upc: product.upc || '' }];
+    }
+    return [];
+  };
+
+  const setItemVariantDetails = (item, variant) => {
+    if (!variant) {
+      return {
+        ...item,
+        variant_id: null,
+        variant_name: null,
+        variant_upc: null,
+      };
+    }
+    const variantName = variant.name || variant.label || variant.variant || '';
+    return {
+      ...item,
+      variant_id: variant.id || variant.variant_id || null,
+      variant_name: variantName,
+      variant_upc: variant.upc || variant.barcode || '',
+    };
+  };
+
+  const computeVapeTaxPerUnit = (unitCost) => {
+    const baseCost = parseFloat(unitCost) || 0;
+    if (!vapeTaxRate || baseCost <= 0) {
+      return 0;
+    }
+    if (vapeTaxConfig?.is_inclusive) {
+      return baseCost - baseCost / (1 + vapeTaxRate);
+    }
+    return baseCost * vapeTaxRate;
+  };
+
+  const setItemVapeTax = (item, product, enable) => {
+    if (!product) {
+      return enable ? { ...item } : { ...item, vape_tax_paid: false, vape_tax_amount_per_unit: 0, vape_tax_rate: null };
+    }
+    if (!product.vape_tax || !vapeTaxRate) {
+      return {
+        ...item,
+        vape_tax_paid: false,
+        vape_tax_amount_per_unit: 0,
+        vape_tax_rate: null,
+      };
+    }
+    if (!enable) {
+      return {
+        ...item,
+        vape_tax_paid: false,
+        vape_tax_amount_per_unit: 0,
+        vape_tax_rate: null,
+      };
+    }
+    const baseCost = parseFloat(item.unit_cost ?? product.cost_price ?? 0) || 0;
+    const taxPerUnit = computeVapeTaxPerUnit(baseCost);
+    return {
+      ...item,
+      vape_tax_paid: true,
+      vape_tax_amount_per_unit: taxPerUnit,
+      vape_tax_rate: vapeTaxRate,
+    };
+  };
+
+  const autoApplyVapeTaxToItems = (items, paymentOption) => {
+    if (!Array.isArray(items) || !items.length) return items;
+    if (paymentOption !== 'invoice' || !vapeTaxRate) {
+      return items;
+    }
+    let updated = null;
+    items.forEach((item, index) => {
+      const product = productsById.get(item.product_id);
+      if (!product?.vape_tax || item.vape_tax_paid) {
+        return;
+      }
+      if (!updated) {
+        updated = [...items];
+      }
+      updated[index] = setItemVapeTax(item, product, true);
+    });
+    return updated || items;
+  };
+
+  const normalizeInvoiceItems = (items, paymentOption) => {
+    if (!Array.isArray(items)) return [];
+    return items.map((item) => {
+      let normalizedItem = { ...item };
+      const product = productsById.get(normalizedItem.product_id);
+      if (!product) {
+        return normalizedItem;
+      }
+      const needsVapeTaxHydration =
+        normalizedItem.vape_tax_paid &&
+        (!normalizedItem.vape_tax_amount_per_unit || normalizedItem.vape_tax_amount_per_unit === undefined);
+      if (needsVapeTaxHydration) {
+        normalizedItem = setItemVapeTax(normalizedItem, product, true);
+      } else if (
+        paymentOption === 'invoice' &&
+        !normalizedItem.vape_tax_paid &&
+        product?.vape_tax
+      ) {
+        normalizedItem = setItemVapeTax(normalizedItem, product, true);
+      }
+      return normalizedItem;
+    });
+  };
 
   const getDateRangeForPeriod = (period, customDateRange = null) => {
     const today = new Date();
@@ -351,6 +542,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
 
   const handleEditInvoice = (invoice, options = {}) => {
     setEditingInvoice(invoice);
+    const normalizedItems = normalizeInvoiceItems(invoice.invoice_items || [], invoice.payment_option || 'cash');
     setEditForm({
       invoice_number: invoice.invoice_number || '',
       purchase_date: invoice.purchase_date || new Date().toISOString().split('T')[0],
@@ -373,7 +565,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       cigarette_cartons_purchased: invoice.cigarette_cartons_purchased ? String(invoice.cigarette_cartons_purchased) : '',
       expected_revenue: invoice.expected_revenue || '',
       revenue_calculation_method: invoice.revenue_calculation_method || 'none',
-      invoice_items: invoice.invoice_items || [],
+      invoice_items: normalizedItems,
     });
     setFocusCostSection(Boolean(options.focusCost));
     setShowEditModal(true);
@@ -544,6 +736,16 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       setCreditCards(response.data.credit_cards || []);
     } catch (error) {
       console.error('Error loading credit cards:', error);
+    }
+  };
+
+  const loadStoreTaxes = async () => {
+    if (!selectedStore) return;
+    try {
+      const response = await purchaseInvoicesAPI.getTaxes(selectedStore.id);
+      setStoreTaxes(response.data.taxes || []);
+    } catch (error) {
+      console.error('Error loading store taxes:', error);
     }
   };
 
@@ -1144,26 +1346,60 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       const { item, delivered_quantity, remaining_quantity, invoice_item, product } = response.data;
 
       if (invoice_item) {
+        const sourceProduct =
+          productsById.get(invoice_item.product_id) || product || null;
+        const variantOptions = parseProductVariants(sourceProduct);
+        const pendingVariantName = pendingItem.variant || product?.variant || null;
+        const matchedVariant = pendingVariantName
+          ? variantOptions.find((variant, index) => {
+              const key =
+                variant.id ||
+                variant.variant_id ||
+                variant.name ||
+                variant.label ||
+                variant.upc ||
+                `${index}`;
+              return (
+                key === pendingVariantName ||
+                variant.name === pendingVariantName ||
+                variant.variant === pendingVariantName
+              );
+            }) || { name: pendingVariantName }
+          : null;
+
+        const enhanceItem = (itemToEnhance, paymentOption) => {
+          let workingItem = itemToEnhance;
+          if (matchedVariant) {
+            workingItem = setItemVariantDetails(workingItem, matchedVariant);
+          }
+          if (paymentOption === 'invoice') {
+            workingItem = setItemVapeTax(workingItem, sourceProduct, true);
+          }
+          return workingItem;
+        };
+
         setInvoiceForm(prev => {
           const existingIndex = prev.invoice_items.findIndex(i => i.product_id === invoice_item.product_id);
           let updatedItems;
           if (existingIndex >= 0) {
             updatedItems = [...prev.invoice_items];
             const existingItem = updatedItems[existingIndex];
-            updatedItems[existingIndex] = {
+            const mergedItem = {
               ...existingItem,
               quantity: (parseFloat(existingItem.quantity) || 0) + parseFloat(invoice_item.quantity || 0),
               unit_cost: parseFloat(invoice_item.unit_cost || existingItem.unit_cost || 0)
             };
+            updatedItems[existingIndex] = enhanceItem(mergedItem, prev.payment_option);
           } else {
+            const newItem = {
+              product_id: invoice_item.product_id,
+              quantity: parseFloat(invoice_item.quantity || 0),
+              unit_cost: parseFloat(invoice_item.unit_cost || 0),
+              vape_tax_paid: invoice_item.vape_tax_paid || false
+            };
             updatedItems = [
               ...prev.invoice_items,
-              {
-                product_id: invoice_item.product_id,
-                quantity: parseFloat(invoice_item.quantity || 0),
-                unit_cost: parseFloat(invoice_item.unit_cost || 0),
-                vape_tax_paid: invoice_item.vape_tax_paid || false
-              }
+              enhanceItem(newItem, prev.payment_option)
             ];
           }
           return {
@@ -1188,11 +1424,14 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                 full_product_name: product.full_product_name,
                 product_name: product.full_product_name,
                 variant: product.variant,
+                  variants_enabled: product.variants_enabled || false,
+                  variants: product.variants || null,
                 quantity_per_pack: product.quantity_per_pack,
                 cost_price: product.cost_price,
                 sell_price_per_piece: product.sell_price_per_piece,
                 supplier: product.supplier,
-                profit_margin: product.profit_margin
+                  profit_margin: product.profit_margin,
+                  vape_tax: product.vape_tax || false,
               }
             ];
           });
@@ -1280,7 +1519,8 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       prevForm.invoice_items.forEach(item => {
         const quantity = parseFloat(item.quantity) || 0;
         const costPrice = parseFloat(item.unit_cost || item.cost_price) || 0;
-        totalCost += quantity * costPrice;
+        const vapeTaxPerUnit = parseFloat(item.vape_tax_amount_per_unit || 0) || 0;
+        totalCost += quantity * (costPrice + vapeTaxPerUnit);
       });
 
       // Only update if amount was calculated (not manually entered) or if forced
@@ -1331,12 +1571,14 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
   const openRevenueCalculationModal = (context = 'create', sourceFormOverride = null) => {
     const sourceForm = sourceFormOverride || (context === 'edit' ? editForm : invoiceForm);
     if (context === 'edit') {
+      const clonedItems = Array.isArray(sourceForm.invoice_items)
+        ? sourceForm.invoice_items.map(item => ({ ...item }))
+        : [];
+      const normalizedItems = normalizeInvoiceItems(clonedItems, sourceForm.payment_option || 'cash');
       setInvoiceForm({
         ...createEmptyInvoiceForm(),
         ...sourceForm,
-        invoice_items: Array.isArray(sourceForm.invoice_items)
-          ? sourceForm.invoice_items.map(item => ({ ...item }))
-          : [],
+        invoice_items: normalizedItems,
         purchase_date: sourceForm.purchase_date || new Date().toISOString().split('T')[0],
       });
       setCalculatedInvoiceAmount(null);
@@ -1355,27 +1597,48 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
   };
 
   const handleAddProductToInvoice = (product) => {
-    const existingItem = invoiceForm.invoice_items.find(item => item.product_id === product.id);
-    if (existingItem) {
-      // Update quantity
-      const updatedItems = invoiceForm.invoice_items.map(item =>
-        item.product_id === product.id
-          ? { ...item, quantity: (parseFloat(item.quantity) || 0) + 1 }
-          : item
-      );
-      setInvoiceForm({ ...invoiceForm, invoice_items: updatedItems });
-    } else {
-      // Add new item with all required fields
-      setInvoiceForm({
-        ...invoiceForm,
-        invoice_items: [...invoiceForm.invoice_items, { 
-          product_id: product.id, 
-          quantity: 1,
-          unit_cost: product.cost_price || 0,
-          vape_tax_paid: false
-        }]
-      });
-    }
+    setInvoiceForm(prev => {
+      const existingIndex = prev.invoice_items.findIndex(item => item.product_id === product.id);
+      if (existingIndex >= 0) {
+        const updatedItems = prev.invoice_items.map((item, index) => {
+          if (index !== existingIndex) return item;
+          const updatedItem = { ...item, quantity: (parseFloat(item.quantity) || 0) + 1 };
+          if (updatedItem.vape_tax_paid) {
+            return setItemVapeTax(updatedItem, product, true);
+          }
+          return updatedItem;
+        });
+        return { ...prev, invoice_items: updatedItems };
+      }
+
+      const baseUnitCost = parseFloat(product.cost_price || 0) || 0;
+      let newItem = {
+        product_id: product.id,
+        quantity: 1,
+        unit_cost: baseUnitCost,
+        vape_tax_paid: false,
+        vape_tax_amount_per_unit: 0,
+        vape_tax_rate: null,
+      };
+
+      const variants = parseProductVariants(product);
+      if (variants.length === 1) {
+        newItem = setItemVariantDetails(newItem, variants[0]);
+      }
+
+      if (prev.payment_option === 'invoice') {
+        newItem = setItemVapeTax(newItem, product, true);
+      }
+
+      return {
+        ...prev,
+        invoice_items: [...prev.invoice_items, newItem],
+        revenue_calculation_method:
+          prev.revenue_calculation_method === 'none'
+            ? 'product_selection'
+            : prev.revenue_calculation_method,
+      };
+    });
   };
 
   const handleRemoveProductFromInvoice = (productId) => {
@@ -1392,6 +1655,90 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
         : item
     );
     setInvoiceForm({ ...invoiceForm, invoice_items: updatedItems });
+  };
+
+  const handleUpdateProductUnitCost = (productId, value) => {
+    const numericValue = parseFloat(value) || 0;
+    setInvoiceForm(prev => ({
+      ...prev,
+      invoice_items: prev.invoice_items.map(item => {
+        if (item.product_id !== productId) return item;
+        const product = productsById.get(productId);
+        const updatedItem = { ...item, unit_cost: numericValue };
+        if (item.vape_tax_paid) {
+          return setItemVapeTax(updatedItem, product, true);
+        }
+        return updatedItem;
+      }),
+    }));
+  };
+
+  const handleUpdateProductVapeTax = (productId, isChecked) => {
+    setInvoiceForm(prev => ({
+      ...prev,
+      invoice_items: prev.invoice_items.map(item => {
+        if (item.product_id !== productId) return item;
+        const product = productsById.get(productId);
+        return setItemVapeTax(item, product, isChecked);
+      }),
+    }));
+  };
+
+  const handleUpdateProductVariant = (productId, variantKey) => {
+    const product = productsById.get(productId);
+    const variants = parseProductVariants(product);
+    if (!variantKey) {
+      setInvoiceForm(prev => ({
+        ...prev,
+        invoice_items: prev.invoice_items.map(item =>
+          item.product_id === productId ? setItemVariantDetails(item, null) : item
+        ),
+      }));
+      return;
+    }
+    const selectedVariant = variants.find((variant, index) => getVariantKey(variant, index) === variantKey);
+    const variantPayload = selectedVariant || { name: variantKey };
+
+    setInvoiceForm(prev => ({
+      ...prev,
+      invoice_items: prev.invoice_items.map(item =>
+        item.product_id === productId ? setItemVariantDetails(item, variantPayload) : item
+      ),
+    }));
+  };
+
+  const handleCreatePurchaseTypeChange = (paymentOption) => {
+    setInvoiceForm(prev => {
+      const updatedItems =
+        paymentOption === 'invoice'
+          ? autoApplyVapeTaxToItems(prev.invoice_items, paymentOption)
+          : prev.invoice_items;
+
+      return {
+        ...prev,
+        payment_option: paymentOption,
+        due_days: paymentOption === 'invoice' ? prev.due_days : '',
+        invoice_number: paymentOption === 'cash' ? '' : prev.invoice_number,
+        invoice_items: updatedItems,
+      };
+    });
+  };
+
+  const handleEditPurchaseTypeChange = (paymentOption) => {
+    setEditForm(prev => {
+      const updatedItems =
+        paymentOption === 'invoice' && Array.isArray(prev.invoice_items)
+          ? autoApplyVapeTaxToItems(prev.invoice_items, paymentOption)
+          : prev.invoice_items;
+
+      return {
+        ...prev,
+        payment_option: paymentOption,
+        due_days: paymentOption === 'invoice' ? prev.due_days : '',
+        invoice_number: paymentOption === 'cash' ? '' : prev.invoice_number,
+        invoice_items: updatedItems,
+      };
+    });
   };
 
   const loadUnpaidInvoices = async () => {
@@ -2444,7 +2791,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                           name="payment_option"
                           value="cash"
                           checked={invoiceForm.payment_option === 'cash'}
-                          onChange={(e) => setInvoiceForm({ ...invoiceForm, payment_option: e.target.value, due_days: '', invoice_number: '' })}
+                          onChange={(e) => handleCreatePurchaseTypeChange(e.target.value)}
                           className="mr-2"
                           required
                         />
@@ -2456,7 +2803,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                           name="payment_option"
                           value="invoice"
                           checked={invoiceForm.payment_option === 'invoice'}
-                          onChange={(e) => setInvoiceForm({ ...invoiceForm, payment_option: e.target.value })}
+                          onChange={(e) => handleCreatePurchaseTypeChange(e.target.value)}
                           className="mr-2"
                           required
                         />
@@ -2468,7 +2815,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                           name="payment_option"
                           value="credit_memo"
                           checked={invoiceForm.payment_option === 'credit_memo'}
-                          onChange={(e) => setInvoiceForm({ ...invoiceForm, payment_option: e.target.value, due_days: '' })}
+                          onChange={(e) => handleCreatePurchaseTypeChange(e.target.value)}
                           className="mr-2"
                           required
                         />
@@ -2644,6 +2991,40 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                                 {products.map((product) => {
                                   const invoiceItem = invoiceForm.invoice_items.find(item => item.product_id === product.id);
                                   const isSelected = !!invoiceItem;
+                                  const variantOptionsBase = parseProductVariants(product);
+                                  const variantOptions = [...variantOptionsBase];
+                                  if (
+                                    invoiceItem?.variant_name &&
+                                    !variantOptions.find(
+                                      (variant) =>
+                                        variant.name === invoiceItem.variant_name ||
+                                        variant.variant === invoiceItem.variant_name
+                                    )
+                                  ) {
+                                    variantOptions.push({
+                                      name: invoiceItem.variant_name,
+                                      upc: invoiceItem.variant_upc,
+                                    });
+                                  }
+                                  const showVariantSelector =
+                                    (product.variants_enabled && variantOptions.length > 0) ||
+                                    variantOptions.length > 1 ||
+                                    Boolean(invoiceItem?.variant_name);
+                                  let selectedVariantValue = '';
+                                  if (invoiceItem?.variant_id) {
+                                    selectedVariantValue = invoiceItem.variant_id;
+                                  } else if (invoiceItem?.variant_name) {
+                                    const matchIndex = variantOptions.findIndex(
+                                      (variant) =>
+                                        variant.name === invoiceItem.variant_name ||
+                                        variant.variant === invoiceItem.variant_name
+                                    );
+                                    if (matchIndex >= 0) {
+                                      selectedVariantValue = getVariantKey(variantOptions[matchIndex], matchIndex);
+                                    } else {
+                                      selectedVariantValue = invoiceItem.variant_name;
+                                    }
+                                  }
                                   return (
                                     <div key={product.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
                                       <div className="flex-1">
@@ -2694,6 +3075,27 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                                               Remove
                                             </button>
                                           </div>
+                                          {showVariantSelector && (
+                                            <div className="flex flex-col gap-1 text-xs text-gray-600">
+                                              <label className="font-medium text-gray-700">Variant</label>
+                                              <select
+                                                value={selectedVariantValue}
+                                                onChange={(e) => handleUpdateProductVariant(product.id, e.target.value)}
+                                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
+                                              >
+                                                <option value="">Select variant</option>
+                                                {variantOptions.map((variant, idx) => {
+                                                  const key = getVariantKey(variant, idx);
+                                                  return (
+                                                    <option key={key} value={key}>
+                                                      {(variant.name || variant.variant || `Variant ${idx + 1}`) +
+                                                        (variant.upc ? ` (${variant.upc})` : '')}
+                                                    </option>
+                                                  );
+                                                })}
+                                              </select>
+                                            </div>
+                                          )}
                                           {product.vape_tax && (
                                             <label className="flex items-center gap-2 text-xs">
                                               <input
@@ -2702,8 +3104,19 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                                                 onChange={(e) => handleUpdateProductVapeTax(product.id, e.target.checked)}
                                                 className="rounded border-gray-300 text-yellow-600 focus:ring-yellow-500"
                                               />
-                                              <span className="text-yellow-700 font-medium">Vape Tax Paid (PA)</span>
+                                              <span className="text-yellow-700 font-medium">
+                                                Vape Tax Paid
+                                                {vapeTaxLabel ? ` (${vapeTaxLabel})` : ''}
+                                              </span>
                                             </label>
+                                          )}
+                                          {invoiceItem.vape_tax_paid && (
+                                            <div className="text-[11px] text-yellow-700">
+                                              {(() => {
+                                                const perUnitTax = parseFloat(invoiceItem.vape_tax_amount_per_unit || 0) || 0;
+                                                return `Added per unit: $${perUnitTax.toFixed(2)}`;
+                                              })()}
+                                            </div>
                                           )}
                                         </div>
                                       ) : (
@@ -3904,7 +4317,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                           type="radio"
                           value="cash"
                           checked={editForm.payment_option === 'cash'}
-                          onChange={(e) => setEditForm({ ...editForm, payment_option: e.target.value })}
+                          onChange={(e) => handleEditPurchaseTypeChange(e.target.value)}
                           className="mr-2"
                         />
                         <span className="text-sm text-gray-700">Cash</span>
@@ -3914,7 +4327,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                           type="radio"
                           value="invoice"
                           checked={editForm.payment_option === 'invoice'}
-                          onChange={(e) => setEditForm({ ...editForm, payment_option: e.target.value })}
+                          onChange={(e) => handleEditPurchaseTypeChange(e.target.value)}
                           className="mr-2"
                         />
                         <span className="text-sm text-gray-700">Invoice</span>
@@ -3924,7 +4337,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                           type="radio"
                           value="credit_memo"
                           checked={editForm.payment_option === 'credit_memo'}
-                          onChange={(e) => setEditForm({ ...editForm, payment_option: e.target.value })}
+                          onChange={(e) => handleEditPurchaseTypeChange(e.target.value)}
                           className="mr-2"
                         />
                         <span className="text-sm text-gray-700">Credit Memo</span>
@@ -4612,6 +5025,12 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
               </div>
 
               <div className="space-y-6">
+                {vapeTaxLabel && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+                    Vape tax rate {vapeTaxLabel} will be added automatically to vape-tracked products whenever the purchase type is set to Invoice. You can uncheck individual items if needed.
+                  </div>
+                )}
+
                 {/* Cost Information */}
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <h3 className="text-lg font-semibold text-gray-900 mb-3">Cost Information</h3>

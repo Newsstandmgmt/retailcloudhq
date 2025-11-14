@@ -493,6 +493,15 @@ export const purchaseInvoicesAPI = {
     if (endDate) params.append('end_date', endDate);
     return api.get(`/api/purchase-invoices/store/${storeId}/cost-calculations?${params.toString()}`);
   },
+  getTaxes: (storeId, filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.state) params.append('state', filters.state);
+    if (filters.applicable_to) params.append('applicable_to', filters.applicable_to);
+    const query = params.toString();
+    return api.get(`/api/purchase-invoices/store/${storeId}/taxes${query ? `?${query}` : ''}`);
+  },
+  createTax: (storeId, data) => api.post(`/api/purchase-invoices/store/${storeId}/taxes`, data),
+  deleteTax: (taxId) => api.delete(`/api/purchase-invoices/taxes/${taxId}`),
 };
 
 export const lotteryDailyReportsAPI = {

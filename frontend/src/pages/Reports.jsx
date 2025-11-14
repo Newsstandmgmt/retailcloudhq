@@ -2462,6 +2462,11 @@ const Reports = () => {
                                           <div className="text-sm font-semibold text-gray-900">
                                             {item.product_name || `Product ${item.product_id || ''}`}
                                           </div>
+                                          {item.variant_name && (
+                                            <div className="text-xs text-gray-500">
+                                              Variant: {item.variant_name}
+                                            </div>
+                                          )}
                                           <div className="text-xs text-gray-500">ID: {item.product_id || 'N/A'}</div>
                                         </div>
                                         <div className="text-sm text-gray-600 flex flex-wrap gap-4 mt-2 sm:mt-0">

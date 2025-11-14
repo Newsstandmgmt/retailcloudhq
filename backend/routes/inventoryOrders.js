@@ -248,16 +248,42 @@ router.post(
             const product = await Product.findById(item.product_id);
             if (product) {
                 const unitCost = parseFloat(product.cost_price || 0);
+                let variantUpc = null;
+                if (item.variant && product.variants) {
+                    try {
+                        const variantsData = Array.isArray(product.variants)
+                            ? product.variants
+                            : JSON.parse(product.variants);
+                        if (Array.isArray(variantsData)) {
+                            const match = variantsData.find(
+                                (variant) =>
+                                    variant.name === item.variant ||
+                                    variant.variant === item.variant ||
+                                    variant.label === item.variant
+                            );
+                            if (match?.upc) {
+                                variantUpc = match.upc;
+                            }
+                        }
+                    } catch (error) {
+                        console.warn('[InventoryOrders] Failed to parse variants JSON while attaching invoice item:', error);
+                    }
+                }
                 invoiceItem = {
                     product_id: product.id,
                     quantity: deliveredQuantity,
                     unit_cost: unitCost,
-                    vape_tax_paid: false
+                    vape_tax_paid: false,
+                    variant_name: item.variant || null,
+                    variant_upc: variantUpc,
                 };
                 productDetails = {
                     id: product.id,
                     full_product_name: product.full_product_name || product.product_name,
                     variant: item.variant,
+                    variants_enabled: product.variants_enabled || false,
+                    variants: product.variants || null,
+                    vape_tax: product.vape_tax || false,
                     quantity_per_pack: product.quantity_per_pack,
                     cost_price: product.cost_price,
                     sell_price_per_piece: product.sell_price_per_piece,
