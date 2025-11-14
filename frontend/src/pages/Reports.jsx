@@ -1969,7 +1969,9 @@ const Reports = () => {
                       <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
                         <div className="text-xs font-medium text-green-700 uppercase tracking-wide mb-1">Best Performing Day</div>
                         <div className="text-sm font-semibold text-green-700">
-                          {varianceHighlights.best_day.date ? formatDate(varianceHighlights.best_day.date) : 'N/A'}
+                          {varianceHighlights.best_day.date
+                            ? new Date(varianceHighlights.best_day.date + 'T00:00:00').toLocaleDateString()
+                            : 'N/A'}
                         </div>
                         <div className="text-xs text-gray-600 mt-1">
                           Expected: {formatCurrency(varianceHighlights.best_day.expected || 0)}
@@ -1986,7 +1988,9 @@ const Reports = () => {
                       <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
                         <div className="text-xs font-medium text-red-700 uppercase tracking-wide mb-1">Lowest Performing Day</div>
                         <div className="text-sm font-semibold text-red-700">
-                          {varianceHighlights.worst_day.date ? formatDate(varianceHighlights.worst_day.date) : 'N/A'}
+                          {varianceHighlights.worst_day.date
+                            ? new Date(varianceHighlights.worst_day.date + 'T00:00:00').toLocaleDateString()
+                            : 'N/A'}
                         </div>
                         <div className="text-xs text-gray-600 mt-1">
                           Expected: {formatCurrency(varianceHighlights.worst_day.expected || 0)}
@@ -2275,7 +2279,9 @@ const Reports = () => {
                     return (
                       <tr key={invoice.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3 text-sm text-gray-900">
-                          {invoice.purchase_date ? formatDate(invoice.purchase_date) : 'N/A'}
+                          {invoice.purchase_date
+                            ? new Date(invoice.purchase_date + 'T00:00:00').toLocaleDateString()
+                            : 'N/A'}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900">{invoice.invoice_number || 'N/A'}</td>
                         <td className="px-4 py-3 text-sm text-gray-900">{invoice.vendor_name || 'Unknown'}</td>
