@@ -105,20 +105,26 @@ class GmailService {
                 account: account.email_address,
                 ruleId: rule.id,
                 reportType: rule.report_type,
-                query: searchQuery
+                query: searchQuery,
+                labelId: rule.label_id
             });
             
             // Search for emails
-            const response = await client.users.messages.list({
+            const listParams = {
                 userId: 'me',
                 q: searchQuery,
                 maxResults: 10
-            });
+            };
+            if (rule.label_id) {
+                listParams.labelIds = [rule.label_id];
+            }
+            const response = await client.users.messages.list(listParams);
 
             const messages = response.data.messages || [];
             console.log('GmailService.checkEmails: messages found', {
                 ruleId: rule.id,
-                count: messages.length
+                count: messages.length,
+                labelId: rule.label_id
             });
 
             for (const message of messages) {
@@ -205,6 +211,10 @@ class GmailService {
 
         // Only get unread emails (or all recent)
         query += ' is:unread';
+
+        if (!rule.label_id && rule.label_name) {
+            query += ` label:${rule.label_name}`;
+        }
 
         return query;
     }
@@ -311,7 +321,7 @@ class GmailService {
      * Find CSV attachment in message
      */
     static findCSVAttachment(part) {
-        if (part.filename && part.filename.endsWith('.csv')) {
+        if (part.filename && part.filename.toLowerCase().endsWith('.csv')) {
             return { attachmentId: part.body.attachmentId, filename: part.filename };
         }
 
@@ -339,6 +349,25 @@ class GmailService {
         const data = response.data.data;
         const buffer = Buffer.from(data, 'base64');
         return buffer.toString('utf-8');
+    }
+
+    static async listLabels(emailAccountId) {
+        const LotteryEmailAccount = require('../models/LotteryEmailAccount');
+        const account = await LotteryEmailAccount.findById(emailAccountId);
+        if (!account || !account.is_active) {
+            throw new Error('Email account not found or inactive');
+        }
+
+        const { client } = await this.getGmailClient(account.access_token, account.refresh_token);
+        const response = await client.users.labels.list({ userId: 'me' });
+        const labels = response.data.labels || [];
+        return labels
+            .filter(label => !label.type || label.type !== 'system' || label.id.startsWith('Label_'))
+            .map(label => ({
+                id: label.id,
+                name: label.name,
+                type: label.type
+            }));
     }
 
     static async ensureLegacyConfig(account, rule) {

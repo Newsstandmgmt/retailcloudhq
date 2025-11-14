@@ -162,7 +162,7 @@ router.post('/accounts/:accountId/rules', authorize('super_admin', 'admin'), asy
             return res.status(403).json({ error: 'Access denied to this store.' });
         }
 
-        const { report_type, to_address, subject_contains, sender_contains, retailer_number } = req.body;
+        const { report_type, to_address, subject_contains, sender_contains, retailer_number, label_id, label_name } = req.body;
         
         if (!report_type) {
             return res.status(400).json({ error: 'report_type is required' });
@@ -175,7 +175,9 @@ router.post('/accounts/:accountId/rules', authorize('super_admin', 'admin'), asy
                 to_address: to_address || null,
                 subject_contains: subject_contains || null,
                 sender_contains: sender_contains || 'palottery.com',
-                retailer_number: retailer_number || null
+                retailer_number: retailer_number || null,
+                label_id: label_id || null,
+                label_name: label_name || null
             });
 
             res.json({ message: 'Email rule created successfully', rule });
@@ -364,6 +366,33 @@ router.post('/accounts/:accountId/check', authorize('super_admin', 'admin'), han
 
 // Preferred endpoint used by frontend
 router.post('/accounts/:accountId/check-emails', authorize('super_admin', 'admin'), handleManualCheck);
+
+router.get('/accounts/:accountId/labels', authorize('super_admin', 'admin'), async (req, res) => {
+    try {
+        const { query } = require('../config/database');
+        const LotteryEmailAccount = require('../models/LotteryEmailAccount');
+
+        const account = await LotteryEmailAccount.findById(req.params.accountId);
+        if (!account) {
+            return res.status(404).json({ error: 'Email account not found' });
+        }
+
+        const accessResult = await query(
+            'SELECT can_user_access_store($1, $2) as can_access',
+            [req.user.id, account.store_id]
+        );
+
+        if (accessResult.rows[0]?.can_access !== true) {
+            return res.status(403).json({ error: 'Access denied to this store.' });
+        }
+
+        const labels = await GmailService.listLabels(req.params.accountId);
+        res.json({ labels });
+    } catch (error) {
+        console.error('Get Gmail labels error:', error);
+        res.status(500).json({ error: 'Failed to fetch Gmail labels', details: error.message });
+    }
+});
 
 const disconnectAccount = async (req, res) => {
     try {

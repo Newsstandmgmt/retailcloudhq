@@ -33,12 +33,18 @@ CREATE TABLE IF NOT EXISTS lottery_email_rules (
     sender_contains VARCHAR(255) DEFAULT 'palottery.com', -- Match emails from PA Lottery
     retailer_number VARCHAR(50), -- For validation
     is_active BOOLEAN DEFAULT true,
+    label_id VARCHAR(100), -- Gmail label ID to scope queries
+    label_name VARCHAR(255), -- Human readable label name
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_lottery_email_rules_account ON lottery_email_rules(email_account_id);
 CREATE INDEX IF NOT EXISTS idx_lottery_email_rules_type ON lottery_email_rules(report_type);
+
+ALTER TABLE lottery_email_rules
+    ADD COLUMN IF NOT EXISTS label_id VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS label_name VARCHAR(255);
 
 -- Update email logs to reference email_account_id instead
 ALTER TABLE lottery_email_logs 

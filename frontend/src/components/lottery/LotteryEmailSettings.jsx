@@ -15,11 +15,16 @@ const LotteryEmailSettings = ({ storeId }) => {
     to_address: '',
     subject_contains: '',
     sender_contains: '',
-    retailer_number: ''
+    retailer_number: '',
+    label_id: '',
+    label_name: ''
   });
   const [isEditingRule, setIsEditingRule] = useState(false);
   const [editingRuleId, setEditingRuleId] = useState(null);
   const [ruleSubmitting, setRuleSubmitting] = useState(false);
+  const [labelsByAccount, setLabelsByAccount] = useState({});
+  const [labelsLoading, setLabelsLoading] = useState(false);
+  const [labelsError, setLabelsError] = useState(null);
   const [alert, setAlert] = useState(null);
 
   useEffect(() => {
@@ -126,7 +131,9 @@ const LotteryEmailSettings = ({ storeId }) => {
       to_address: '',
       subject_contains: '',
       sender_contains: '',
-      retailer_number: ''
+      retailer_number: '',
+      label_id: '',
+      label_name: ''
     });
     setIsEditingRule(false);
     setEditingRuleId(null);
@@ -136,6 +143,9 @@ const LotteryEmailSettings = ({ storeId }) => {
     setSelectedAccount(account);
     resetRuleForm();
     setShowRuleModal(true);
+    if (account && !labelsByAccount[account.id]) {
+      loadLabelsForAccount(account.id);
+    }
   };
 
   const openEditRuleModal = (account, rule) => {
@@ -145,11 +155,16 @@ const LotteryEmailSettings = ({ storeId }) => {
       to_address: rule.to_address || '',
       subject_contains: rule.subject_contains || '',
       sender_contains: rule.sender_contains || '',
-      retailer_number: rule.retailer_number || ''
+      retailer_number: rule.retailer_number || '',
+      label_id: rule.label_id || '',
+      label_name: rule.label_name || ''
     });
     setIsEditingRule(true);
     setEditingRuleId(rule.id);
     setShowRuleModal(true);
+    if (account && !labelsByAccount[account.id]) {
+      loadLabelsForAccount(account.id);
+    }
   };
 
   const handleSubmitRule = async (e) => {
@@ -201,11 +216,37 @@ const LotteryEmailSettings = ({ storeId }) => {
     }
   };
 
+  const loadLabelsForAccount = async (accountId) => {
+    if (!accountId) return;
+    setLabelsLoading(true);
+    setLabelsError(null);
+    try {
+      const response = await lotteryEmailOAuthAPI.getLabels(accountId);
+      setLabelsByAccount((prev) => ({
+        ...prev,
+        [accountId]: response.data.labels || []
+      }));
+    } catch (error) {
+      console.error('Error loading Gmail labels:', error);
+      setLabelsError(error.response?.data?.error || 'Failed to load Gmail labels');
+    } finally {
+      setLabelsLoading(false);
+    }
+  };
+
   const handleCloseRuleModal = () => {
     setShowRuleModal(false);
     setSelectedAccount(null);
     resetRuleForm();
   };
+
+  useEffect(() => {
+    if (showRuleModal && selectedAccount && !labelsByAccount[selectedAccount.id]) {
+      loadLabelsForAccount(selectedAccount.id);
+    }
+  }, [showRuleModal, selectedAccount]);
+
+  const availableLabels = selectedAccount ? labelsByAccount[selectedAccount.id] || [] : [];
 
   const handleCheckEmails = async (accountId) => {
     try {
@@ -369,6 +410,9 @@ const LotteryEmailSettings = ({ storeId }) => {
                             )}
                             {rule.retailer_number && (
                               <span className="text-sm text-gray-600 ml-2">Retailer: {rule.retailer_number}</span>
+                            )}
+                            {rule.label_name && (
+                              <span className="text-sm text-gray-600 ml-2">Label: {rule.label_name}</span>
                             )}
                           </div>
                             <div className="flex items-center gap-2">
@@ -563,6 +607,42 @@ const LotteryEmailSettings = ({ storeId }) => {
                     placeholder="For validation"
                   />
                   <p className="text-xs text-gray-500 mt-1">Used to verify reports match this store</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Gmail Label (Optional)
+                  </label>
+                  {labelsError && (
+                    <p className="text-xs text-red-600 mb-1">{labelsError}</p>
+                  )}
+                  <select
+                    value={ruleForm.label_id}
+                    onChange={(e) => {
+                      const selectedId = e.target.value;
+                      const label = availableLabels.find((item) => item.id === selectedId);
+                      setRuleForm((prev) => ({
+                        ...prev,
+                        label_id: selectedId,
+                        label_name: label ? label.name : ''
+                      }));
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    disabled={labelsLoading && !availableLabels.length}
+                  >
+                    <option value="">All labels (default)</option>
+                    {availableLabels.map((label) => (
+                      <option key={label.id} value={label.id}>
+                        {label.name}
+                      </option>
+                    ))}
+                  </select>
+                  {labelsLoading && (
+                    <p className="text-xs text-gray-500 mt-1">Loading labels…</p>
+                  )}
+                  <p className="text-xs text-gray-500 mt-1">
+                    Choose a Gmail label/folder to scan. Leave blank to search the entire inbox.
+                  </p>
                 </div>
               </div>
 
