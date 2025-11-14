@@ -423,6 +423,8 @@ export const lotteryEmailOAuthAPI = {
   handleCallback: (storeId, code) => api.post(`/api/lottery-email-oauth/stores/${storeId}/callback`, { code }),
   getAccounts: (storeId) => api.get(`/api/lottery-email-oauth/stores/${storeId}/accounts`),
   createRule: (accountId, data) => api.post(`/api/lottery-email-oauth/accounts/${accountId}/rules`, data),
+  updateRule: (ruleId, data) => api.put(`/api/lottery-email-oauth/rules/${ruleId}`, data),
+  deleteRule: (ruleId) => api.delete(`/api/lottery-email-oauth/rules/${ruleId}`),
   checkEmails: (accountId) => api.post(`/api/lottery-email-oauth/accounts/${accountId}/check-emails`),
   disconnect: (accountId) => api.post(`/api/lottery-email-oauth/accounts/${accountId}/disconnect`),
 };

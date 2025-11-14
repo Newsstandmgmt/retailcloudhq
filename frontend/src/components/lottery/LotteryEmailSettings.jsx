@@ -17,6 +17,9 @@ const LotteryEmailSettings = ({ storeId }) => {
     sender_contains: '',
     retailer_number: ''
   });
+  const [isEditingRule, setIsEditingRule] = useState(false);
+  const [editingRuleId, setEditingRuleId] = useState(null);
+  const [ruleSubmitting, setRuleSubmitting] = useState(false);
   const [alert, setAlert] = useState(null);
 
   useEffect(() => {
@@ -117,24 +120,91 @@ const LotteryEmailSettings = ({ storeId }) => {
     }
   };
 
-  const handleCreateRule = async (e) => {
+  const resetRuleForm = () => {
+    setRuleForm({
+      report_type: 'daily',
+      to_address: '',
+      subject_contains: '',
+      sender_contains: '',
+      retailer_number: ''
+    });
+    setIsEditingRule(false);
+    setEditingRuleId(null);
+  };
+
+  const openCreateRuleModal = (account) => {
+    setSelectedAccount(account);
+    resetRuleForm();
+    setShowRuleModal(true);
+  };
+
+  const openEditRuleModal = (account, rule) => {
+    setSelectedAccount(account);
+    setRuleForm({
+      report_type: rule.report_type || 'daily',
+      to_address: rule.to_address || '',
+      subject_contains: rule.subject_contains || '',
+      sender_contains: rule.sender_contains || '',
+      retailer_number: rule.retailer_number || ''
+    });
+    setIsEditingRule(true);
+    setEditingRuleId(rule.id);
+    setShowRuleModal(true);
+  };
+
+  const handleSubmitRule = async (e) => {
     e.preventDefault();
+    if (!selectedAccount) {
+      setAlert({ type: 'error', message: 'No email account selected' });
+      return;
+    }
+
+    setRuleSubmitting(true);
     try {
-      await lotteryEmailOAuthAPI.createRule(selectedAccount.id, ruleForm);
-      setAlert({ type: 'success', message: 'Email rule created successfully' });
+      if (isEditingRule && editingRuleId) {
+        await lotteryEmailOAuthAPI.updateRule(editingRuleId, ruleForm);
+        setAlert({ type: 'success', message: 'Email rule updated successfully' });
+      } else {
+        await lotteryEmailOAuthAPI.createRule(selectedAccount.id, ruleForm);
+        setAlert({ type: 'success', message: 'Email rule created successfully' });
+      }
       setShowRuleModal(false);
-      setRuleForm({
-        report_type: 'daily',
-        to_address: '',
-        subject_contains: '',
-        sender_contains: '',
-        retailer_number: ''
-      });
+      resetRuleForm();
       loadAccounts();
     } catch (error) {
       console.error('Error creating rule:', error);
-      setAlert({ type: 'error', message: error.response?.data?.error || 'Failed to create rule' });
+      const message =
+        error.response?.data?.error ||
+        error.response?.data?.details ||
+        'Failed to save rule';
+      setAlert({ type: 'error', message });
+    } finally {
+      setRuleSubmitting(false);
     }
+  };
+
+  const handleDeleteRule = async (ruleId) => {
+    if (!window.confirm('Delete this email rule? This cannot be undone.')) {
+      return;
+    }
+    try {
+      await lotteryEmailOAuthAPI.deleteRule(ruleId);
+      setAlert({ type: 'success', message: 'Email rule deleted successfully' });
+      loadAccounts();
+    } catch (error) {
+      console.error('Error deleting rule:', error);
+      const message =
+        error.response?.data?.error ||
+        error.response?.data?.details ||
+        'Failed to delete rule';
+      setAlert({ type: 'error', message });
+    }
+  };
+
+  const handleCloseRuleModal = () => {
+    setShowRuleModal(false);
+    setSelectedAccount(null);
+    resetRuleForm();
   };
 
   const handleCheckEmails = async (accountId) => {
@@ -274,10 +344,7 @@ const LotteryEmailSettings = ({ storeId }) => {
                   <div className="flex justify-between items-center mb-2">
                     <h5 className="font-medium">Email Rules</h5>
                     <button
-                      onClick={() => {
-                        setSelectedAccount(account);
-                        setShowRuleModal(true);
-                      }}
+                      onClick={() => openCreateRuleModal(account)}
                       className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700"
                     >
                       + Add Rule
@@ -287,8 +354,9 @@ const LotteryEmailSettings = ({ storeId }) => {
                   {account.rules && account.rules.length > 0 ? (
                     <div className="space-y-2">
                       {account.rules.map((rule) => (
-                        <div key={rule.id} className="bg-gray-50 p-3 rounded flex justify-between items-center">
-                          <div>
+                        <div key={rule.id} className="bg-gray-50 p-3 rounded">
+                          <div className="flex justify-between items-start gap-4">
+                            <div className="flex-1">
                             <span className="font-medium">{reportTypes.find(r => r.value === rule.report_type)?.label}</span>
                             {rule.to_address && (
                               <span className="text-sm text-gray-600 ml-2">Inbox: {rule.to_address}</span>
@@ -303,11 +371,26 @@ const LotteryEmailSettings = ({ storeId }) => {
                               <span className="text-sm text-gray-600 ml-2">Retailer: {rule.retailer_number}</span>
                             )}
                           </div>
-                          <span className={`px-2 py-1 rounded text-xs ${
-                            rule.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                          }`}>
-                            {rule.is_active ? 'Active' : 'Inactive'}
-                          </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`px-2 py-1 rounded text-xs ${
+                                rule.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                              }`}>
+                                {rule.is_active ? 'Active' : 'Inactive'}
+                              </span>
+                              <button
+                                onClick={() => openEditRuleModal(account, rule)}
+                                className="px-2 py-1 text-xs border border-blue-200 text-blue-700 rounded hover:bg-blue-50"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDeleteRule(rule.id)}
+                                className="px-2 py-1 text-xs border border-red-200 text-red-600 rounded hover:bg-red-50"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -402,8 +485,10 @@ const LotteryEmailSettings = ({ storeId }) => {
       {showRuleModal && selectedAccount && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-xl font-semibold mb-4">Create Email Rule</h3>
-            <form onSubmit={handleCreateRule}>
+            <h3 className="text-xl font-semibold mb-4">
+              {isEditingRule ? 'Edit Email Rule' : 'Create Email Rule'}
+            </h3>
+            <form onSubmit={handleSubmitRule}>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -484,26 +569,25 @@ const LotteryEmailSettings = ({ storeId }) => {
               <div className="mt-6 flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowRuleModal(false);
-                    setSelectedAccount(null);
-                    setRuleForm({
-                      report_type: 'daily',
-                      to_address: '',
-                      subject_contains: '',
-                      sender_contains: '',
-                      retailer_number: ''
-                    });
-                  }}
+                  onClick={handleCloseRuleModal}
                   className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                  disabled={ruleSubmitting}
+                  className={`px-4 py-2 rounded-md text-white ${
+                    ruleSubmitting
+                      ? 'bg-green-300 cursor-not-allowed'
+                      : 'bg-green-600 hover:bg-green-700'
+                  }`}
                 >
-                  Create Rule
+                  {ruleSubmitting
+                    ? 'Saving...'
+                    : isEditingRule
+                      ? 'Update Rule'
+                      : 'Create Rule'}
                 </button>
               </div>
             </form>
