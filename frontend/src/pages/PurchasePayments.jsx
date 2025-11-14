@@ -62,8 +62,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     { value: 'other', label: 'Other' },
   ];
   
-  // Invoice form state
-  const [invoiceForm, setInvoiceForm] = useState({
+  const createEmptyInvoiceForm = () => ({
     invoice_number: '',
     purchase_date: new Date().toISOString().split('T')[0],
     vendor_id: '',
@@ -87,6 +86,9 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     revenue_calculation_method: 'none', // 'none', 'manual', 'product_selection', 'auto_calculate'
     invoice_items: [], // Array of { product_id, quantity }
   });
+  
+  // Invoice form state
+  const [invoiceForm, setInvoiceForm] = useState(() => createEmptyInvoiceForm());
   
   // Products for revenue calculation
   const [products, setProducts] = useState([]);
@@ -125,6 +127,15 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
   // Revenue Calculation modal state
   const [showRevenueCalculationModal, setShowRevenueCalculationModal] = useState(false);
   const [calculatedInvoiceAmount, setCalculatedInvoiceAmount] = useState(null); // Track if amount was calculated or manually entered
+  const [revenueModalContext, setRevenueModalContext] = useState('create');
+  const resetInvoiceFormState = (overrides = {}) => {
+    setInvoiceForm({
+      ...createEmptyInvoiceForm(),
+      ...overrides,
+    });
+    setCalculatedInvoiceAmount(null);
+  };
+
   
   // Filter states
   const [filters, setFilters] = useState({
@@ -366,6 +377,21 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     });
     setFocusCostSection(Boolean(options.focusCost));
     setShowEditModal(true);
+  };
+
+  const handleEditRevenueMethodChange = (method) => {
+    const updatedForm = {
+      ...editForm,
+      revenue_calculation_method: method,
+      expected_revenue: method === 'none' ? '' : editForm.expected_revenue,
+      invoice_items: method === 'none' ? [] : editForm.invoice_items,
+    };
+
+    setEditForm(updatedForm);
+
+    if (method === 'product_selection' || method === 'auto_calculate') {
+      openRevenueCalculationModal('edit', updatedForm);
+    }
   };
 
   const handleUpdateInvoice = async (e) => {
@@ -1209,11 +1235,31 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     }
   };
 
-  const handleCloseRevenueModal = () => {
+  const handleCloseRevenueModal = ({ saveChanges = true } = {}) => {
+    if (revenueModalContext === 'edit') {
+      if (saveChanges) {
+        setEditForm(prev => ({
+          ...prev,
+          amount: invoiceForm.amount,
+          expected_revenue: invoiceForm.expected_revenue,
+          revenue_calculation_method: invoiceForm.revenue_calculation_method,
+          invoice_items: invoiceForm.invoice_items,
+        }));
+      }
+      resetInvoiceFormState();
+    } else if (
+      saveChanges &&
+      invoiceForm.invoice_items.length > 0 &&
+      calculatedInvoiceAmount !== null
+    ) {
+      calculateInvoiceAmount();
+    }
+
     setShowRevenueCalculationModal(false);
     setPendingOrderItems([]);
     setPendingDeliveryQuantities({});
     setPendingItemsError('');
+    setRevenueModalContext('create');
   };
 
   // Calculate invoice amount (cost) from invoice_items
@@ -1280,6 +1326,32 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       
       return prevForm; // Return unchanged form, revenue will be updated async
     });
+  };
+
+  const openRevenueCalculationModal = (context = 'create', sourceFormOverride = null) => {
+    const sourceForm = sourceFormOverride || (context === 'edit' ? editForm : invoiceForm);
+    if (context === 'edit') {
+      setInvoiceForm({
+        ...createEmptyInvoiceForm(),
+        ...sourceForm,
+        invoice_items: Array.isArray(sourceForm.invoice_items)
+          ? sourceForm.invoice_items.map(item => ({ ...item }))
+          : [],
+        purchase_date: sourceForm.purchase_date || new Date().toISOString().split('T')[0],
+      });
+      setCalculatedInvoiceAmount(null);
+    }
+
+    setRevenueModalContext(context);
+    setShowRevenueCalculationModal(true);
+
+    const targetItems = Array.isArray(sourceForm.invoice_items) ? sourceForm.invoice_items : [];
+
+    if (targetItems.length > 0) {
+      setTimeout(() => {
+        calculateInvoiceAmount(true);
+      }, 100);
+    }
   };
 
   const handleAddProductToInvoice = (product) => {
@@ -1549,30 +1621,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       await purchaseInvoicesAPI.create(selectedStore.id, invoiceData);
       alert('Invoice created successfully!');
       setShowAddInvoiceModal(false);
-      setInvoiceForm({
-        invoice_number: '',
-        purchase_date: new Date().toISOString().split('T')[0],
-        vendor_id: '',
-        amount: '',
-        payment_option: 'pay_later',
-        due_days: '',
-        notes: '',
-        paid_on_purchase: false,
-        payment_method_on_purchase: 'cash',
-        bank_id_on_purchase: '',
-        bank_account_name_on_purchase: '',
-        credit_card_id_on_purchase: '',
-        is_reimbursable: false,
-        reimbursement_to: '',
-        reimbursement_status: 'pending',
-        reimbursement_payment_method: 'cash',
-        reimbursement_check_number: '',
-        is_cigarette_purchase: false,
-        cigarette_cartons_purchased: '',
-        expected_revenue: '',
-        revenue_calculation_method: 'none',
-        invoice_items: [],
-      });
+      resetInvoiceFormState({ payment_option: 'pay_later' });
       setSelectedProducts([]);
       loadInvoices();
     } catch (error) {
@@ -2336,17 +2385,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
               <button
                 onClick={() => {
                   setShowAddInvoiceModal(false);
-                  setInvoiceForm({
-                    invoice_number: '',
-                    purchase_date: new Date().toISOString().split('T')[0],
-                    vendor_id: '',
-                    amount: '',
-                    payment_option: 'pay_later',
-                    due_days: '',
-                    notes: '',
-                    is_cigarette_purchase: false,
-                    cigarette_cartons_purchased: '',
-                  });
+                  resetInvoiceFormState({ payment_option: 'pay_later' });
                 }}
                 className="text-gray-400 hover:text-gray-600"
               >
@@ -2539,7 +2578,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                   </div>
 
                   {/* Revenue Calculation Section */}
-                  <div className="border-t pt-4 mt-4" ref={costSectionRef}>
+                  <div className="border-t pt-4 mt-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Revenue Calculation
                     </label>
@@ -2561,14 +2600,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                             }
                           }, 100);
                         } else if (method === 'auto_calculate') {
-                          // Open Revenue Calculation modal
-                          setShowRevenueCalculationModal(true);
-                          // Calculate invoice amount when modal opens if items exist (force calculation)
-                          setTimeout(() => {
-                            if (invoiceForm.invoice_items.length > 0) {
-                              calculateInvoiceAmount(true);
-                            }
-                          }, 100);
+                          openRevenueCalculationModal('create');
                         }
                       }}
                       className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659] focus:border-transparent"
@@ -2719,15 +2751,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                       <div className="mt-3">
                         <button
                           type="button"
-                          onClick={() => {
-                            setShowRevenueCalculationModal(true);
-                            // Calculate invoice amount when modal opens if items exist (force calculation)
-                            setTimeout(() => {
-                              if (invoiceForm.invoice_items.length > 0) {
-                                calculateInvoiceAmount(true);
-                              }
-                            }, 100);
-                          }}
+                          onClick={() => openRevenueCalculationModal('create')}
                           className="w-full px-4 py-2 bg-[#2d8659] text-white rounded-md hover:bg-[#256348] transition-colors focus:outline-none focus:ring-2 focus:ring-[#2d8659] focus:ring-offset-2"
                         >
                           Open Revenue Calculation
@@ -2950,17 +2974,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                   type="button"
                   onClick={() => {
                     setShowAddInvoiceModal(false);
-                  setInvoiceForm({
-                    invoice_number: '',
-                    purchase_date: new Date().toISOString().split('T')[0],
-                    vendor_id: '',
-                    amount: '',
-                    payment_option: 'pay_later',
-                    due_days: '',
-                    notes: '',
-                    is_cigarette_purchase: false,
-                    cigarette_cartons_purchased: '',
-                  });
+                    resetInvoiceFormState({ payment_option: 'pay_later' });
                   }}
                   className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 mr-3"
                 >
@@ -4216,6 +4230,65 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                     </div>
                   </div>
 
+                  {/* Revenue Calculation (Edit Mode) */}
+                  <div className="border-t pt-4 mt-4" ref={costSectionRef}>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Revenue Calculation
+                    </label>
+                    <select
+                      value={editForm.revenue_calculation_method || 'none'}
+                      onChange={(e) => handleEditRevenueMethodChange(e.target.value)}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
+                    >
+                      <option value="none">No Revenue Calculation</option>
+                      <option value="manual">Enter Expected Revenue Manually</option>
+                      <option value="product_selection">Select Products & Calculate</option>
+                      <option value="auto_calculate">Calculate Cost & Revenue</option>
+                    </select>
+
+                    {editForm.revenue_calculation_method === 'manual' && (
+                      <div className="mt-3">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Expected Revenue ($)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editForm.expected_revenue || ''}
+                          onChange={(e) => setEditForm({ ...editForm, expected_revenue: e.target.value })}
+                          placeholder="Enter expected revenue"
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
+                        />
+                      </div>
+                    )}
+
+                    {['product_selection', 'auto_calculate'].includes(editForm.revenue_calculation_method) && (
+                      <div className="mt-3 space-y-3">
+                        <button
+                          type="button"
+                          onClick={() => openRevenueCalculationModal('edit')}
+                          className="w-full px-4 py-2 bg-[#2d8659] text-white rounded-md hover:bg-[#256348] transition-colors focus:outline-none focus:ring-2 focus:ring-[#2d8659] focus:ring-offset-2"
+                        >
+                          Open Revenue Calculation
+                        </button>
+                        <div className="bg-gray-50 p-3 rounded border border-gray-200">
+                          <div className="text-sm text-gray-600 flex justify-between">
+                            <span>Expected Revenue</span>
+                            <span className="font-semibold text-[#2d8659]">
+                              ${parseFloat(editForm.expected_revenue || 0).toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-xs text-gray-500">
+                            {Array.isArray(editForm.invoice_items) && editForm.invoice_items.length > 0
+                              ? `${editForm.invoice_items.length} product(s) linked`
+                              : 'No products linked yet'}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Notes */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -4835,20 +4908,14 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
               <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
                 <button
                   type="button"
-                  onClick={handleCloseRevenueModal}
+                  onClick={() => handleCloseRevenueModal({ saveChanges: false })}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    // Calculate invoice amount when closing if items exist and it was calculated
-                    if (invoiceForm.invoice_items.length > 0 && calculatedInvoiceAmount !== null) {
-                      calculateInvoiceAmount();
-                    }
-                    handleCloseRevenueModal();
-                  }}
+                  onClick={() => handleCloseRevenueModal({ saveChanges: true })}
                   className="px-4 py-2 bg-[#2d8659] text-white rounded-lg hover:bg-[#256b49]"
                 >
                   Save & Close
