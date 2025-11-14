@@ -2238,6 +2238,9 @@ router.get('/store/:storeId/inventory', canAccessStore, async (req, res) => {
             cigaretteCartonsSold = parseInt(cigaretteSoldTotals.rows[0]?.total_cartons || 0, 10) || 0;
         }
 
+        summary.total_cigarette_cartons_purchased = cigaretteCartonsPurchased;
+        summary.total_cigarette_cartons_sold = cigaretteCartonsSold;
+
         res.json({
             summary,
             products: productsResult.rows,
