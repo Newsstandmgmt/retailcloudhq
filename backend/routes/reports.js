@@ -145,9 +145,9 @@ router.get('/store/:storeId/profit-loss', canAccessStore, async (req, res) => {
         try {
             expectedRevenueResult = await query(
                 `SELECT 
-                    COUNT(*) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS invoice_count,
+                    COALESCE(SUM(CASE WHEN expected_revenue IS NOT NULL AND expected_revenue <> 0 THEN 1 ELSE 0 END), 0) AS invoice_count,
                     COALESCE(SUM(expected_revenue), 0) AS total_expected,
-                    COALESCE(SUM(amount), 0) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS total_purchase_amount
+                    COALESCE(SUM(CASE WHEN expected_revenue IS NOT NULL AND expected_revenue <> 0 THEN amount ELSE 0 END), 0) AS total_purchase_amount
                  FROM purchase_invoices
                  WHERE store_id = $1 
                  AND purchase_date BETWEEN $2 AND $3`,
@@ -205,10 +205,10 @@ router.get('/store/:storeId/profit-loss', canAccessStore, async (req, res) => {
             const vendorSummaryResult = await query(
                 `SELECT 
                     COALESCE(vendor_name, 'Unknown') AS vendor_name,
-                    COUNT(*) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS invoice_count,
+                    COALESCE(SUM(CASE WHEN expected_revenue IS NOT NULL AND expected_revenue <> 0 THEN 1 ELSE 0 END), 0) AS invoice_count,
                     COALESCE(SUM(expected_revenue), 0) AS total_expected,
-                    COALESCE(SUM(amount), 0) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS total_purchase_amount,
-                    COALESCE(AVG(expected_revenue), 0) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS avg_expected
+                    COALESCE(SUM(CASE WHEN expected_revenue IS NOT NULL AND expected_revenue <> 0 THEN amount ELSE 0 END), 0) AS total_purchase_amount,
+                    COALESCE(AVG(CASE WHEN expected_revenue IS NOT NULL AND expected_revenue <> 0 THEN expected_revenue ELSE NULL END), 0) AS avg_expected
                  FROM purchase_invoices
                  WHERE store_id = $1
                  AND purchase_date BETWEEN $2 AND $3
@@ -497,10 +497,10 @@ router.get('/store/:storeId/revenue-calculation', canAccessStore, async (req, re
         const vendorSummaryResult = await query(
             `SELECT 
                 COALESCE(vendor_name, 'Unknown') AS vendor_name,
-                COUNT(*) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS invoice_count,
+                COALESCE(SUM(CASE WHEN expected_revenue IS NOT NULL AND expected_revenue <> 0 THEN 1 ELSE 0 END), 0) AS invoice_count,
                 COALESCE(SUM(expected_revenue), 0) AS total_expected,
-                COALESCE(SUM(amount), 0) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS total_purchase_amount,
-                COALESCE(AVG(expected_revenue), 0) FILTER (WHERE expected_revenue IS NOT NULL AND expected_revenue <> 0) AS avg_expected
+                COALESCE(SUM(CASE WHEN expected_revenue IS NOT NULL AND expected_revenue <> 0 THEN amount ELSE 0 END), 0) AS total_purchase_amount,
+                COALESCE(AVG(CASE WHEN expected_revenue IS NOT NULL AND expected_revenue <> 0 THEN expected_revenue ELSE NULL END), 0) AS avg_expected
              FROM purchase_invoices
              WHERE store_id = $1
              AND purchase_date BETWEEN $2 AND $3
