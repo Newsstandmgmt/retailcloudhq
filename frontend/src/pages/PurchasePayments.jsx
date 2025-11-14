@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../contexts/StoreContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -244,29 +244,6 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     }
   }, [invoiceForm.vendor_id, includeAllPendingItems]);
 
-  useEffect(() => {
-    if (!vapeTaxRate || productsById.size === 0) return;
-    setInvoiceForm(prev => {
-      if (!prev.invoice_items.some(item => item.vape_tax_paid && !item.vape_tax_amount_per_unit)) {
-        return prev;
-      }
-      return {
-        ...prev,
-        invoice_items: normalizeInvoiceItems(prev.invoice_items, prev.payment_option),
-      };
-    });
-    setEditForm(prev => {
-      if (!prev || !Array.isArray(prev.invoice_items)) return prev;
-      if (!prev.invoice_items.some(item => item.vape_tax_paid && !item.vape_tax_amount_per_unit)) {
-        return prev;
-      }
-      return {
-        ...prev,
-        invoice_items: normalizeInvoiceItems(prev.invoice_items, prev.payment_option),
-      };
-    });
-  }, [vapeTaxRate, productsById]);
-
   const productsById = useMemo(() => {
     const map = new Map();
     products.forEach((product) => {
@@ -407,7 +384,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     return updated || items;
   };
 
-  const normalizeInvoiceItems = (items, paymentOption) => {
+  const normalizeInvoiceItems = useCallback((items, paymentOption) => {
     if (!Array.isArray(items)) return [];
     return items.map((item) => {
       let normalizedItem = { ...item };
@@ -429,7 +406,30 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       }
       return normalizedItem;
     });
-  };
+  }, [productsById, vapeTaxRate]);
+
+  useEffect(() => {
+    if (!vapeTaxRate || productsById.size === 0) return;
+    setInvoiceForm(prev => {
+      if (!prev.invoice_items.some(item => item.vape_tax_paid && !item.vape_tax_amount_per_unit)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        invoice_items: normalizeInvoiceItems(prev.invoice_items, prev.payment_option),
+      };
+    });
+    setEditForm(prev => {
+      if (!prev || !Array.isArray(prev.invoice_items)) return prev;
+      if (!prev.invoice_items.some(item => item.vape_tax_paid && !item.vape_tax_amount_per_unit)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        invoice_items: normalizeInvoiceItems(prev.invoice_items, prev.payment_option),
+      };
+    });
+  }, [normalizeInvoiceItems]);
 
   const getDateRangeForPeriod = (period, customDateRange = null) => {
     const today = new Date();
