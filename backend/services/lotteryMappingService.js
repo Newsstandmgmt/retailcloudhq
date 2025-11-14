@@ -125,6 +125,11 @@ class LotteryMappingService {
                 }
             }
 
+            if (typeof value === 'string') {
+                const cleaned = value.replace(/[^0-9.-]/g, '');
+                const parsed = parseFloat(cleaned);
+                value = Number.isNaN(parsed) ? value : parsed;
+            }
             if (mapping.target_type === 'daily_revenue') {
                 revenueUpdates[mapping.target_field] = value;
             } else if (mapping.target_type === 'lottery_field') {
