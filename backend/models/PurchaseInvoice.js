@@ -5,6 +5,24 @@ class PurchaseInvoice {
         Object.assign(this, data);
     }
 
+    static hydrateInvoice(row) {
+        if (!row) return null;
+        const invoice = { ...row };
+        if (invoice.invoice_items) {
+            if (typeof invoice.invoice_items === 'string') {
+                try {
+                    invoice.invoice_items = JSON.parse(invoice.invoice_items) || [];
+                } catch (error) {
+                    console.warn('Failed to parse invoice_items JSON:', error.message);
+                    invoice.invoice_items = [];
+                }
+            }
+        } else {
+            invoice.invoice_items = [];
+        }
+        return invoice;
+    }
+
     // Calculate due date based on payment option and due days
     static calculateDueDate(purchaseDate, paymentOption, dueDays) {
         // Credit Memo doesn't have a due date
@@ -238,7 +256,7 @@ class PurchaseInvoice {
             }
         }
 
-        return createdInvoice;
+        return this.hydrateInvoice(createdInvoice);
     }
 
     // Get all invoices for a store
@@ -293,7 +311,7 @@ class PurchaseInvoice {
         sql += ' ORDER BY pi.purchase_date DESC, pi.created_at DESC';
 
         const result = await query(sql, params);
-        return result.rows;
+        return result.rows.map(row => this.hydrateInvoice(row));
     }
 
     // Get invoice by ID
@@ -316,7 +334,7 @@ class PurchaseInvoice {
              WHERE pi.id = $1`,
             [id]
         );
-        return result.rows[0] || null;
+        return this.hydrateInvoice(result.rows[0] || null);
     }
 
     // Update invoice
@@ -328,7 +346,8 @@ class PurchaseInvoice {
             'paid_on_purchase', 'payment_method_on_purchase', 'bank_id_on_purchase', 'bank_account_name_on_purchase', 'credit_card_id_on_purchase',
             'is_reimbursable', 'reimbursement_to', 'reimbursement_status', 'reimbursement_date', 'reimbursement_amount',
             'reimbursement_payment_method', 'reimbursement_check_number', 'reimbursement_bank_id',
-            'is_cigarette_purchase', 'cigarette_cartons_purchased'
+            'is_cigarette_purchase', 'cigarette_cartons_purchased',
+            'expected_revenue', 'revenue_calculation_method', 'invoice_items'
         ];
         const updates = [];
         const values = [];
@@ -339,6 +358,21 @@ class PurchaseInvoice {
             updateData.tax_amount = parseFloat(updateData.amount) * parseFloat(updateData.tax_rate);
         } else if (!updateData.prepaid_tax) {
             updateData.tax_amount = 0;
+        }
+
+        if (updateData.hasOwnProperty('expected_revenue')) {
+            const parsedExpectedRevenue = updateData.expected_revenue !== null && updateData.expected_revenue !== undefined
+                ? parseFloat(updateData.expected_revenue)
+                : null;
+            updateData.expected_revenue = Number.isFinite(parsedExpectedRevenue) ? parsedExpectedRevenue : null;
+        }
+
+        if (updateData.hasOwnProperty('invoice_items')) {
+            if (Array.isArray(updateData.invoice_items)) {
+                updateData.invoice_items = JSON.stringify(updateData.invoice_items);
+            } else if (updateData.invoice_items === null) {
+                updateData.invoice_items = null;
+            }
         }
 
         // Recalculate due date if payment option or due_days changed
@@ -382,7 +416,7 @@ class PurchaseInvoice {
             values
         );
 
-        return result.rows[0] || null;
+        return this.hydrateInvoice(result.rows[0] || null);
     }
 
     // Mark invoice as reimbursed
