@@ -3,6 +3,7 @@ const LotteryEmailAccount = require('../models/LotteryEmailAccount');
 const LotteryEmailRule = require('../models/LotteryEmailRule');
 const GmailService = require('../services/gmailService');
 const { authenticate, authorize, canAccessStore } = require('../middleware/auth');
+const { query, getClient } = require('../config/database');
 
 const router = express.Router();
 
@@ -136,8 +137,6 @@ router.get('/stores/:storeId/accounts', canAccessStore, async (req, res) => {
 // Create email rule
 router.post('/accounts/:accountId/rules', authorize('super_admin', 'admin'), async (req, res) => {
     try {
-        const { query } = require('../config/database');
-        
         // Get email account to check store access
         const account = await LotteryEmailAccount.findById(req.params.accountId);
         if (!account) {
@@ -238,8 +237,6 @@ router.post('/accounts/:accountId/rules', authorize('super_admin', 'admin'), asy
 // Update email rule
 router.put('/rules/:id', authorize('super_admin', 'admin'), async (req, res) => {
     try {
-        const { query } = require('../config/database');
-        
         // Get rule to check store access
         const existingRule = await LotteryEmailRule.findById(req.params.id);
         if (!existingRule) {
@@ -283,21 +280,25 @@ router.put('/rules/:id', authorize('super_admin', 'admin'), async (req, res) => 
 // Delete email rule
 router.delete('/rules/:id', authorize('super_admin', 'admin'), async (req, res) => {
     try {
-        const { query } = require('../config/database');
+        const { deleteData = false, confirmText = '' } = req.body || {};
+
+        if (deleteData && confirmText !== 'DELETE') {
+            return res.status(400).json({
+                error: 'Confirmation required',
+                details: "Type DELETE in the confirmation field to remove the rule and imported data."
+            });
+        }
         
-        // Get rule to check store access
         const existingRule = await LotteryEmailRule.findById(req.params.id);
         if (!existingRule) {
             return res.status(404).json({ error: 'Email rule not found' });
         }
 
-        // Get email account to check store access
         const account = await LotteryEmailAccount.findById(existingRule.email_account_id);
         if (!account) {
             return res.status(404).json({ error: 'Email account not found' });
         }
 
-        // Check store access manually
         const storeId = account.store_id;
         const userId = req.user.id;
         
@@ -314,11 +315,62 @@ router.delete('/rules/:id', authorize('super_admin', 'admin'), async (req, res) 
             return res.status(403).json({ error: 'Access denied to this store.' });
         }
 
-        const rule = await LotteryEmailRule.delete(req.params.id);
-        if (!rule) {
-            return res.status(404).json({ error: 'Email rule not found' });
+        const client = await getClient();
+        let deletedLogsCount = 0;
+        let deletedReportsCount = 0;
+
+        try {
+            await client.query('BEGIN');
+
+            if (deleteData) {
+                const logsRes = await client.query(
+                    'SELECT email_id FROM lottery_email_logs WHERE email_rule_id = $1',
+                    [existingRule.id]
+                );
+                const emailIds = logsRes.rows
+                    .map((row) => row.email_id)
+                    .filter(Boolean);
+
+                if (emailIds.length > 0) {
+                    const deleteReportsRes = await client.query(
+                        'DELETE FROM lottery_daily_reports WHERE store_id = $1 AND source_email_id = ANY($2::text[])',
+                        [storeId, emailIds]
+                    );
+                    deletedReportsCount = deleteReportsRes.rowCount;
+                }
+
+                const deleteLogsRes = await client.query(
+                    'DELETE FROM lottery_email_logs WHERE email_rule_id = $1',
+                    [existingRule.id]
+                );
+                deletedLogsCount = deleteLogsRes.rowCount;
+            }
+
+            const deleteRuleRes = await client.query(
+                'DELETE FROM lottery_email_rules WHERE id = $1',
+                [existingRule.id]
+            );
+
+            if (deleteRuleRes.rowCount === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ error: 'Email rule not found' });
+            }
+
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
         }
-        res.json({ message: 'Email rule deleted successfully' });
+
+        res.json({
+            message: deleteData
+                ? 'Email rule and imported data deleted successfully'
+                : 'Email rule deleted successfully',
+            deletedLogs: deletedLogsCount,
+            deletedReports: deletedReportsCount
+        });
     } catch (error) {
         console.error('Delete email rule error:', error);
         res.status(500).json({ error: 'Failed to delete email rule', details: error.message });
@@ -328,8 +380,6 @@ router.delete('/rules/:id', authorize('super_admin', 'admin'), async (req, res) 
 // Manually check emails for an account
 const handleManualCheck = async (req, res) => {
     try {
-        const { query } = require('../config/database');
-        
         // Get email account to check store access
         const account = await LotteryEmailAccount.findById(req.params.accountId);
         if (!account) {
@@ -373,9 +423,6 @@ router.post('/accounts/:accountId/check-emails', authorize('super_admin', 'admin
 
 router.get('/accounts/:accountId/labels', authorize('super_admin', 'admin'), async (req, res) => {
     try {
-        const { query } = require('../config/database');
-        const LotteryEmailAccount = require('../models/LotteryEmailAccount');
-
         const account = await LotteryEmailAccount.findById(req.params.accountId);
         if (!account) {
             return res.status(404).json({ error: 'Email account not found' });
@@ -400,8 +447,6 @@ router.get('/accounts/:accountId/labels', authorize('super_admin', 'admin'), asy
 
 const disconnectAccount = async (req, res) => {
     try {
-        const { query } = require('../config/database');
-        
         // Get email account to check store access
         const account = await LotteryEmailAccount.findById(req.params.id || req.params.accountId);
         if (!account) {

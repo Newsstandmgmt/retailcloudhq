@@ -75,7 +75,16 @@ ALTER TABLE lottery_email_rules
 ALTER TABLE lottery_email_logs 
     DROP CONSTRAINT IF EXISTS lottery_email_logs_email_config_id_fkey,
     ADD COLUMN IF NOT EXISTS email_account_id UUID REFERENCES lottery_email_accounts(id),
-    ADD COLUMN IF NOT EXISTS email_rule_id UUID REFERENCES lottery_email_rules(id);
+    ADD COLUMN IF NOT EXISTS email_rule_id UUID;
+
+ALTER TABLE lottery_email_logs
+    DROP CONSTRAINT IF EXISTS lottery_email_logs_email_rule_id_fkey;
+
+ALTER TABLE lottery_email_logs
+    ADD CONSTRAINT lottery_email_logs_email_rule_id_fkey
+        FOREIGN KEY (email_rule_id)
+        REFERENCES lottery_email_rules(id)
+        ON DELETE SET NULL;
 
 -- Trigger for updated_at
 DROP TRIGGER IF EXISTS update_lottery_email_configs_updated_at ON lottery_email_configs;

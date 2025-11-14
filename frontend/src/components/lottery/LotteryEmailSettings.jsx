@@ -27,6 +27,12 @@ const LotteryEmailSettings = ({ storeId }) => {
   const [labelsLoading, setLabelsLoading] = useState(false);
   const [labelsError, setLabelsError] = useState(null);
   const [alert, setAlert] = useState(null);
+  const [showDeleteRuleModal, setShowDeleteRuleModal] = useState(false);
+  const [ruleToDelete, setRuleToDelete] = useState(null);
+  const [deleteMode, setDeleteMode] = useState('rule');
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
 
   useEffect(() => {
     // Only load accounts if user is authenticated
@@ -201,21 +207,64 @@ const LotteryEmailSettings = ({ storeId }) => {
     }
   };
 
-  const handleDeleteRule = async (ruleId) => {
-    if (!window.confirm('Delete this email rule? This cannot be undone.')) {
+  const handleOpenDeleteRuleModal = (account, rule) => {
+    setSelectedAccount(account);
+    setRuleToDelete(rule);
+    setDeleteMode('rule');
+    setDeleteConfirmText('');
+    setDeleteError(null);
+    setShowDeleteRuleModal(true);
+  };
+
+  const handleCloseDeleteRuleModal = () => {
+    setShowDeleteRuleModal(false);
+    setRuleToDelete(null);
+    setDeleteConfirmText('');
+    setDeleteError(null);
+  };
+
+  const handleConfirmDeleteRule = async () => {
+    if (!ruleToDelete) {
       return;
     }
+
+    if (deleteMode === 'data' && deleteConfirmText.trim() !== 'DELETE') {
+      setDeleteError('Type DELETE to confirm full deletion.');
+      return;
+    }
+
+    setDeleteSubmitting(true);
+    setDeleteError(null);
+
     try {
-      await lotteryEmailOAuthAPI.deleteRule(ruleId);
-      setAlert({ type: 'success', message: 'Email rule deleted successfully' });
-      loadAccounts();
+      await lotteryEmailOAuthAPI.deleteRule(ruleToDelete.id, {
+        deleteData: deleteMode === 'data',
+        confirmText: deleteMode === 'data' ? deleteConfirmText.trim() : undefined
+      });
+
+      setAlert({
+        type: 'success',
+        message:
+          deleteMode === 'data'
+            ? 'Email rule and imported data deleted successfully.'
+            : 'Email rule deleted successfully.'
+      });
+
+      handleCloseDeleteRuleModal();
+      await loadAccounts();
+      if (deleteMode === 'data') {
+        await loadRecentReports();
+      }
     } catch (error) {
       console.error('Error deleting rule:', error);
       const message =
         error.response?.data?.error ||
         error.response?.data?.details ||
         'Failed to delete rule';
+      setDeleteError(message);
       setAlert({ type: 'error', message });
+    } finally {
+      setDeleteSubmitting(false);
     }
   };
 
@@ -434,7 +483,7 @@ const LotteryEmailSettings = ({ storeId }) => {
                                 Edit
                               </button>
                               <button
-                                onClick={() => handleDeleteRule(rule.id)}
+                                onClick={() => handleOpenDeleteRuleModal(account, rule)}
                                 className="px-2 py-1 text-xs border border-red-200 text-red-600 rounded hover:bg-red-50"
                               >
                                 Delete
@@ -690,6 +739,98 @@ const LotteryEmailSettings = ({ storeId }) => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showDeleteRuleModal && ruleToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-xl font-semibold mb-4">Delete Email Rule</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Decide whether to remove only this rule or remove the rule and every report it imported.
+            </p>
+
+            <div className="space-y-3">
+              <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-md cursor-pointer hover:border-gray-300">
+                <input
+                  type="radio"
+                  name="delete-mode"
+                  value="rule"
+                  checked={deleteMode === 'rule'}
+                  onChange={() => setDeleteMode('rule')}
+                  className="mt-1"
+                />
+                <div>
+                  <p className="font-medium text-sm text-gray-800">Delete rule only</p>
+                  <p className="text-xs text-gray-600">
+                    Keeps previously imported lottery data intact. Future emails will not be processed by this rule.
+                  </p>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-3 p-3 border border-red-200 rounded-md cursor-pointer hover:border-red-300 bg-red-50/60">
+                <input
+                  type="radio"
+                  name="delete-mode"
+                  value="data"
+                  checked={deleteMode === 'data'}
+                  onChange={() => setDeleteMode('data')}
+                  className="mt-1"
+                />
+                <div>
+                  <p className="font-medium text-sm text-red-700">Delete rule and imported data</p>
+                  <p className="text-xs text-red-600">
+                    Removes this rule, its email logs, and any raw lottery reports imported through it. This cannot be undone.
+                  </p>
+                </div>
+              </label>
+
+              {deleteMode === 'data' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Type <span className="font-semibold">DELETE</span> to confirm
+                  </label>
+                  <input
+                    type="text"
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="DELETE"
+                  />
+                </div>
+              )}
+
+              {deleteError && <p className="text-sm text-red-600">{deleteError}</p>}
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={handleCloseDeleteRuleModal}
+                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                disabled={deleteSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteRule}
+                disabled={
+                  deleteSubmitting ||
+                  (deleteMode === 'data' && deleteConfirmText.trim() !== 'DELETE')
+                }
+                className={`px-4 py-2 rounded-md text-white ${
+                  deleteMode === 'data' ? 'bg-red-600 hover:bg-red-700' : 'bg-red-500 hover:bg-red-600'
+                } disabled:opacity-50`}
+              >
+                {deleteSubmitting
+                  ? 'Deleting…'
+                  : deleteMode === 'data'
+                    ? 'Delete rule & data'
+                    : 'Delete rule'}
+              </button>
+            </div>
           </div>
         </div>
       )}
