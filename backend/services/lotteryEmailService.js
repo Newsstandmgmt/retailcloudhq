@@ -283,7 +283,7 @@ class LotteryEmailService {
         
         // Parse CSV using state-specific configuration
         const parsedData = await this.parseDailySalesCSV(csvContent, stateConfig);
-        if (metadata.filename) {
+        if (metadata.filename && (!parsedData.date || parsedData.date === null)) {
             const filenameDate = this.parseDateFromFilename(metadata.filename);
             if (filenameDate) {
                 parsedData.date = filenameDate;
