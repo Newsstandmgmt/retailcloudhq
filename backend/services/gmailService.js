@@ -68,6 +68,41 @@ class GmailService {
     }
 
     /**
+     * Determine the configured start date for processing lottery emails.
+     * Defaults to 2025-11-01 if not explicitly configured.
+     */
+    static getStartDateThreshold(rule) {
+        const ruleSpecific =
+            (rule && (rule.start_after_date || rule.process_after_date)) || null;
+        const rawValue = ruleSpecific || process.env.LOTTERY_EMAIL_START_DATE || '2025-11-01';
+
+        const parsed = new Date(rawValue);
+        if (Number.isNaN(parsed.getTime())) {
+            console.warn('Invalid LOTTERY_EMAIL_START_DATE value, ignoring:', rawValue);
+            return null;
+        }
+
+        return parsed;
+    }
+
+    static getStartDateQueryString(rule) {
+        const threshold = this.getStartDateThreshold(rule);
+        if (!threshold) {
+            return null;
+        }
+
+        const year = threshold.getUTCFullYear();
+        const month = `${threshold.getUTCMonth() + 1}`.padStart(2, '0');
+        const day = `${threshold.getUTCDate()}`.padStart(2, '0');
+        return `${year}/${month}/${day}`;
+    }
+
+    static getStartTimestamp(rule) {
+        const threshold = this.getStartDateThreshold(rule);
+        return threshold ? threshold.getTime() : null;
+    }
+
+    /**
      * Check for new emails matching rules
      */
     static async checkEmails(emailAccountId) {
@@ -109,82 +144,102 @@ class GmailService {
                 labelId: rule.label_id
             });
             
-            // Search for emails
-            const listParams = {
+            const listParamsBase = {
                 userId: 'me',
                 q: searchQuery,
-                maxResults: 10
+                maxResults: 50
             };
             if (rule.label_id) {
-                listParams.labelIds = [rule.label_id];
+                listParamsBase.labelIds = [rule.label_id];
             }
-            const response = await client.users.messages.list(listParams);
 
-            const messages = response.data.messages || [];
-            console.log('GmailService.checkEmails: messages found', {
-                ruleId: rule.id,
-                count: messages.length,
-                labelId: rule.label_id
-            });
+            let pageToken;
+            let stopProcessingOlderMessages = false;
 
-            for (const message of messages) {
-                try {
-                    // Get full message
-                    const fullMessage = await client.users.messages.get({
-                        userId: 'me',
-                        id: message.id,
-                        format: 'full'
-                    });
+            do {
+                const response = await client.users.messages.list({
+                    ...listParamsBase,
+                    pageToken
+                });
 
-                    // Check if already processed
-                    const existingLog = await dbQuery(
-                        `SELECT 1 
-                         FROM lottery_email_logs 
-                         WHERE email_id = $1 
-                           AND email_rule_id = $2 
-                           AND status = 'success'`,
-                        [message.id, rule.id]
-                    );
+                const messages = response.data.messages || [];
+                console.log('GmailService.checkEmails: messages found', {
+                    ruleId: rule.id,
+                    count: messages.length,
+                    labelId: rule.label_id,
+                    pageToken: response.data.nextPageToken || null
+                });
 
-                    if (existingLog.rows.length > 0) {
-                        continue; // Skip already processed
+                for (const message of messages) {
+                    try {
+                        const fullMessage = await client.users.messages.get({
+                            userId: 'me',
+                            id: message.id,
+                            format: 'full'
+                        });
+
+                        const startTimestamp = this.getStartTimestamp(rule);
+                        const messageTimestamp = fullMessage.data.internalDate
+                            ? parseInt(fullMessage.data.internalDate, 10)
+                            : Date.now();
+
+                        if (startTimestamp && messageTimestamp < startTimestamp) {
+                            stopProcessingOlderMessages = true;
+                            continue;
+                        }
+
+                        const existingLog = await dbQuery(
+                            `SELECT 1 
+                             FROM lottery_email_logs 
+                             WHERE email_id = $1 
+                               AND email_rule_id = $2 
+                               AND status = 'success'`,
+                            [message.id, rule.id]
+                        );
+
+                        if (existingLog.rows.length > 0) {
+                            continue; // Skip already processed
+                        }
+
+                        await this.processEmail(fullMessage.data, rule, account, message.id, client, legacyConfigId);
+                        
+                        processedEmails.push({
+                            messageId: message.id,
+                            ruleId: rule.id,
+                            reportType: rule.report_type
+                        });
+                    } catch (error) {
+                        console.error(`Error processing email ${message.id}:`, error);
+                        await dbQuery(
+                            `INSERT INTO lottery_email_logs (
+                                email_account_id,
+                                email_rule_id,
+                                email_config_id,
+                                email_id,
+                                email_subject,
+                                received_at,
+                                status,
+                                error_message
+                            )
+                            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, 'error', $6)`,
+                            [
+                                emailAccountId,
+                                rule.id,
+                                legacyConfigId,
+                                message.id,
+                                'Unknown',
+                                error.message
+                            ]
+                        );
                     }
-
-                    // Process the email
-                    await this.processEmail(fullMessage.data, rule, account, message.id, client, legacyConfigId);
-                    
-                    processedEmails.push({
-                        messageId: message.id,
-                        ruleId: rule.id,
-                        reportType: rule.report_type
-                    });
-
-                } catch (error) {
-                    console.error(`Error processing email ${message.id}:`, error);
-                    // Log error
-                    await dbQuery(
-                        `INSERT INTO lottery_email_logs (
-                            email_account_id,
-                            email_rule_id,
-                            email_config_id,
-                            email_id,
-                            email_subject,
-                            received_at,
-                            status,
-                            error_message
-                        )
-                        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, 'error', $6)`,
-                        [
-                            emailAccountId,
-                            rule.id,
-                            legacyConfigId,
-                            message.id,
-                            'Unknown',
-                            error.message
-                        ]
-                    );
                 }
-            }
+
+                if (stopProcessingOlderMessages || !response.data.nextPageToken) {
+                    break;
+                }
+
+                pageToken = response.data.nextPageToken;
+            } while (pageToken);
         }
 
         // Mark account as checked
@@ -216,6 +271,11 @@ class GmailService {
 
         if (!rule.label_id && rule.label_name) {
             query += ` label:${rule.label_name}`;
+        }
+
+        const afterDateString = this.getStartDateQueryString(rule);
+        if (afterDateString) {
+            query += ` after:${afterDateString}`;
         }
 
         return query;
