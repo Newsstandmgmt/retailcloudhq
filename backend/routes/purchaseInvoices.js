@@ -6,6 +6,7 @@ const TaxConfiguration = require('../models/TaxConfiguration');
 const Store = require('../models/Store');
 const AutoPostingService = require('../services/autoPostingService');
 const CashOnHandService = require('../services/cashOnHandService');
+const { query } = require('../config/database');
 const { authenticate, canAccessStore } = require('../middleware/auth');
 
 const router = express.Router();
@@ -48,6 +49,74 @@ router.get('/store/:storeId', canAccessStore, async (req, res) => {
     } catch (error) {
         console.error('Get invoices error:', error);
         res.status(500).json({ error: 'Failed to fetch invoices' });
+    }
+});
+
+// Cost calculation history
+router.get('/store/:storeId/cost-calculations', canAccessStore, async (req, res) => {
+    try {
+        const { start_date, end_date, vendor_id } = req.query;
+        const invoices = await PurchaseInvoice.findCostCalculations(req.params.storeId, {
+            start_date,
+            end_date,
+            vendor_id
+        });
+
+        const summary = invoices.reduce((acc, invoice) => {
+            const expected = parseFloat(invoice.expected_revenue || 0);
+            const amount = parseFloat(invoice.amount || 0);
+            acc.invoice_count += 1;
+            acc.total_expected += expected;
+            acc.total_purchase_amount += amount;
+            const items = Array.isArray(invoice.invoice_items) ? invoice.invoice_items : [];
+            acc.total_products += items.length;
+            acc.total_quantity += items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
+            return acc;
+        }, {
+            invoice_count: 0,
+            total_expected: 0,
+            total_purchase_amount: 0,
+            total_products: 0,
+            total_quantity: 0
+        });
+
+        // Enrich invoice items with product names
+        const productIds = [
+            ...new Set(
+                invoices.flatMap(inv =>
+                    (Array.isArray(inv.invoice_items) ? inv.invoice_items : [])
+                        .map(item => item.product_id)
+                        .filter(Boolean)
+                )
+            )
+        ];
+
+        if (productIds.length > 0) {
+            const productResult = await query(
+                `SELECT id, product_name, full_product_name
+                 FROM products
+                 WHERE id = ANY($1)`,
+                [productIds]
+            );
+            const productMap = {};
+            productResult.rows.forEach(row => {
+                productMap[row.id] = row.full_product_name || row.product_name || 'Unnamed Product';
+            });
+
+            invoices.forEach(inv => {
+                if (Array.isArray(inv.invoice_items)) {
+                    inv.invoice_items = inv.invoice_items.map(item => ({
+                        ...item,
+                        product_name: productMap[item.product_id] || item.product_name || 'Unknown Product'
+                    }));
+                }
+            });
+        }
+
+        res.json({ summary, invoices });
+    } catch (error) {
+        console.error('Cost calculations fetch error:', error);
+        res.status(500).json({ error: error.message || 'Failed to load cost calculations' });
     }
 });
 
@@ -262,6 +331,12 @@ router.delete('/:invoiceId', async (req, res) => {
 
         if (invoice.status === 'paid') {
             await revertInvoicePayment(invoice, req.user.id);
+        }
+
+        try {
+            await query('DELETE FROM inventory_movements WHERE invoice_id = $1', [invoice.id]);
+        } catch (movementError) {
+            console.error('Failed to remove inventory movements for invoice deletion:', movementError);
         }
 
         await PurchaseInvoice.delete(req.params.invoiceId);

@@ -487,6 +487,12 @@ export const purchaseInvoicesAPI = {
   recordPayments: (storeId, data) => api.post(`/api/purchase-invoices/store/${storeId}/record-payments`, data),
   getVendors: (storeId) => api.get(`/api/purchase-invoices/store/${storeId}/vendors`),
   createVendor: (storeId, data) => api.post(`/api/purchase-invoices/store/${storeId}/vendors`, data),
+  getCostCalculations: (storeId, startDate, endDate) => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    return api.get(`/api/purchase-invoices/store/${storeId}/cost-calculations?${params.toString()}`);
+  },
 };
 
 export const lotteryDailyReportsAPI = {

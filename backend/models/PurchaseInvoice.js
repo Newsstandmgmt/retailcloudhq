@@ -337,6 +337,44 @@ class PurchaseInvoice {
         return this.hydrateInvoice(result.rows[0] || null);
     }
 
+    static async findCostCalculations(storeId, filters = {}) {
+        let sql = `SELECT pi.*, 
+                   v.name as vendor_name_full
+                   FROM purchase_invoices pi
+                   LEFT JOIN vendors v ON v.id = pi.vendor_id
+                   WHERE pi.store_id = $1
+                     AND pi.status <> 'cancelled'
+                     AND (pi.expected_revenue IS NOT NULL OR pi.invoice_items IS NOT NULL)`;
+        const params = [storeId];
+        let paramCount = 2;
+
+        if (filters.start_date) {
+            sql += ` AND pi.purchase_date >= $${paramCount}`;
+            params.push(filters.start_date);
+            paramCount++;
+        }
+
+        if (filters.end_date) {
+            sql += ` AND pi.purchase_date <= $${paramCount}`;
+            params.push(filters.end_date);
+            paramCount++;
+        }
+
+        if (filters.vendor_id) {
+            sql += ` AND pi.vendor_id = $${paramCount}`;
+            params.push(filters.vendor_id);
+            paramCount++;
+        }
+
+        sql += ' ORDER BY pi.purchase_date DESC, pi.created_at DESC';
+
+        const result = await query(sql, params);
+        return result.rows.map(row => this.hydrateInvoice({
+            ...row,
+            vendor_name: row.vendor_name_full || row.vendor_name
+        }));
+    }
+
     // Update invoice
     static async update(id, updateData) {
         const allowedFields = [

@@ -150,7 +150,8 @@ router.get('/store/:storeId/profit-loss', canAccessStore, async (req, res) => {
                     COALESCE(SUM(CASE WHEN expected_revenue IS NOT NULL AND expected_revenue <> 0 THEN amount ELSE 0 END), 0) AS total_purchase_amount
                  FROM purchase_invoices
                  WHERE store_id = $1 
-                 AND purchase_date BETWEEN $2 AND $3`,
+                 AND purchase_date BETWEEN $2 AND $3
+                 AND status <> 'cancelled'`,
                 [storeId, start_date, end_date]
             );
         } catch (error) {
@@ -197,6 +198,7 @@ router.get('/store/:storeId/profit-loss', canAccessStore, async (req, res) => {
                  WHERE store_id = $1
                  AND purchase_date BETWEEN $2 AND $3
                  AND expected_revenue IS NOT NULL
+                 AND status <> 'cancelled'
                  GROUP BY purchase_date
                  ORDER BY purchase_date`,
                 [storeId, start_date, end_date]
@@ -213,6 +215,7 @@ router.get('/store/:storeId/profit-loss', canAccessStore, async (req, res) => {
                  WHERE store_id = $1
                  AND purchase_date BETWEEN $2 AND $3
                  AND expected_revenue IS NOT NULL
+                 AND status <> 'cancelled'
                  GROUP BY vendor_name
                  ORDER BY total_expected DESC NULLS LAST`,
                 [storeId, start_date, end_date]
@@ -475,6 +478,7 @@ router.get('/store/:storeId/revenue-calculation', canAccessStore, async (req, re
              WHERE store_id = $1
              AND purchase_date BETWEEN $2 AND $3
              AND expected_revenue IS NOT NULL
+             AND status <> 'cancelled'
              ORDER BY purchase_date DESC, created_at DESC`,
             [storeId, start_date, end_date]
         );
@@ -488,6 +492,7 @@ router.get('/store/:storeId/revenue-calculation', canAccessStore, async (req, re
              WHERE store_id = $1
              AND purchase_date BETWEEN $2 AND $3
              AND expected_revenue IS NOT NULL
+             AND status <> 'cancelled'
              GROUP BY purchase_date
              ORDER BY purchase_date`,
             [storeId, start_date, end_date]
@@ -505,6 +510,7 @@ router.get('/store/:storeId/revenue-calculation', canAccessStore, async (req, re
              WHERE store_id = $1
              AND purchase_date BETWEEN $2 AND $3
              AND expected_revenue IS NOT NULL
+             AND status <> 'cancelled'
              GROUP BY vendor_name
              ORDER BY total_expected DESC NULLS LAST`,
             [storeId, start_date, end_date]
@@ -2101,6 +2107,7 @@ router.get('/store/:storeId/inventory', canAccessStore, async (req, res) => {
             AND im.movement_date >= $2::date 
             AND im.movement_date <= $3::date
             AND p.deleted_at IS NULL
+            AND (pi.status IS NULL OR pi.status <> 'cancelled')
             ORDER BY im.movement_date DESC, p.full_product_name
         `, [storeId, start_date, end_date]);
 
@@ -2122,8 +2129,10 @@ router.get('/store/:storeId/inventory', canAccessStore, async (req, res) => {
             LEFT JOIN inventory_movements im ON p.id = im.product_id 
                 AND im.movement_date >= $2::date 
                 AND im.movement_date <= $3::date
+            LEFT JOIN purchase_invoices pim ON im.invoice_id = pim.id
             WHERE p.store_id = $1 
             AND p.deleted_at IS NULL
+            AND (pim.status IS NULL OR pim.status <> 'cancelled')
             GROUP BY p.id, p.product_id, p.full_product_name, p.category, p.brand, p.vape_tax, p.last_vape_tax_paid_date
             HAVING COALESCE(SUM(im.quantity), 0) != 0
             ORDER BY p.full_product_name
@@ -2161,6 +2170,7 @@ router.get('/store/:storeId/inventory', canAccessStore, async (req, res) => {
                 WHERE p.store_id = $1 
                 AND p.vape_tax = true
                 AND p.deleted_at IS NULL
+                AND (pi.status IS NULL OR pi.status <> 'cancelled')
                 AND (
                     items.items IS NULL OR
                     EXISTS (
@@ -2213,6 +2223,7 @@ router.get('/store/:storeId/inventory', canAccessStore, async (req, res) => {
                 AND purchase_date >= $2::date
                 AND purchase_date <= $3::date
                 AND is_cigarette_purchase = TRUE
+                AND status <> 'cancelled'
             `, [storeId, start_date, end_date]);
             cigaretteCartonsPurchased = parseInt(cigarettePurchaseTotals.rows[0]?.total_cartons || 0, 10) || 0;
         }

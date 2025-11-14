@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { reportsAPI } from '../services/api';
+import { reportsAPI, purchaseInvoicesAPI } from '../services/api';
 import { useStore } from '../contexts/StoreContext';
 import { useAuth } from '../contexts/AuthContext';
 import { exportToCSV, exportToExcel, exportToPDF } from '../utils/exportUtils';
@@ -28,12 +28,14 @@ const Reports = () => {
   const [cashReconcileError, setCashReconcileError] = useState('');
   const [resetCashSubmitting, setResetCashSubmitting] = useState(false);
   const [reimbursingExpense, setReimbursingExpense] = useState(null);
+  const [expandedCostCalcId, setExpandedCostCalcId] = useState(null);
 
   const { isFeatureEnabled } = useStore();
   
   const allTabs = [
     { id: 'profit-loss', name: 'Profit & Loss' },
     { id: 'revenue-calculation', name: 'Revenue Calculation' },
+    { id: 'cost-calculations', name: 'Cost Calculations' },
     { id: 'cash-flow', name: 'Cash Flow' },
     { id: 'cash-tracking', name: 'Cash Tracking' },
     { id: 'expense-breakdown', name: 'Expense Breakdown' },
@@ -66,6 +68,7 @@ const Reports = () => {
     
     setLoading(true);
     setError(null);
+    setExpandedCostCalcId(null);
     try {
       let response;
       switch (activeTab) {
@@ -74,6 +77,9 @@ const Reports = () => {
           break;
         case 'revenue-calculation':
           response = await reportsAPI.getRevenueCalculation(selectedStore.id, startDate, endDate);
+          break;
+        case 'cost-calculations':
+          response = await purchaseInvoicesAPI.getCostCalculations(selectedStore.id, startDate, endDate);
           break;
         case 'cash-flow':
           response = await reportsAPI.getCashFlowDetailed(selectedStore.id, startDate, endDate);
@@ -184,6 +190,8 @@ const Reports = () => {
         return prepareProfitLossExport();
       case 'revenue-calculation':
         return prepareRevenueCalculationExport();
+      case 'cost-calculations':
+        return prepareCostCalculationsExport();
       case 'cash-flow':
         return prepareCashFlowExport();
       case 'cash-tracking':
@@ -217,6 +225,8 @@ const Reports = () => {
         return prepareProfitLossHTML();
       case 'revenue-calculation':
         return prepareRevenueCalculationHTML();
+      case 'cost-calculations':
+        return prepareCostCalculationsHTML();
       case 'cash-flow':
         return prepareCashFlowHTML();
       case 'cash-tracking':
@@ -2314,7 +2324,148 @@ const Reports = () => {
     );
   };
 
-  const needsDateRange = ['profit-loss', 'revenue-calculation', 'cash-flow', 'cash-tracking', 'expense-breakdown', 'vendor-payments', 'lottery-sales', 'deposits', 'payroll', 'sales-trends'].includes(activeTab);
+  const renderCostCalculations = () => {
+    if (!reportData || typeof reportData !== 'object') return null;
+    const summary = reportData.summary || {};
+    const invoices = Array.isArray(reportData.invoices) ? reportData.invoices : [];
+    const safeSummary = {
+      invoice_count: summary.invoice_count || 0,
+      total_expected: parseFloat(summary.total_expected || 0),
+      total_purchase_amount: parseFloat(summary.total_purchase_amount || 0),
+      total_products: summary.total_products || 0,
+      total_quantity: summary.total_quantity || 0
+    };
+    const marginValue = safeSummary.total_purchase_amount !== 0
+      ? ((safeSummary.total_expected - safeSummary.total_purchase_amount) / safeSummary.total_purchase_amount) * 100
+      : null;
+
+    const toggleExpanded = (id) => setExpandedCostCalcId(prev => (prev === id ? null : id));
+
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="text-sm text-gray-600">Invoices with Calculations</div>
+            <div className="text-2xl font-bold text-gray-900">{safeSummary.invoice_count}</div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="text-sm text-gray-600">Total Purchase Cost</div>
+            <div className="text-2xl font-bold text-red-600">{formatCurrency(safeSummary.total_purchase_amount)}</div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="text-sm text-gray-600">Total Expected Revenue</div>
+            <div className="text-2xl font-bold text-indigo-600">{formatCurrency(safeSummary.total_expected)}</div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="text-sm text-gray-600">Margin (Expected - Cost)</div>
+            <div className="text-2xl font-bold text-green-600">
+              {formatCurrency(safeSummary.total_expected - safeSummary.total_purchase_amount)}
+            </div>
+            <div className="text-xs text-gray-500 mt-1">
+              {marginValue !== null ? `${marginValue >= 0 ? '+' : ''}${marginValue.toFixed(1)}%` : 'N/A'}
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow">
+          {invoices.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Purchase Cost</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Expected Revenue</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Method</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Products</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {invoices.map(invoice => {
+                    const items = Array.isArray(invoice.invoice_items) ? invoice.invoice_items : [];
+                    return (
+                      <>
+                        <tr key={invoice.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-900">
+                            {invoice.purchase_date
+                              ? new Date(invoice.purchase_date + 'T00:00:00').toLocaleDateString()
+                              : 'N/A'}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{invoice.invoice_number || 'N/A'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-700">{invoice.vendor_name || 'Unknown'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600 capitalize">{invoice.status || 'pending'}</td>
+                          <td className="px-4 py-3 text-sm text-right">{formatCurrency(parseFloat(invoice.amount || 0))}</td>
+                          <td className="px-4 py-3 text-sm text-right text-indigo-600 font-medium">
+                            {formatCurrency(parseFloat(invoice.expected_revenue || 0))}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {invoice.revenue_calculation_method || 'manual'}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            <button
+                              onClick={() => toggleExpanded(invoice.id)}
+                              className="text-indigo-600 hover:text-indigo-800 font-medium"
+                            >
+                              {expandedCostCalcId === invoice.id ? 'Hide' : 'View'} ({items.length})
+                            </button>
+                          </td>
+                        </tr>
+                        {expandedCostCalcId === invoice.id && (
+                          <tr>
+                            <td colSpan={8} className="bg-gray-50 px-4 py-4">
+                              {items.length > 0 ? (
+                                <div className="space-y-2">
+                                  {items.map((item, idx) => {
+                                    const totalCost = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_cost || item.cost_price || 0));
+                                    return (
+                                      <div
+                                        key={`${invoice.id}-${item.product_id || idx}`}
+                                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-white border border-gray-200 rounded-lg p-3 shadow-sm"
+                                      >
+                                        <div>
+                                          <div className="text-sm font-semibold text-gray-900">
+                                            {item.product_name || `Product ${item.product_id || ''}`}
+                                          </div>
+                                          <div className="text-xs text-gray-500">ID: {item.product_id || 'N/A'}</div>
+                                        </div>
+                                        <div className="text-sm text-gray-600 flex flex-wrap gap-4 mt-2 sm:mt-0">
+                                          <span>Qty: {item.quantity || 0}</span>
+                                          <span>Unit Cost: {formatCurrency(parseFloat(item.unit_cost || item.cost_price || 0))}</span>
+                                          <span>Total: {formatCurrency(totalCost)}</span>
+                                          {item.vape_tax_paid && (
+                                            <span className="text-yellow-600 font-medium">Vape Tax Paid</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <div className="text-sm text-gray-500">No products linked to this calculation.</div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500 text-center py-8">
+              No cost calculation records for this range.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const needsDateRange = ['profit-loss', 'revenue-calculation', 'cost-calculations', 'cash-flow', 'cash-tracking', 'expense-breakdown', 'vendor-payments', 'lottery-sales', 'deposits', 'payroll', 'sales-trends'].includes(activeTab);
   const needsSingleDate = ['daily-business'].includes(activeTab);
   const needsMonthYear = ['monthly-business'].includes(activeTab);
 
@@ -2393,6 +2544,33 @@ const Reports = () => {
       ]) : [])
     ];
 
+    return { headers, rows };
+  };
+
+  const prepareCostCalculationsExport = () => {
+    if (!reportData) return { headers: [], rows: [] };
+    const { summary = {}, invoices = [] } = reportData || {};
+    const headers = ['Invoice #', 'Date', 'Vendor', 'Status', 'Purchase Cost', 'Expected Revenue', 'Method', 'Products Count'];
+    const rows = [
+      ['SUMMARY', '', '', '', '', '', '', ''],
+      ['Invoices counted', summary.invoice_count || 0, '', '', '', '', '', ''],
+      ['Total purchase cost', formatCurrency(parseFloat(summary.total_purchase_amount || 0)), '', '', '', '', '', ''],
+      ['Total expected revenue', formatCurrency(parseFloat(summary.total_expected || 0)), '', '', '', '', '', ''],
+      ['Total products', summary.total_products || 0, '', '', '', '', '', ''],
+      ['Total quantity', summary.total_quantity || 0, '', '', '', '', '', ''],
+      ['', '', '', '', '', '', '', ''],
+      ['DETAILS', '', '', '', '', '', '', ''],
+      ...(Array.isArray(invoices) ? invoices.map(inv => [
+        inv?.invoice_number || 'N/A',
+        inv?.purchase_date ? new Date(inv.purchase_date).toLocaleDateString() : 'N/A',
+        inv?.vendor_name || 'Unknown',
+        inv?.status || 'pending',
+        formatCurrency(parseFloat(inv?.amount || 0)),
+        formatCurrency(parseFloat(inv?.expected_revenue || 0)),
+        inv?.revenue_calculation_method || 'manual',
+        Array.isArray(inv?.invoice_items) ? inv.invoice_items.length : 0
+      ]) : [])
+    ];
     return { headers, rows };
   };
 
@@ -2792,6 +2970,105 @@ const Reports = () => {
           ${rowsHTML}
         </tbody>
       </table>
+    `;
+  };
+
+  const prepareCostCalculationsHTML = () => {
+    if (!reportData) return '<p>No data available</p>';
+    const summary = reportData.summary || {};
+    const invoices = Array.isArray(reportData.invoices) ? reportData.invoices : [];
+
+    const summaryHTML = `
+      <h2>Cost Calculation Summary</h2>
+      <ul>
+        <li>Invoices with Calculations: ${summary.invoice_count || 0}</li>
+        <li>Total Purchase Cost: ${formatCurrency(parseFloat(summary.total_purchase_amount || 0))}</li>
+        <li>Total Expected Revenue: ${formatCurrency(parseFloat(summary.total_expected || 0))}</li>
+        <li>Total Products: ${summary.total_products || 0}</li>
+        <li>Total Quantity: ${summary.total_quantity || 0}</li>
+      </ul>
+    `;
+
+    const detailRows = invoices.map(inv => {
+      const purchaseDate = inv.purchase_date ? new Date(inv.purchase_date).toLocaleDateString() : 'N/A';
+      const productCount = Array.isArray(inv.invoice_items) ? inv.invoice_items.length : 0;
+      return `
+        <tr>
+          <td>${purchaseDate}</td>
+          <td>${inv.invoice_number || 'N/A'}</td>
+          <td>${inv.vendor_name || 'Unknown'}</td>
+          <td>${inv.status || 'pending'}</td>
+          <td class="text-right currency">${formatCurrency(parseFloat(inv.amount || 0))}</td>
+          <td class="text-right currency">${formatCurrency(parseFloat(inv.expected_revenue || 0))}</td>
+          <td>${inv.revenue_calculation_method || 'manual'}</td>
+          <td>${productCount}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const productSections = invoices.map(inv => {
+      if (!Array.isArray(inv.invoice_items) || inv.invoice_items.length === 0) {
+        return `
+          <div class="section">
+            <div class="section-title">Invoice ${inv.invoice_number || inv.id}</div>
+            <p>No products linked to this calculation.</p>
+          </div>
+        `;
+      }
+
+      const rows = inv.invoice_items.map(item => {
+        const totalCost = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_cost || item.cost_price || 0));
+        return `
+          <tr>
+            <td>${item.product_name || item.product_id || 'Unknown'}</td>
+            <td class="text-right">${item.quantity || 0}</td>
+            <td class="text-right currency">${formatCurrency(parseFloat(item.unit_cost || item.cost_price || 0))}</td>
+            <td class="text-right currency">${formatCurrency(totalCost)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      return `
+        <div class="section">
+          <div class="section-title">Invoice ${inv.invoice_number || inv.id} Products</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th class="text-right">Quantity</th>
+                <th class="text-right">Unit Cost</th>
+                <th class="text-right">Total Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      ${summaryHTML}
+      <h2>Cost Calculation Details</h2>
+      <table border="1" cellPadding="6" cellSpacing="0" style="border-collapse: collapse; width: 100%;">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Invoice #</th>
+            <th>Vendor</th>
+            <th>Status</th>
+            <th>Purchase Cost</th>
+            <th>Expected Revenue</th>
+            <th>Method</th>
+            <th>Products</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${detailRows}
+        </tbody>
+      </table>
+      ${productSections}
     `;
   };
 
@@ -3715,6 +3992,8 @@ const Reports = () => {
         return renderProfitLoss();
       case 'revenue-calculation':
         return renderRevenueCalculation();
+      case 'cost-calculations':
+        return renderCostCalculations();
       case 'cash-flow':
         return renderCashFlow();
       case 'cash-tracking':
