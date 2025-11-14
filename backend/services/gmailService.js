@@ -209,8 +209,10 @@ class GmailService {
             query += ` subject:"${rule.subject_contains}"`;
         }
 
-        // Only get unread emails (or all recent)
-        query += ' is:unread';
+        // Only get unread emails unless configured otherwise
+        if (!rule.include_read) {
+            query += ' is:unread';
+        }
 
         if (!rule.label_id && rule.label_name) {
             query += ` label:${rule.label_name}`;

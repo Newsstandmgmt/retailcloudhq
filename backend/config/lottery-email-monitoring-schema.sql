@@ -44,7 +44,8 @@ CREATE INDEX IF NOT EXISTS idx_lottery_email_rules_type ON lottery_email_rules(r
 
 ALTER TABLE lottery_email_rules
     ADD COLUMN IF NOT EXISTS label_id VARCHAR(100),
-    ADD COLUMN IF NOT EXISTS label_name VARCHAR(255);
+    ADD COLUMN IF NOT EXISTS label_name VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS include_read BOOLEAN DEFAULT false;
 
 -- Update email logs to reference email_account_id instead
 ALTER TABLE lottery_email_logs 

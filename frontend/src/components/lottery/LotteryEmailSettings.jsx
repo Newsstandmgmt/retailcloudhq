@@ -17,7 +17,8 @@ const LotteryEmailSettings = ({ storeId }) => {
     sender_contains: '',
     retailer_number: '',
     label_id: '',
-    label_name: ''
+    label_name: '',
+    include_read: false
   });
   const [isEditingRule, setIsEditingRule] = useState(false);
   const [editingRuleId, setEditingRuleId] = useState(null);
@@ -133,7 +134,8 @@ const LotteryEmailSettings = ({ storeId }) => {
       sender_contains: '',
       retailer_number: '',
       label_id: '',
-      label_name: ''
+      label_name: '',
+      include_read: false
     });
     setIsEditingRule(false);
     setEditingRuleId(null);
@@ -157,7 +159,8 @@ const LotteryEmailSettings = ({ storeId }) => {
       sender_contains: rule.sender_contains || '',
       retailer_number: rule.retailer_number || '',
       label_id: rule.label_id || '',
-      label_name: rule.label_name || ''
+      label_name: rule.label_name || '',
+      include_read: !!rule.include_read
     });
     setIsEditingRule(true);
     setEditingRuleId(rule.id);
@@ -414,6 +417,9 @@ const LotteryEmailSettings = ({ storeId }) => {
                             {rule.label_name && (
                               <span className="text-sm text-gray-600 ml-2">Label: {rule.label_name}</span>
                             )}
+                            {rule.include_read && (
+                              <span className="text-sm text-gray-600 ml-2">Reads: All</span>
+                            )}
                           </div>
                             <div className="flex items-center gap-2">
                               <span className={`px-2 py-1 rounded text-xs ${
@@ -643,6 +649,19 @@ const LotteryEmailSettings = ({ storeId }) => {
                   <p className="text-xs text-gray-500 mt-1">
                     Choose a Gmail label/folder to scan. Leave blank to search the entire inbox.
                   </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    id="include-read"
+                    type="checkbox"
+                    checked={ruleForm.include_read}
+                    onChange={(e) => setRuleForm({ ...ruleForm, include_read: e.target.checked })}
+                    className="h-4 w-4 border-gray-300 rounded"
+                  />
+                  <label htmlFor="include-read" className="text-sm text-gray-700">
+                    Include emails that are already marked as read
+                  </label>
                 </div>
               </div>
 
