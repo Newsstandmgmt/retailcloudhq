@@ -226,6 +226,40 @@ class CashOnHandService {
 
         return 0;
     }
+
+    static async reversePaymentTransactions(storeId, transactionId, enteredBy = null, transactionDate = new Date().toISOString().split('T')[0]) {
+        const paymentTransactions = await query(
+            `SELECT *
+             FROM cash_transactions
+             WHERE store_id = $1
+               AND transaction_id = $2
+               AND transaction_type = 'payment'`,
+            [storeId, transactionId]
+        );
+
+        if (!paymentTransactions.rows.length) {
+            return 0;
+        }
+
+        for (const tx of paymentTransactions.rows) {
+            const amount = Math.abs(parseFloat(tx.amount) || 0);
+            if (!amount) continue;
+            const description = tx.description
+                ? `Reversal: ${tx.description}`
+                : 'Reversal of invoice payment';
+            await this.addCash(
+                storeId,
+                amount,
+                'payment_reversal',
+                transactionId,
+                transactionDate,
+                description,
+                enteredBy
+            );
+        }
+
+        return paymentTransactions.rows.length;
+    }
 }
 
 module.exports = CashOnHandService;

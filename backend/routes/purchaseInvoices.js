@@ -12,6 +12,28 @@ const router = express.Router();
 
 router.use(authenticate);
 
+async function revertInvoicePayment(invoice, userId) {
+    if (!invoice || invoice.status !== 'paid') {
+        return invoice;
+    }
+
+    await PurchaseInvoice.update(invoice.id, {
+        status: 'pending',
+        payment_date: null,
+        payment_method: null,
+        check_number: null
+    });
+
+    await CashOnHandService.reversePaymentTransactions(
+        invoice.store_id,
+        invoice.id,
+        userId,
+        new Date().toISOString().split('T')[0]
+    );
+
+    return await PurchaseInvoice.findById(invoice.id);
+}
+
 // Get all invoices for a store
 router.get('/store/:storeId', canAccessStore, async (req, res) => {
     try {
@@ -238,11 +260,48 @@ router.delete('/:invoiceId', async (req, res) => {
             return res.status(403).json({ error: 'Access denied to this store.' });
         }
 
+        if (invoice.status === 'paid') {
+            await revertInvoicePayment(invoice, req.user.id);
+        }
+
         await PurchaseInvoice.delete(req.params.invoiceId);
         res.json({ message: 'Invoice deleted successfully' });
     } catch (error) {
         console.error('Delete invoice error:', error);
         res.status(500).json({ error: 'Failed to delete invoice' });
+    }
+});
+
+router.post('/:invoiceId/void-payment', async (req, res) => {
+    try {
+        const invoice = await PurchaseInvoice.findById(req.params.invoiceId);
+        if (!invoice) {
+            return res.status(404).json({ error: 'Invoice not found' });
+        }
+
+        const { query } = require('../config/database');
+        const accessResult = await query(
+            'SELECT can_user_access_store($1, $2) as can_access',
+            [req.user.id, invoice.store_id]
+        );
+
+        if (!accessResult.rows[0]?.can_access) {
+            return res.status(403).json({ error: 'Access denied to this store.' });
+        }
+
+        if (invoice.status !== 'paid') {
+            return res.status(400).json({ error: 'Invoice is not marked as paid.' });
+        }
+
+        const updatedInvoice = await revertInvoicePayment(invoice, req.user.id);
+
+        res.json({
+            message: 'Invoice payment reversed successfully.',
+            invoice: updatedInvoice
+        });
+    } catch (error) {
+        console.error('Void invoice payment error:', error);
+        res.status(500).json({ error: error.message || 'Failed to void invoice payment' });
     }
 });
 
