@@ -162,7 +162,7 @@ router.post('/accounts/:accountId/rules', authorize('super_admin', 'admin'), asy
             return res.status(403).json({ error: 'Access denied to this store.' });
         }
 
-        const { report_type, to_address, subject_contains, sender_contains, retailer_number, label_id, label_name } = req.body;
+        const { report_type, to_address, subject_contains, sender_contains, retailer_number, label_id, label_name, include_read } = req.body;
         
         if (!report_type) {
             return res.status(400).json({ error: 'report_type is required' });
@@ -177,7 +177,8 @@ router.post('/accounts/:accountId/rules', authorize('super_admin', 'admin'), asy
                 sender_contains: sender_contains || 'palottery.com',
                 retailer_number: retailer_number || null,
                 label_id: label_id || null,
-                label_name: label_name || null
+                label_name: label_name || null,
+                include_read: include_read === undefined ? false : include_read
             });
 
             res.json({ message: 'Email rule created successfully', rule });
@@ -206,7 +207,10 @@ router.post('/accounts/:accountId/rules', authorize('super_admin', 'admin'), asy
                         to_address: to_address || null,
                         subject_contains: subject_contains || null,
                         sender_contains: sender_contains || 'palottery.com',
-                        retailer_number: retailer_number || null
+                        retailer_number: retailer_number || null,
+                        label_id: label_id || null,
+                        label_name: label_name || null,
+                        include_read: include_read === undefined ? false : include_read
                     });
                     res.json({ message: 'Email rule created successfully', rule });
                     return;
