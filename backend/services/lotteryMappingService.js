@@ -143,6 +143,44 @@ class LotteryMappingService {
             }
         }
     }
+
+    static async reapplyMappingsForStore({
+        storeId,
+        startDate = null,
+        endDate = null,
+        reportType = null,
+    }) {
+        const reports = await LotteryRawReport.listByStore(storeId, {
+            startDate,
+            endDate,
+            reportType,
+            limit: null,
+        });
+
+        let applied = 0;
+        const errors = [];
+
+        for (const report of reports) {
+            try {
+                await this.applyMappings({
+                    storeId,
+                    reportDate: report.report_date,
+                    reportType: report.report_type || reportType || 'daily',
+                    rawReport: report,
+                });
+                applied += 1;
+            } catch (error) {
+                console.error('Reapply lottery mapping failed:', error);
+                errors.push({
+                    reportId: report.id,
+                    reportDate: report.report_date,
+                    message: error.message,
+                });
+            }
+        }
+
+        return { processed: reports.length, applied, errors };
+    }
 }
 
 module.exports = LotteryMappingService;

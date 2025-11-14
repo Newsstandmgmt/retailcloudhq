@@ -113,7 +113,7 @@ class LotteryRawReport {
         return insertResult.rows[0];
     }
 
-    static async listByStore(storeId, { startDate = null, endDate = null, limit = 50 } = {}) {
+    static async listByStore(storeId, { startDate = null, endDate = null, reportType = null, limit = 50 } = {}) {
         const params = [storeId];
         let paramIndex = 2;
         let conditions = 'store_id = $1';
@@ -130,15 +130,24 @@ class LotteryRawReport {
             paramIndex += 1;
         }
 
-        params.push(limit);
+        if (reportType) {
+            conditions += ` AND report_type = $${paramIndex}`;
+            params.push(reportType);
+            paramIndex += 1;
+        }
+
+        let limitClause = '';
+        if (limit && Number.isFinite(limit)) {
+            params.push(limit);
+            limitClause = ` LIMIT $${paramIndex}`;
+        }
 
         const result = await query(
             `SELECT *
              FROM lottery_daily_reports
              WHERE ${conditions}
-             ORDER BY report_date DESC, created_at DESC
-             LIMIT $${paramIndex}`,
-            params
+             ORDER BY report_date DESC, created_at DESC${limitClause}`,
+            limitClause ? params : params
         );
 
         return result.rows;

@@ -1,6 +1,7 @@
 const express = require('express');
 const LotteryReportMapping = require('../models/LotteryReportMapping');
 const LotteryRawReport = require('../models/LotteryRawReport');
+const LotteryMappingService = require('../services/lotteryMappingService');
 const { authenticate, authorize, canAccessStore } = require('../middleware/auth');
 const { query } = require('../config/database');
 
@@ -114,6 +115,27 @@ router.post('/store/:storeId', canAccessStore, authorize('super_admin', 'admin')
     } catch (error) {
         console.error('Create lottery mapping error:', error);
         res.status(500).json({ error: 'Failed to create mapping', details: error.message });
+    }
+});
+
+router.post('/store/:storeId/reapply', canAccessStore, authorize('super_admin', 'admin'), async (req, res) => {
+    try {
+        const { startDate = null, endDate = null, reportType = null } = req.body || {};
+
+        const result = await LotteryMappingService.reapplyMappingsForStore({
+            storeId: req.params.storeId,
+            startDate,
+            endDate,
+            reportType,
+        });
+
+        res.json({
+            message: 'Mappings reapplied successfully',
+            ...result,
+        });
+    } catch (error) {
+        console.error('Reapply lottery mappings error:', error);
+        res.status(500).json({ error: 'Failed to reapply mappings', details: error.message });
     }
 });
 

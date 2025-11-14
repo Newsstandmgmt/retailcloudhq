@@ -447,6 +447,7 @@ export const lotteryReportMappingsAPI = {
   create: (storeId, data) => api.post(`/api/lottery-report-mappings/store/${storeId}`, data),
   update: (mappingId, data) => api.put(`/api/lottery-report-mappings/${mappingId}`, data),
   delete: (mappingId) => api.delete(`/api/lottery-report-mappings/${mappingId}`),
+  reapply: (storeId, data) => api.post(`/api/lottery-report-mappings/store/${storeId}/reapply`, data),
 };
 
 // Google Sheets API

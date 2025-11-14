@@ -116,6 +116,9 @@ CREATE TABLE IF NOT EXISTS lottery_report_mappings (
 CREATE INDEX IF NOT EXISTS idx_lottery_report_mappings_store ON lottery_report_mappings(store_id);
 CREATE INDEX IF NOT EXISTS idx_lottery_report_mappings_report_type ON lottery_report_mappings(report_type);
 
+ALTER TABLE lottery_report_mappings
+    ADD COLUMN IF NOT EXISTS formula_expression TEXT;
+
 -- Trigger for updated_at
 DROP TRIGGER IF EXISTS update_lottery_email_configs_updated_at ON lottery_email_configs;
 CREATE TRIGGER update_lottery_email_configs_updated_at BEFORE UPDATE ON lottery_email_configs

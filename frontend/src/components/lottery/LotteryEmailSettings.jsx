@@ -50,6 +50,14 @@ const LotteryEmailSettings = ({ storeId }) => {
   const [availableColumnsLoading, setAvailableColumnsLoading] = useState(false);
   const [mappingSubmitting, setMappingSubmitting] = useState(false);
   const [mappingError, setMappingError] = useState(null);
+  const [showReapplyModal, setShowReapplyModal] = useState(false);
+  const [reapplySubmitting, setReapplySubmitting] = useState(false);
+  const [reapplyError, setReapplyError] = useState(null);
+  const [reapplyForm, setReapplyForm] = useState({
+    report_type: 'daily',
+    start_date: '',
+    end_date: ''
+  });
 
   useEffect(() => {
     // Only load accounts if user is authenticated
@@ -256,6 +264,49 @@ const LotteryEmailSettings = ({ storeId }) => {
         error.response?.data?.details ||
         'Failed to delete mapping';
       setAlert({ type: 'error', message });
+    }
+  };
+
+  const handleOpenReapplyModal = () => {
+    setReapplyForm({
+      report_type: 'daily',
+      start_date: '',
+      end_date: '',
+    });
+    setReapplyError(null);
+    setShowReapplyModal(true);
+  };
+
+  const handleCloseReapplyModal = () => {
+    setShowReapplyModal(false);
+    setReapplyError(null);
+  };
+
+  const handleSubmitReapply = async (e) => {
+    e.preventDefault();
+    setReapplySubmitting(true);
+    setReapplyError(null);
+
+    try {
+      await lotteryReportMappingsAPI.reapply(storeId, {
+        reportType: reapplyForm.report_type || null,
+        startDate: reapplyForm.start_date || null,
+        endDate: reapplyForm.end_date || null,
+      });
+
+      setAlert({ type: 'success', message: 'Reapplied mappings successfully.' });
+      handleCloseReapplyModal();
+      await loadRecentReports();
+    } catch (error) {
+      console.error('Error reapplying mappings:', error);
+      const message =
+        error.response?.data?.error ||
+        error.response?.data?.details ||
+        'Failed to reapply mappings';
+      setReapplyError(message);
+      setAlert({ type: 'error', message });
+    } finally {
+      setReapplySubmitting(false);
     }
   };
 
@@ -712,12 +763,20 @@ const LotteryEmailSettings = ({ storeId }) => {
       <div className="bg-white rounded-lg shadow p-6 mt-6">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold">Lottery Column Mapping</h3>
-          <button
-            onClick={() => handleOpenMappingModal()}
-            className="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700"
-          >
-            + Add Mapping
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleOpenReapplyModal}
+              className="px-3 py-1 bg-gray-200 text-gray-800 text-sm rounded hover:bg-gray-300"
+            >
+              Reapply Mappings
+            </button>
+            <button
+              onClick={() => handleOpenMappingModal()}
+              className="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700"
+            >
+              + Add Mapping
+            </button>
+          </div>
         </div>
         <p className="text-sm text-gray-600 mb-4">
           Map CSV columns from the imported lottery reports to Daily Revenue fields or custom lottery metrics. These
@@ -1000,6 +1059,77 @@ const LotteryEmailSettings = ({ storeId }) => {
                   }`}
                 >
                   {mappingSubmitting ? 'Saving…' : mappingForm.id ? 'Update Mapping' : 'Create Mapping'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showReapplyModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4">
+            <h3 className="text-xl font-semibold mb-4">Reapply Lottery Mappings</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Run the configured mappings against previously imported lottery reports to backfill Daily Revenue and custom
+              lottery metrics. Leave dates blank to process all available reports.
+            </p>
+            <form onSubmit={handleSubmitReapply} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Report Type</label>
+                <select
+                  value={reapplyForm.report_type}
+                  onChange={(e) => setReapplyForm({ ...reapplyForm, report_type: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                >
+                  <option value="">All report types</option>
+                  {reportTypes.map((type) => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    value={reapplyForm.start_date}
+                    onChange={(e) => setReapplyForm({ ...reapplyForm, start_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                  <input
+                    type="date"
+                    value={reapplyForm.end_date}
+                    onChange={(e) => setReapplyForm({ ...reapplyForm, end_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+              </div>
+
+              {reapplyError && <div className="text-sm text-red-600">{reapplyError}</div>}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={handleCloseReapplyModal}
+                  className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                  disabled={reapplySubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={reapplySubmitting}
+                  className={`px-4 py-2 rounded-md text-white ${
+                    reapplySubmitting ? 'bg-gray-300 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-800'
+                  }`}
+                >
+                  {reapplySubmitting ? 'Reapplying…' : 'Reapply Now'}
                 </button>
               </div>
             </form>
