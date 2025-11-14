@@ -15,7 +15,8 @@ class LotteryEmailRule {
             retailer_number,
             is_active = true,
             label_id = null,
-            label_name = null
+            label_name = null,
+            include_read = false
         } = ruleData;
         
         const result = await query(
@@ -28,9 +29,10 @@ class LotteryEmailRule {
                 retailer_number,
                 is_active,
                 label_id,
-                label_name
+                label_name,
+                include_read
             )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              RETURNING *`,
             [
                 email_account_id,
@@ -41,7 +43,8 @@ class LotteryEmailRule {
                 retailer_number,
                 is_active,
                 label_id,
-                label_name
+                label_name,
+                include_read
             ]
         );
         return result.rows[0];
@@ -61,7 +64,7 @@ class LotteryEmailRule {
     }
 
     static async update(id, updateData) {
-        const { to_address, subject_contains, sender_contains, retailer_number, is_active, label_id, label_name } = updateData;
+        const { to_address, subject_contains, sender_contains, retailer_number, is_active, label_id, label_name, include_read } = updateData;
         const updates = [];
         const values = [];
         let paramCount = 1;
@@ -73,6 +76,7 @@ class LotteryEmailRule {
         if (is_active !== undefined) { updates.push(`is_active = $${paramCount++}`); values.push(is_active); }
         if (label_id !== undefined) { updates.push(`label_id = $${paramCount++}`); values.push(label_id); }
         if (label_name !== undefined) { updates.push(`label_name = $${paramCount++}`); values.push(label_name); }
+        if (include_read !== undefined) { updates.push(`include_read = $${paramCount++}`); values.push(include_read); }
 
         if (updates.length === 0) {
             return await this.findById(id);

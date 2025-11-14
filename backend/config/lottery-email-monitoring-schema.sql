@@ -1,8 +1,32 @@
 -- Email Monitoring Configuration (using existing email accounts)
 -- This replaces the previous email config approach
 
--- Drop old table if exists (we'll migrate)
-DROP TABLE IF EXISTS lottery_email_configs CASCADE;
+-- Ensure legacy lottery_email_configs table exists for logs/backwards compatibility
+CREATE TABLE IF NOT EXISTS lottery_email_configs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    store_id UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+    retailer_number VARCHAR(50),
+    report_type VARCHAR(50) NOT NULL CHECK (report_type IN ('daily', 'weekly', 'settlement', '13week')),
+    email_address VARCHAR(255) NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    last_processed_at TIMESTAMP,
+    last_processed_email_id VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(store_id, report_type)
+);
+
+ALTER TABLE lottery_email_configs
+    ADD COLUMN IF NOT EXISTS retailer_number VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true,
+    ADD COLUMN IF NOT EXISTS last_processed_at TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS last_processed_email_id VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+CREATE INDEX IF NOT EXISTS idx_lottery_email_configs_store ON lottery_email_configs(store_id);
+CREATE INDEX IF NOT EXISTS idx_lottery_email_configs_email ON lottery_email_configs(email_address);
+CREATE INDEX IF NOT EXISTS idx_lottery_email_configs_retailer ON lottery_email_configs(retailer_number);
 
 -- Email Account Connection (stores OAuth tokens for Gmail/other providers)
 CREATE TABLE IF NOT EXISTS lottery_email_accounts (
@@ -54,6 +78,10 @@ ALTER TABLE lottery_email_logs
     ADD COLUMN IF NOT EXISTS email_rule_id UUID REFERENCES lottery_email_rules(id);
 
 -- Trigger for updated_at
+DROP TRIGGER IF EXISTS update_lottery_email_configs_updated_at ON lottery_email_configs;
+CREATE TRIGGER update_lottery_email_configs_updated_at BEFORE UPDATE ON lottery_email_configs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 DROP TRIGGER IF EXISTS update_lottery_email_accounts_updated_at ON lottery_email_accounts;
 CREATE TRIGGER update_lottery_email_accounts_updated_at BEFORE UPDATE ON lottery_email_accounts
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
