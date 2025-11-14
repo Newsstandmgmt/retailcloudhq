@@ -1,7 +1,7 @@
 const { google } = require('googleapis');
 const LotteryEmailService = require('./lotteryEmailService');
 const LotteryEmailRule = require('../models/LotteryEmailRule');
-const { query } = require('../config/database');
+const { query: dbQuery } = require('../config/database');
 
 class GmailService {
     /**
@@ -98,12 +98,12 @@ class GmailService {
 
         for (const rule of activeRules) {
             // Build Gmail query
-            const query = this.buildGmailQuery(rule, account.email_address);
+            const searchQuery = this.buildGmailQuery(rule, account.email_address);
             
             // Search for emails
             const response = await client.users.messages.list({
                 userId: 'me',
-                q: query,
+                q: searchQuery,
                 maxResults: 10
             });
 
@@ -119,7 +119,7 @@ class GmailService {
                     });
 
                     // Check if already processed
-                    const existingLog = await query(
+                    const existingLog = await dbQuery(
                         'SELECT * FROM lottery_email_logs WHERE email_id = $1 AND status = $2',
                         [message.id, 'success']
                     );
@@ -129,7 +129,7 @@ class GmailService {
                     }
 
                     // Process the email
-                    await this.processEmail(fullMessage.data, rule, account, message.id);
+                    await this.processEmail(fullMessage.data, rule, account, message.id, client);
                     
                     processedEmails.push({
                         messageId: message.id,
@@ -140,7 +140,7 @@ class GmailService {
                 } catch (error) {
                     console.error(`Error processing email ${message.id}:`, error);
                     // Log error
-                    await query(
+                    await dbQuery(
                         `INSERT INTO lottery_email_logs (email_account_id, email_rule_id, email_id, email_subject, received_at, status, error_message)
                          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'error', $5)`,
                         [emailAccountId, rule.id, message.id, 'Unknown', error.message]
@@ -180,7 +180,7 @@ class GmailService {
     /**
      * Process a Gmail message
      */
-    static async processEmail(message, rule, account, messageId) {
+    static async processEmail(message, rule, account, messageId, gmailClient) {
         const LotteryEmailService = require('./lotteryEmailService');
         
         // Extract email details
@@ -196,13 +196,14 @@ class GmailService {
         }
 
         // Download attachment
-        const csvContent = await this.downloadAttachment(account, messageId, attachment.attachmentId);
+        const csvContent = await this.downloadAttachment(gmailClient, messageId, attachment.attachmentId);
+
+        const receivedAt = message.internalDate
+            ? new Date(parseInt(message.internalDate, 10))
+            : new Date();
 
         // Process based on report type
         let result;
-        const receivedAt = fullMessage.data.internalDate
-            ? new Date(parseInt(fullMessage.data.internalDate, 10))
-            : new Date();
         const metadata = {
             filename: attachment.filename || null,
             receivedAt,
@@ -241,7 +242,7 @@ class GmailService {
         }
 
         // Log success
-        await query(
+        await dbQuery(
             `INSERT INTO lottery_email_logs (email_account_id, email_rule_id, email_id, email_subject, email_from, received_at, processed_at, status, records_processed)
              VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'success', 1)`,
             [account.id, rule.id, messageId, subject, from]
@@ -271,9 +272,7 @@ class GmailService {
     /**
      * Download attachment from Gmail
      */
-    static async downloadAttachment(account, messageId, attachmentId) {
-        const { client } = await this.getGmailClient(account.access_token, account.refresh_token);
-        
+    static async downloadAttachment(client, messageId, attachmentId) {
         const response = await client.users.messages.attachments.get({
             userId: 'me',
             messageId: messageId,
