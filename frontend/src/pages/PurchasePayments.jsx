@@ -1568,6 +1568,13 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     });
   };
 
+  const triggerInvoiceRecalc = () => {
+    setTimeout(() => {
+      calculateInvoiceAmount(true);
+      calculateExpectedRevenue();
+    }, 150);
+  };
+
   const openRevenueCalculationModal = (context = 'create', sourceFormOverride = null) => {
     const sourceForm = sourceFormOverride || (context === 'edit' ? editForm : invoiceForm);
     if (context === 'edit') {
@@ -1639,13 +1646,15 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
             : prev.revenue_calculation_method,
       };
     });
+    triggerInvoiceRecalc();
   };
 
   const handleRemoveProductFromInvoice = (productId) => {
-    setInvoiceForm({
-      ...invoiceForm,
-      invoice_items: invoiceForm.invoice_items.filter(item => item.product_id !== productId)
-    });
+    setInvoiceForm(prev => ({
+      ...prev,
+      invoice_items: prev.invoice_items.filter(item => item.product_id !== productId)
+    }));
+    triggerInvoiceRecalc();
   };
 
   const handleUpdateProductQuantity = (productId, quantity) => {
@@ -1671,6 +1680,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
         return updatedItem;
       }),
     }));
+    triggerInvoiceRecalc();
   };
 
   const handleUpdateProductVapeTax = (productId, isChecked) => {
@@ -1682,6 +1692,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
         return setItemVapeTax(item, product, isChecked);
       }),
     }));
+    triggerInvoiceRecalc();
   };
 
   const handleUpdateProductVariant = (productId, variantKey) => {
@@ -5263,13 +5274,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                                     </span>
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        const updatedItems = invoiceForm.invoice_items.filter(item => item.product_id !== product.id);
-                                        setInvoiceForm({ ...invoiceForm, invoice_items: updatedItems });
-                                        setTimeout(() => {
-                                          calculateExpectedRevenue();
-                                        }, 100);
-                                      }}
+                                      onClick={() => handleRemoveProductFromInvoice(product.id)}
                                       className="text-red-600 hover:text-red-800 text-sm font-medium"
                                     >
                                       Remove
@@ -5278,22 +5283,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                                 ) : (
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      // Add new item with all required fields
-                                      const newItem = { 
-                                        product_id: product.id, 
-                                        quantity: 1,
-                                        unit_cost: product.cost_price || 0,
-                                        vape_tax_paid: false
-                                      };
-                                      const updatedItems = [...invoiceForm.invoice_items, newItem];
-                                      setInvoiceForm({ ...invoiceForm, invoice_items: updatedItems });
-                                      // Recalculate revenue and invoice amount after state update
-                                      setTimeout(() => {
-                                        calculateInvoiceAmount(true); // Force calculation when adding products
-                                        calculateExpectedRevenue();
-                                      }, 200);
-                                    }}
+                                    onClick={() => handleAddProductToInvoice(product)}
                                     className="px-3 py-1 bg-[#2d8659] text-white text-sm rounded-md hover:bg-[#256348] transition-colors"
                                   >
                                     Add
