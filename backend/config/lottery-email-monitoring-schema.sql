@@ -54,9 +54,11 @@ ALTER TABLE lottery_email_logs
     ADD COLUMN IF NOT EXISTS email_rule_id UUID REFERENCES lottery_email_rules(id);
 
 -- Trigger for updated_at
+DROP TRIGGER IF EXISTS update_lottery_email_accounts_updated_at ON lottery_email_accounts;
 CREATE TRIGGER update_lottery_email_accounts_updated_at BEFORE UPDATE ON lottery_email_accounts
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_lottery_email_rules_updated_at ON lottery_email_rules;
 CREATE TRIGGER update_lottery_email_rules_updated_at BEFORE UPDATE ON lottery_email_rules
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
