@@ -5,6 +5,7 @@ const LotteryWeeklySettlement = require('../models/LotteryWeeklySettlement');
 const { query } = require('../config/database');
 const { parse } = require('csv-parse/sync');
 const LotteryRawReport = require('../models/LotteryRawReport');
+const LotteryMappingService = require('./lotteryMappingService');
 
 class LotteryEmailService {
     /**
@@ -306,7 +307,7 @@ class LotteryEmailService {
         }
 
         // Store raw report data for future mapping
-        await LotteryRawReport.upsert({
+        const rawReportRecord = await LotteryRawReport.upsert({
             storeId,
             reportDate: parsedData.date,
             retailerNumber: parsedData.retailer_number,
@@ -319,6 +320,14 @@ class LotteryEmailService {
             sourceEmailSubject: emailSubject,
             filename: metadata.filename || null,
             receivedAt: metadata.receivedAt || new Date(),
+            reportType: 'daily',
+        });
+
+        await LotteryMappingService.applyMappings({
+            storeId,
+            reportDate: parsedData.date,
+            reportType: 'daily',
+            rawReport: rawReportRecord,
         });
 
         // Save to daily_lottery table (this is the main storage for daily sales data)

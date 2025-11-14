@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { lotteryEmailOAuthAPI, lotteryDailyReportsAPI } from '../../services/api';
+import { lotteryEmailOAuthAPI, lotteryDailyReportsAPI, lotteryReportMappingsAPI } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 
 const LotteryEmailSettings = ({ storeId }) => {
@@ -33,12 +33,29 @@ const LotteryEmailSettings = ({ storeId }) => {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
+  const [mappings, setMappings] = useState([]);
+  const [mappingsLoading, setMappingsLoading] = useState(false);
+  const [mappingForm, setMappingForm] = useState({
+    id: null,
+    report_type: 'daily',
+    source_column: '',
+    target_type: 'daily_revenue',
+    target_field: '',
+    data_type: 'number',
+    notes: ''
+  });
+  const [showMappingModal, setShowMappingModal] = useState(false);
+  const [availableColumns, setAvailableColumns] = useState([]);
+  const [availableColumnsLoading, setAvailableColumnsLoading] = useState(false);
+  const [mappingSubmitting, setMappingSubmitting] = useState(false);
+  const [mappingError, setMappingError] = useState(null);
 
   useEffect(() => {
     // Only load accounts if user is authenticated
     if (!authLoading && user && storeId) {
       loadAccounts();
       loadRecentReports();
+      loadMappings();
     }
   }, [storeId, user, authLoading]);
 
@@ -97,6 +114,143 @@ const LotteryEmailSettings = ({ storeId }) => {
       console.error('Error loading lottery reports:', error);
     } finally {
       setReportsLoading(false);
+    }
+  };
+
+  const loadMappings = async () => {
+    if (!user || !storeId) return;
+    setMappingsLoading(true);
+    try {
+      const response = await lotteryReportMappingsAPI.list(storeId, { reportType: 'daily' });
+      setMappings(response.data.mappings || []);
+    } catch (error) {
+      console.error('Error loading mappings:', error);
+      setAlert({ type: 'error', message: error.response?.data?.error || 'Failed to load mappings' });
+    } finally {
+      setMappingsLoading(false);
+    }
+  };
+
+  const loadAvailableColumns = async (reportType = 'daily') => {
+    if (!user || !storeId) return;
+    setAvailableColumnsLoading(true);
+    try {
+      const response = await lotteryReportMappingsAPI.availableColumns(storeId, { reportType, limit: 15 });
+      setAvailableColumns(response.data.columns || []);
+    } catch (error) {
+      console.error('Error loading columns:', error);
+      setAvailableColumns([]);
+    } finally {
+      setAvailableColumnsLoading(false);
+    }
+  };
+
+  const resetMappingForm = () => {
+    setMappingForm({
+      id: null,
+      report_type: 'daily',
+      source_column: '',
+      target_type: 'daily_revenue',
+      target_field: '',
+      data_type: 'number',
+      notes: ''
+    });
+    setMappingError(null);
+  };
+
+  const handleOpenMappingModal = async (mapping = null) => {
+    if (mapping) {
+      setMappingForm({
+        id: mapping.id,
+        report_type: mapping.report_type || 'daily',
+        source_column: mapping.source_column || '',
+        target_type: mapping.target_type || 'daily_revenue',
+        target_field: mapping.target_field || '',
+        data_type: mapping.data_type || 'number',
+        notes: mapping.notes || ''
+      });
+    } else {
+      resetMappingForm();
+    }
+
+    await loadAvailableColumns(mapping ? mapping.report_type : 'daily');
+    setShowMappingModal(true);
+  };
+
+  const handleCloseMappingModal = () => {
+    setShowMappingModal(false);
+    resetMappingForm();
+  };
+
+  const handleSubmitMapping = async (e) => {
+    e.preventDefault();
+    if (!mappingForm.source_column) {
+      setMappingError('Select a source column from the imported CSV.');
+      return;
+    }
+    if (!mappingForm.target_field) {
+      setMappingError('Target field is required.');
+      return;
+    }
+
+    setMappingSubmitting(true);
+    setMappingError(null);
+
+    try {
+      if (mappingForm.id) {
+        await lotteryReportMappingsAPI.update(mappingForm.id, {
+          report_type: mappingForm.report_type,
+          source_column: mappingForm.source_column,
+          target_type: mappingForm.target_type,
+          target_field: mappingForm.target_field,
+          data_type: mappingForm.data_type,
+          notes: mappingForm.notes
+        });
+        setAlert({ type: 'success', message: 'Mapping updated successfully.' });
+      } else {
+        await lotteryReportMappingsAPI.create(storeId, {
+          report_type: mappingForm.report_type,
+          source_column: mappingForm.source_column,
+          target_type: mappingForm.target_type,
+          target_field: mappingForm.target_field,
+          data_type: mappingForm.data_type,
+          notes: mappingForm.notes
+        });
+        setAlert({ type: 'success', message: 'Mapping created successfully.' });
+      }
+
+      handleCloseMappingModal();
+      await loadMappings();
+      await loadRecentReports();
+    } catch (error) {
+      console.error('Error saving mapping:', error);
+      const message =
+        error.response?.data?.error ||
+        error.response?.data?.details ||
+        'Failed to save mapping';
+      setMappingError(message);
+      setAlert({ type: 'error', message });
+    } finally {
+      setMappingSubmitting(false);
+    }
+  };
+
+  const handleDeleteMapping = async (mappingId) => {
+    if (!window.confirm('Delete this mapping? This will stop auto-populating the mapped field.')) {
+      return;
+    }
+
+    try {
+      await lotteryReportMappingsAPI.delete(mappingId);
+      setAlert({ type: 'success', message: 'Mapping deleted successfully.' });
+      await loadMappings();
+    } catch (error) {
+      console.error('Error deleting mapping:', error);
+      const message =
+        error.response?.data?.error ||
+        error.response?.data?.details ||
+        'Failed to delete mapping';
+      setAlert({ type: 'error', message });
     }
   };
 
@@ -298,6 +452,12 @@ const LotteryEmailSettings = ({ storeId }) => {
     }
   }, [showRuleModal, selectedAccount]);
 
+  useEffect(() => {
+    if (showMappingModal) {
+      loadAvailableColumns(mappingForm.report_type);
+    }
+  }, [showMappingModal, mappingForm.report_type]);
+
   const availableLabels = selectedAccount ? labelsByAccount[selectedAccount.id] || [] : [];
 
   const handleCheckEmails = async (accountId) => {
@@ -334,6 +494,24 @@ const LotteryEmailSettings = ({ storeId }) => {
     { value: 'weekly', label: 'Weekly Sales Report' },
     { value: 'settlement', label: 'Weekly Settlement Report' },
     { value: '13week', label: '13 Week Average Report' },
+  ];
+
+  const dailyRevenueFieldOptions = [
+    { value: 'total_cash', label: 'Total Cash' },
+    { value: 'cash_adjustment', label: 'Cash Adjustment' },
+    { value: 'business_credit_card', label: 'Business Credit Card' },
+    { value: 'credit_card_transaction_fees', label: 'Credit Card Fees' },
+    { value: 'online_sales', label: 'Online Sales' },
+    { value: 'online_net', label: 'Online Net' },
+    { value: 'total_instant', label: 'Total Instant' },
+    { value: 'total_instant_adjustment', label: 'Instant Adjustment' },
+    { value: 'instant_pay', label: 'Instant Pay' },
+    { value: 'lottery_credit_card', label: 'Lottery Credit Card' },
+    { value: 'sales_tax_amount', label: 'Sales Tax Amount' },
+    { value: 'other_cash_expense', label: 'Other Cash Expense' },
+    { value: 'weekly_lottery_due', label: 'Weekly Lottery Due' },
+    { value: 'weekly_lottery_commission', label: 'Weekly Lottery Commission' },
+    { value: 'thirteen_week_average', label: '13 Week Average' },
   ];
 
   if (authLoading) {
@@ -528,6 +706,67 @@ const LotteryEmailSettings = ({ storeId }) => {
 
       <div className="bg-white rounded-lg shadow p-6 mt-6">
         <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold">Lottery Column Mapping</h3>
+          <button
+            onClick={() => handleOpenMappingModal()}
+            className="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700"
+          >
+            + Add Mapping
+          </button>
+        </div>
+        <p className="text-sm text-gray-600 mb-4">
+          Map CSV columns from the imported lottery reports to Daily Revenue fields or custom lottery metrics. These
+          mappings run automatically after each email import.
+        </p>
+        {mappingsLoading ? (
+          <div className="text-center py-4 text-gray-500">Loading mappings...</div>
+        ) : mappings.length === 0 ? (
+          <div className="border border-dashed border-gray-300 rounded-md p-6 text-center text-sm text-gray-500">
+            No mappings created yet. Click &ldquo;Add Mapping&rdquo; to start linking CSV columns to revenue fields.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {mappings.map((mapping) => (
+              <div key={mapping.id} className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div>
+                    <div className="text-sm text-gray-600">
+                      <span className="font-semibold text-gray-800">{mapping.source_column}</span>
+                      <span className="mx-2 text-gray-400">→</span>
+                      <span className="font-medium text-gray-800">
+                        {mapping.target_type === 'daily_revenue' ? `Daily Revenue: ${mapping.target_field}` : `Lottery Field: ${mapping.target_field}`}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Report: {reportTypes.find((r) => r.value === mapping.report_type)?.label || mapping.report_type}
+                      {' · '}
+                      Data Type: {mapping.data_type || 'number'}
+                      {mapping.notes ? ` · Notes: ${mapping.notes}` : ''}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleOpenMappingModal(mapping)}
+                      className="px-2 py-1 text-xs border border-blue-200 text-blue-700 rounded hover:bg-blue-50"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDeleteMapping(mapping.id)}
+                      className="px-2 py-1 text-xs border border-red-200 text-red-600 rounded hover:bg-red-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-6 mt-6">
+        <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold">Recent Lottery Daily Reports</h3>
           <button
             onClick={loadRecentReports}
@@ -579,6 +818,150 @@ const LotteryEmailSettings = ({ storeId }) => {
           </div>
         )}
       </div>
+
+      {showMappingModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4">
+            <h3 className="text-xl font-semibold mb-4">
+              {mappingForm.id ? 'Edit Column Mapping' : 'Add Column Mapping'}
+            </h3>
+            <form onSubmit={handleSubmitMapping} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Report Type</label>
+                  <select
+                    value={mappingForm.report_type}
+                    onChange={(e) => setMappingForm({ ...mappingForm, report_type: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  >
+                    {reportTypes.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Source Column <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={mappingForm.source_column}
+                    onChange={(e) => setMappingForm({ ...mappingForm, source_column: e.target.value })}
+                    list="available-columns"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="Select or type column name"
+                    required
+                  />
+                  <datalist id="available-columns">
+                    {availableColumns.map((col) => (
+                      <option key={col} value={col} />
+                    ))}
+                  </datalist>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Columns detected from recent imports. {availableColumnsLoading ? 'Refreshing list…' : ''}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Target Type <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={mappingForm.target_type}
+                    onChange={(e) => setMappingForm({ ...mappingForm, target_type: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  >
+                    <option value="daily_revenue">Daily Revenue Field</option>
+                    <option value="lottery_field">Lottery Custom Field</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Target Field <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={mappingForm.target_field}
+                    onChange={(e) => setMappingForm({ ...mappingForm, target_field: e.target.value })}
+                    list={mappingForm.target_type === 'daily_revenue' ? 'daily-revenue-fields' : undefined}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder={
+                      mappingForm.target_type === 'daily_revenue'
+                        ? 'e.g., lottery_credit_card'
+                        : 'e.g., total_due'
+                    }
+                    required
+                  />
+                  {mappingForm.target_type === 'daily_revenue' && (
+                    <datalist id="daily-revenue-fields">
+                      {dailyRevenueFieldOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </datalist>
+                  )}
+                  <p className="text-xs text-gray-500 mt-1">
+                    {mappingForm.target_type === 'daily_revenue'
+                      ? 'Enter the column name from Daily Revenue you want to update.'
+                      : 'Provide a key to store within the lottery report mapped values.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Data Type</label>
+                  <select
+                    value={mappingForm.data_type}
+                    onChange={(e) => setMappingForm({ ...mappingForm, data_type: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  >
+                    <option value="number">Number</option>
+                    <option value="string">String</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+                  <input
+                    type="text"
+                    value={mappingForm.notes}
+                    onChange={(e) => setMappingForm({ ...mappingForm, notes: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+              </div>
+
+              {mappingError && <div className="text-sm text-red-600">{mappingError}</div>}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={handleCloseMappingModal}
+                  className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                  disabled={mappingSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={mappingSubmitting}
+                  className={`px-4 py-2 rounded-md text-white ${
+                    mappingSubmitting ? 'bg-purple-300 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700'
+                  }`}
+                >
+                  {mappingSubmitting ? 'Saving…' : mappingForm.id ? 'Update Mapping' : 'Create Mapping'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Rule Modal */}
       {showRuleModal && selectedAccount && (

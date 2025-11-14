@@ -430,6 +430,25 @@ export const lotteryEmailOAuthAPI = {
   disconnect: (accountId) => api.post(`/api/lottery-email-oauth/accounts/${accountId}/disconnect`),
 };
 
+export const lotteryReportMappingsAPI = {
+  list: (storeId, params = {}) => {
+    const search = new URLSearchParams();
+    if (params.reportType) search.append('reportType', params.reportType);
+    const query = search.toString();
+    return api.get(`/api/lottery-report-mappings/store/${storeId}${query ? `?${query}` : ''}`);
+  },
+  availableColumns: (storeId, params = {}) => {
+    const search = new URLSearchParams();
+    if (params.reportType) search.append('reportType', params.reportType);
+    if (params.limit) search.append('limit', params.limit);
+    const query = search.toString();
+    return api.get(`/api/lottery-report-mappings/store/${storeId}/available-columns${query ? `?${query}` : ''}`);
+  },
+  create: (storeId, data) => api.post(`/api/lottery-report-mappings/store/${storeId}`, data),
+  update: (mappingId, data) => api.put(`/api/lottery-report-mappings/${mappingId}`, data),
+  delete: (mappingId) => api.delete(`/api/lottery-report-mappings/${mappingId}`),
+};
+
 // Google Sheets API
 export const googleSheetsAPI = {
   getByStore: (storeId) => api.get(`/api/google-sheets/stores/${storeId}`),

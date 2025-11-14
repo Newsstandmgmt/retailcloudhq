@@ -390,6 +390,33 @@ class DailyRevenue {
         );
         return result.rows[0];
     }
+
+    static async updateFields(storeId, entryDate, fields = {}) {
+        const keys = Object.keys(fields || {});
+        if (keys.length === 0) {
+            return null;
+        }
+
+        const setClauses = [];
+        const values = [storeId, entryDate];
+
+        keys.forEach((field, index) => {
+            setClauses.push(`${field} = $${index + 3}`);
+            values.push(fields[field]);
+        });
+
+        setClauses.push('updated_at = CURRENT_TIMESTAMP');
+
+        const result = await query(
+            `UPDATE daily_revenue
+             SET ${setClauses.join(', ')}
+             WHERE store_id = $1 AND entry_date = $2
+             RETURNING *`,
+            values
+        );
+
+        return result.rows[0] || null;
+    }
 }
 
 module.exports = DailyRevenue;

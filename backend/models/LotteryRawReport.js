@@ -47,9 +47,13 @@ class LotteryRawReport {
         sourceEmailSubject = null,
         filename = null,
         receivedAt = null,
+        reportType = 'daily',
+        mappedValues = {},
     }) {
         const safeData = data || {};
         const safeReceivedAt = receivedAt ? new Date(receivedAt) : new Date();
+        const safeReportType = reportType || 'daily';
+        const safeMappedValues = mappedValues || {};
 
         const existing = await this.findExisting(storeId, reportDate, sourceEmailId, filename);
 
@@ -63,8 +67,10 @@ class LotteryRawReport {
                      source_email_subject = COALESCE($5, source_email_subject),
                      filename = COALESCE($6, filename),
                      received_at = COALESCE($7, received_at),
+                     report_type = COALESCE($8, report_type),
+                     mapped_values = COALESCE($9, mapped_values),
                      updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $8
+                 WHERE id = $10
                  RETURNING *`,
                 [
                     JSON.stringify(safeData),
@@ -74,6 +80,8 @@ class LotteryRawReport {
                     sourceEmailSubject,
                     filename,
                     safeReceivedAt,
+                    safeReportType,
+                    JSON.stringify(safeMappedValues),
                     existing.id,
                 ]
             );
@@ -83,8 +91,9 @@ class LotteryRawReport {
         const insertResult = await query(
             `INSERT INTO lottery_daily_reports (
                 store_id, report_date, retailer_number, location_name,
-                data, source_email_id, source_email_subject, filename, received_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                data, source_email_id, source_email_subject, filename, received_at,
+                report_type, mapped_values
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *`,
             [
                 storeId,
@@ -96,6 +105,8 @@ class LotteryRawReport {
                 sourceEmailSubject,
                 filename,
                 safeReceivedAt,
+                safeReportType,
+                JSON.stringify(safeMappedValues),
             ]
         );
 
@@ -131,6 +142,18 @@ class LotteryRawReport {
         );
 
         return result.rows;
+    }
+
+    static async updateMappedValues(reportId, mappedValues = {}) {
+        const result = await query(
+            `UPDATE lottery_daily_reports
+             SET mapped_values = $1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2
+             RETURNING *`,
+            [JSON.stringify(mappedValues || {}), reportId]
+        );
+        return result.rows[0] || null;
     }
 }
 

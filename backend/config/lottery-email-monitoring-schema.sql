@@ -86,6 +86,35 @@ ALTER TABLE lottery_email_logs
         REFERENCES lottery_email_rules(id)
         ON DELETE SET NULL;
 
+ALTER TABLE lottery_daily_reports
+    ADD COLUMN IF NOT EXISTS report_type VARCHAR(50) DEFAULT 'daily',
+    ADD COLUMN IF NOT EXISTS mapped_values JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+UPDATE lottery_daily_reports
+    SET report_type = 'daily'
+    WHERE report_type IS NULL;
+
+UPDATE lottery_daily_reports
+    SET mapped_values = '{}'::jsonb
+    WHERE mapped_values IS NULL;
+
+CREATE TABLE IF NOT EXISTS lottery_report_mappings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    store_id UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+    report_type VARCHAR(50) NOT NULL,
+    source_column VARCHAR(255) NOT NULL,
+    target_type VARCHAR(50) NOT NULL CHECK (target_type IN ('daily_revenue', 'lottery_field')),
+    target_field VARCHAR(255) NOT NULL,
+    data_type VARCHAR(50) DEFAULT 'number',
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(store_id, report_type, source_column, target_field)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lottery_report_mappings_store ON lottery_report_mappings(store_id);
+CREATE INDEX IF NOT EXISTS idx_lottery_report_mappings_report_type ON lottery_report_mappings(report_type);
+
 -- Trigger for updated_at
 DROP TRIGGER IF EXISTS update_lottery_email_configs_updated_at ON lottery_email_configs;
 CREATE TRIGGER update_lottery_email_configs_updated_at BEFORE UPDATE ON lottery_email_configs
@@ -97,5 +126,10 @@ CREATE TRIGGER update_lottery_email_accounts_updated_at BEFORE UPDATE ON lottery
 
 DROP TRIGGER IF EXISTS update_lottery_email_rules_updated_at ON lottery_email_rules;
 CREATE TRIGGER update_lottery_email_rules_updated_at BEFORE UPDATE ON lottery_email_rules
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+
+DROP TRIGGER IF EXISTS update_lottery_report_mappings_updated_at ON lottery_report_mappings;
+CREATE TRIGGER update_lottery_report_mappings_updated_at BEFORE UPDATE ON lottery_report_mappings
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
