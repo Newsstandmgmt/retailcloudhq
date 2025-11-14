@@ -1107,11 +1107,32 @@ const OperatingExpenses = () => {
 
   const formatDate = (dateString) => {
     if (!dateString) return '-';
-    return new Date(dateString).toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric' 
-    });
+    try {
+      // Handle plain YYYY-MM-DD strings without timezone to avoid UTC shift
+      const [datePart] = dateString.split('T');
+      const [year, month, day] = datePart.split('-').map(Number);
+      if (
+        Number.isInteger(year) &&
+        Number.isInteger(month) &&
+        Number.isInteger(day)
+      ) {
+        const localDate = new Date(year, month - 1, day);
+        return localDate.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+        });
+      }
+      // Fallback for other formats
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+    } catch (error) {
+      console.error('Failed to format date:', dateString, error);
+      return dateString;
+    }
   };
 
   const crossStoreExpensePayments = crossStorePayments.filter(
