@@ -99,6 +99,12 @@ class GmailService {
         for (const rule of activeRules) {
             // Build Gmail query
             const searchQuery = this.buildGmailQuery(rule, account.email_address);
+            console.log('GmailService.checkEmails: searching', {
+                account: account.email_address,
+                ruleId: rule.id,
+                reportType: rule.report_type,
+                query: searchQuery
+            });
             
             // Search for emails
             const response = await client.users.messages.list({
@@ -108,6 +114,10 @@ class GmailService {
             });
 
             const messages = response.data.messages || [];
+            console.log('GmailService.checkEmails: messages found', {
+                ruleId: rule.id,
+                count: messages.length
+            });
 
             for (const message of messages) {
                 try {
@@ -120,8 +130,12 @@ class GmailService {
 
                     // Check if already processed
                     const existingLog = await dbQuery(
-                        'SELECT * FROM lottery_email_logs WHERE email_id = $1 AND status = $2',
-                        [message.id, 'success']
+                        `SELECT 1 
+                         FROM lottery_email_logs 
+                         WHERE email_id = $1 
+                           AND email_rule_id = $2 
+                           AND status = 'success'`,
+                        [message.id, rule.id]
                     );
 
                     if (existingLog.rows.length > 0) {
@@ -192,6 +206,7 @@ class GmailService {
         const attachment = this.findCSVAttachment(message.payload);
         
         if (!attachment) {
+            console.warn(`Gmail message ${messageId} had no CSV attachment`);
             throw new Error('No CSV attachment found in email');
         }
 
@@ -247,6 +262,18 @@ class GmailService {
              VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'success', 1)`,
             [account.id, rule.id, messageId, subject, from]
         );
+
+        try {
+            await gmailClient.users.messages.modify({
+                userId: 'me',
+                id: messageId,
+                requestBody: {
+                    removeLabelIds: ['UNREAD']
+                }
+            });
+        } catch (error) {
+            console.warn(`Failed to mark Gmail message ${messageId} as read:`, error.message);
+        }
 
         return result;
     }
