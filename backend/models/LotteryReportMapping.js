@@ -36,15 +36,16 @@ class LotteryReportMapping {
         targetType,
         targetField,
         dataType = 'number',
+        formulaExpression = null,
         notes = null,
     }) {
         const result = await query(
             `INSERT INTO lottery_report_mappings (
                 store_id, report_type, source_column, target_type,
-                target_field, data_type, notes
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                target_field, data_type, formula_expression, notes
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *`,
-            [storeId, reportType, sourceColumn, targetType, targetField, dataType, notes]
+            [storeId, reportType, sourceColumn, targetType, targetField, dataType, formulaExpression, notes]
         );
 
         return result.rows[0];
@@ -55,7 +56,7 @@ class LotteryReportMapping {
         const values = [];
         let paramIndex = 1;
 
-        const allowedFields = ['source_column', 'target_type', 'target_field', 'data_type', 'notes', 'report_type'];
+        const allowedFields = ['source_column', 'target_type', 'target_field', 'data_type', 'formula_expression', 'notes', 'report_type'];
         allowedFields.forEach((field) => {
             if (updates[field] !== undefined) {
                 fields.push(`${field} = $${paramIndex}`);

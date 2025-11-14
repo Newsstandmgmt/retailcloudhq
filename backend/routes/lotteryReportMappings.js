@@ -82,6 +82,7 @@ router.post('/store/:storeId', canAccessStore, authorize('super_admin', 'admin')
             target_type,
             target_field,
             data_type = 'number',
+            formula_expression = null,
             notes = null,
         } = req.body || {};
 
@@ -105,6 +106,7 @@ router.post('/store/:storeId', canAccessStore, authorize('super_admin', 'admin')
             targetType: target_type,
             targetField: target_field,
             dataType: data_type || 'number',
+            formulaExpression: formula_expression,
             notes,
         });
 
@@ -123,7 +125,7 @@ router.put('/:mappingId', authorize('super_admin', 'admin'), async (req, res) =>
         }
 
         const updates = {};
-        ['report_type', 'source_column', 'target_type', 'target_field', 'data_type', 'notes'].forEach((key) => {
+        ['report_type', 'source_column', 'target_type', 'target_field', 'data_type', 'formula_expression', 'notes'].forEach((key) => {
             if (req.body[key] !== undefined) {
                 updates[key === 'report_type' ? 'report_type' : key] = req.body[key];
             }

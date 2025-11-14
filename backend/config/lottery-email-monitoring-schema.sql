@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS lottery_report_mappings (
     target_type VARCHAR(50) NOT NULL CHECK (target_type IN ('daily_revenue', 'lottery_field')),
     target_field VARCHAR(255) NOT NULL,
     data_type VARCHAR(50) DEFAULT 'number',
+    formula_expression TEXT,
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

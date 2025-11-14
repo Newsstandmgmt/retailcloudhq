@@ -3,6 +3,33 @@ const LotteryRawReport = require('../models/LotteryRawReport');
 const DailyRevenue = require('../models/DailyRevenue');
 
 class LotteryMappingService {
+    static evaluateFormula(expression, rawData) {
+        if (!expression || typeof expression !== 'string') {
+            return null;
+        }
+
+        let expr = expression;
+        const placeholderRegex = /\{\{([^}]+)\}\}/g;
+        expr = expr.replace(placeholderRegex, (_match, columnName) => {
+            const value = this.normalizeNumeric(this.extractValue(rawData, columnName.trim()));
+            return value !== null && value !== undefined ? value : 0;
+        });
+
+        const safeExpressionRegex = /^[0-9+\-*/().\s]+$/;
+        if (!safeExpressionRegex.test(expr)) {
+            return null;
+        }
+
+        try {
+            // eslint-disable-next-line no-new-func
+            const result = Function(`"use strict"; return (${expr});`)();
+            return Number.isFinite(result) ? result : null;
+        } catch (error) {
+            console.warn('Failed to evaluate lottery mapping formula:', error.message);
+            return null;
+        }
+    }
+
     static normalizeNumeric(value) {
         if (value === null || value === undefined) {
             return null;
@@ -76,18 +103,26 @@ class LotteryMappingService {
         const revenueUpdates = {};
 
         mappings.forEach((mapping) => {
-            const sourceValue = this.extractValue(rawData, mapping.source_column);
-            if (sourceValue === null || sourceValue === undefined) {
-                return;
-            }
+            let value = null;
 
-            let value = sourceValue;
-            if (!mapping.data_type || mapping.data_type === 'number') {
-                value = this.normalizeNumeric(sourceValue);
+            if (mapping.formula_expression) {
+                value = this.evaluateFormula(mapping.formula_expression, rawData);
             }
 
             if (value === null || value === undefined) {
-                return;
+                const sourceValue = this.extractValue(rawData, mapping.source_column);
+                if (sourceValue === null || sourceValue === undefined) {
+                    return;
+                }
+
+                value = sourceValue;
+                if (!mapping.data_type || mapping.data_type === 'number') {
+                    value = this.normalizeNumeric(sourceValue);
+                }
+
+                if (value === null || value === undefined) {
+                    return;
+                }
             }
 
             if (mapping.target_type === 'daily_revenue') {

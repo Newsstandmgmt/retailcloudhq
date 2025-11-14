@@ -42,6 +42,7 @@ const LotteryEmailSettings = ({ storeId }) => {
     target_type: 'daily_revenue',
     target_field: '',
     data_type: 'number',
+    formula_expression: '',
     notes: ''
   });
   const [showMappingModal, setShowMappingModal] = useState(false);
@@ -153,6 +154,7 @@ const LotteryEmailSettings = ({ storeId }) => {
       target_type: 'daily_revenue',
       target_field: '',
       data_type: 'number',
+      formula_expression: '',
       notes: ''
     });
     setMappingError(null);
@@ -167,6 +169,7 @@ const LotteryEmailSettings = ({ storeId }) => {
         target_type: mapping.target_type || 'daily_revenue',
         target_field: mapping.target_field || '',
         data_type: mapping.data_type || 'number',
+        formula_expression: mapping.formula_expression || '',
         notes: mapping.notes || ''
       });
     } else {
@@ -204,6 +207,7 @@ const LotteryEmailSettings = ({ storeId }) => {
           target_type: mappingForm.target_type,
           target_field: mappingForm.target_field,
           data_type: mappingForm.data_type,
+        formula_expression: mappingForm.formula_expression,
           notes: mappingForm.notes
         });
         setAlert({ type: 'success', message: 'Mapping updated successfully.' });
@@ -214,6 +218,7 @@ const LotteryEmailSettings = ({ storeId }) => {
           target_type: mappingForm.target_type,
           target_field: mappingForm.target_field,
           data_type: mappingForm.data_type,
+        formula_expression: mappingForm.formula_expression,
           notes: mappingForm.notes
         });
         setAlert({ type: 'success', message: 'Mapping created successfully.' });
@@ -741,6 +746,7 @@ const LotteryEmailSettings = ({ storeId }) => {
                       Report: {reportTypes.find((r) => r.value === mapping.report_type)?.label || mapping.report_type}
                       {' · '}
                       Data Type: {mapping.data_type || 'number'}
+                      {mapping.formula_expression ? ` · Formula: ${mapping.formula_expression}` : ''}
                       {mapping.notes ? ` · Notes: ${mapping.notes}` : ''}
                     </div>
                   </div>
@@ -935,6 +941,44 @@ const LotteryEmailSettings = ({ storeId }) => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Formula (optional)
+                </label>
+                <textarea
+                  value={mappingForm.formula_expression}
+                  onChange={(e) => setMappingForm({ ...mappingForm, formula_expression: e.target.value })}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  placeholder="Example: {{Card Trans}} + {{Draw Sales}} - {{Scratch- Offs Pays}}"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Wrap column names in double braces. Supported operators: +, -, *, /. If provided, the formula overrides
+                  the single source column value. Missing columns evaluate as 0.
+                </p>
+                {availableColumns.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {availableColumns.map((col) => (
+                      <button
+                        type="button"
+                        key={col}
+                        onClick={() =>
+                          setMappingForm((prev) => ({
+                            ...prev,
+                            formula_expression: `${prev.formula_expression ? `${prev.formula_expression} ` : ''}{{${col}}}`
+                          }))
+                        }
+                        className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-100"
+                      >
+                        {'{{'}
+                        {col}
+                        {'}}'}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {mappingError && <div className="text-sm text-red-600">{mappingError}</div>}
