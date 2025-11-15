@@ -1,11 +1,31 @@
 import { useState, useEffect } from 'react';
-import { featurePricingAPI, storeTemplatesAPI } from '../services/api';
+import { featurePricingAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+
+const ADDON_FEATURES = [
+  {
+    feature_key: 'manager_access',
+    feature_name: 'Manager Access',
+    description: 'Unlock manager-level approvals, permissions, and oversight tools',
+    category: 'Paid Addons',
+  },
+  {
+    feature_key: 'handheld_devices',
+    feature_name: 'Handheld Devices',
+    description: 'Provision handheld devices, assign employees, and manage PIN access',
+    category: 'Paid Addons',
+  },
+  {
+    feature_key: 'license_management',
+    feature_name: 'License Management',
+    description: 'Track store licenses, expiration dates, renewals, and reminders',
+    category: 'Paid Addons',
+  },
+];
 
 const FeaturePricing = () => {
   const { user } = useAuth();
   const [pricing, setPricing] = useState([]);
-  const [features, setFeatures] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingFeature, setEditingFeature] = useState(null);
   const [priceForm, setPriceForm] = useState({
@@ -16,30 +36,24 @@ const FeaturePricing = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [pricingRes, featuresRes] = await Promise.all([
-        featurePricingAPI.getAll(),
-        storeTemplatesAPI.getFeatures()
-      ]);
-      
-      // Merge pricing with features
+      const pricingRes = await featurePricingAPI.getAll();
       const pricingData = pricingRes.data.pricing || [];
-      const featuresData = featuresRes.data.features || [];
-      
-      // Create a map of pricing by feature key
-      const pricingMap = {};
-      pricingData.forEach(p => {
-        pricingMap[p.feature_key] = p;
-      });
-      
-      // Combine features with their pricing
-      const combined = featuresData.map(feature => ({
+      const pricingMap = pricingData.reduce((acc, item) => {
+        acc[item.feature_key] = item;
+        return acc;
+      }, {});
+
+      const combined = ADDON_FEATURES.map((feature) => ({
         ...feature,
         price: pricingMap[feature.feature_key] || null,
-        price_per_month: pricingMap[feature.feature_key]?.price_per_month || 0
+        price_per_month: pricingMap[feature.feature_key]?.price_per_month || 0,
+        is_active:
+          pricingMap[feature.feature_key]?.is_active !== undefined
+            ? pricingMap[feature.feature_key].is_active
+            : true,
       }));
-      
+
       setPricing(combined);
-      setFeatures(featuresData);
     } catch (error) {
       console.error('Error loading data:', error);
       alert('Error loading feature pricing: ' + (error.response?.data?.error || error.message));
@@ -48,36 +62,9 @@ const FeaturePricing = () => {
     }
   };
 
-  const ensureLicenseManagementFeature = async () => {
-    try {
-      // Check if license_management feature exists
-      const featuresRes = await storeTemplatesAPI.getFeatures();
-      const hasLicenseManagement = featuresRes.data.features?.some(
-        f => f.feature_key === 'license_management'
-      );
-      
-      if (!hasLicenseManagement) {
-        // Create the feature if it doesn't exist
-        await storeTemplatesAPI.createFeature({
-          feature_key: 'license_management',
-          feature_name: 'License Management',
-          description: 'Manage store licenses, expiration dates, renewals, and reminders',
-          category: 'operations'
-        });
-        // Reload data to show the new feature
-        loadData();
-      }
-    } catch (error) {
-      console.error('Error ensuring license_management feature:', error);
-      // Don't show error to user - it's just a background check
-    }
-  };
-
   useEffect(() => {
     if (user?.role === 'super_admin') {
       loadData();
-      // Ensure license_management feature exists
-      ensureLicenseManagementFeature();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
@@ -111,8 +98,8 @@ const FeaturePricing = () => {
 
   const groupByCategory = () => {
     const grouped = {};
-    pricing.forEach(item => {
-      const category = item.category || 'General';
+    pricing.forEach((item) => {
+      const category = item.category || 'Paid Addons';
       if (!grouped[category]) {
         grouped[category] = [];
       }

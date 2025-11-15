@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../../contexts/StoreContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { mobileDevicesAPI } from '../../services/api';
+import { mobileDevicesAPI, storeSubscriptionsAPI } from '../../services/api';
 
 const HandheldDevices = ({
   storeIdOverride = null,
@@ -20,6 +20,8 @@ const HandheldDevices = ({
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [includeUsed, setIncludeUsed] = useState(false);
   const [includeInactive, setIncludeInactive] = useState(false);
+  const [featureUnlocked, setFeatureUnlocked] = useState(isSuperAdmin);
+  const [featureCheckLoading, setFeatureCheckLoading] = useState(!isSuperAdmin);
   
   // Generate code form (no role needed)
   const [newCode, setNewCode] = useState({
@@ -51,9 +53,62 @@ const HandheldDevices = ({
 
   useEffect(() => {
     if (!activeStoreId) {
+      setFeatureUnlocked(isSuperAdmin);
+      setFeatureCheckLoading(false);
+      return;
+    }
+
+    if (isSuperAdmin) {
+      setFeatureUnlocked(true);
+      setFeatureCheckLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const checkAccess = async () => {
+      try {
+        setFeatureCheckLoading(true);
+        const response = await storeSubscriptionsAPI.getByStore(activeStoreId);
+        const subscription = response.data.subscription;
+        const addonKeys = subscription?.addon_feature_keys || [];
+        const templateKeys = subscription?.template_feature_keys || [];
+        const featureList = subscription?.features || [];
+        const enabled =
+          addonKeys.includes('handheld_devices') ||
+          templateKeys.includes('handheld_devices') ||
+          featureList.some((feature) => feature.feature_key === 'handheld_devices');
+        if (!cancelled) {
+          setFeatureUnlocked(enabled);
+        }
+      } catch (error) {
+        console.error('Error checking handheld device feature status:', error);
+        if (!cancelled) {
+          setFeatureUnlocked(false);
+        }
+      } finally {
+        if (!cancelled) {
+          setFeatureCheckLoading(false);
+        }
+      }
+    };
+
+    checkAccess();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeStoreId, isSuperAdmin]);
+
+  useEffect(() => {
+    if (!activeStoreId) {
       setDevices([]);
       setCodes([]);
       setCodesLoading(false);
+      return;
+    }
+
+    if (!isSuperAdmin && !featureUnlocked) {
+      setDevices([]);
+      setCodes([]);
       return;
     }
 
@@ -64,7 +119,7 @@ const HandheldDevices = ({
       setCodesLoading(false);
     }
     loadDevices(activeStoreId);
-  }, [activeStoreId, includeUsed, includeInactive, isSuperAdmin]);
+  }, [activeStoreId, includeUsed, includeInactive, isSuperAdmin, featureUnlocked]);
 
   const loadCodes = async (storeId = activeStoreId) => {
     if (!storeId || !isSuperAdmin) {
@@ -330,6 +385,31 @@ const HandheldDevices = ({
         {embedded
           ? 'Store information unavailable. Please reload the page.'
           : 'Please select a store to manage handheld devices.'}
+      </div>
+    );
+  }
+
+  if (featureCheckLoading) {
+    return (
+      <div className={`${embedded ? '' : 'p-6'} text-center py-8 text-gray-500`}>
+        Checking handheld device access...
+      </div>
+    );
+  }
+
+  if (!featureUnlocked && !isSuperAdmin) {
+    return (
+      <div className={`${embedded ? '' : 'p-6'}`}>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-blue-900">
+          <h2 className="text-lg font-semibold mb-2">Handheld Devices Addon Required</h2>
+          <p className="text-sm mb-2">
+            This store does not have the Handheld Devices addon enabled yet. Purchase the addon from
+            <span className="font-semibold"> Settings → Feature Addons</span> to unlock handheld registration and employee PIN access.
+          </p>
+          <p className="text-xs text-blue-700">
+            Once the addon is active, return to this section to configure devices.
+          </p>
+        </div>
       </div>
     );
   }

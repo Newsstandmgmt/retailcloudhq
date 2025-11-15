@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { storeSubscriptionsAPI, featurePricingAPI } from '../../services/api';
+import { storeSubscriptionsAPI } from '../../services/api';
 import { useStore } from '../../contexts/StoreContext';
 import { useAuth } from '../../contexts/AuthContext';
+
+const ADDON_FEATURE_KEYS = ['manager_access', 'handheld_devices', 'license_management'];
 
 const FeatureAddons = () => {
   const { selectedStore } = useStore();
@@ -26,7 +28,10 @@ const FeatureAddons = () => {
         storeSubscriptionsAPI.getAvailableAddons(selectedStore.id)
       ]);
       setSubscription(subscriptionRes.data.subscription);
-      setAvailableAddons(addonsRes.data.available_addons || []);
+      const filteredAddons = (addonsRes.data.available_addons || []).filter((addon) =>
+        ADDON_FEATURE_KEYS.includes(addon.feature_key)
+      );
+      setAvailableAddons(filteredAddons);
     } catch (error) {
       console.error('Error loading data:', error);
       alert('Error loading subscription data: ' + (error.response?.data?.error || error.message));

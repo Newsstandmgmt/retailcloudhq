@@ -1,4 +1,7 @@
 const { query } = require('../config/database');
+const { PAID_ADDON_FEATURES } = require('../constants/addonFeatures');
+
+const isAllowedFeature = (featureKey) => PAID_ADDON_FEATURES.includes(featureKey);
 
 class FeaturePricing {
     constructor(data) {
@@ -7,6 +10,9 @@ class FeaturePricing {
 
     // Create or update feature pricing
     static async upsert(featureKey, priceData) {
+        if (!isAllowedFeature(featureKey)) {
+            throw new Error('Feature key is not available for paid addons');
+        }
         const { price_per_month, is_active } = priceData;
         
         const result = await query(
@@ -25,6 +31,9 @@ class FeaturePricing {
 
     // Find pricing by feature key
     static async findByFeatureKey(featureKey) {
+        if (!isAllowedFeature(featureKey)) {
+            return null;
+        }
         const result = await query(
             `SELECT fp.*, sf.feature_name, sf.description as feature_description
              FROM feature_pricing fp
@@ -42,13 +51,18 @@ class FeaturePricing {
              FROM feature_pricing fp
              JOIN store_features sf ON sf.feature_key = fp.feature_key
              WHERE fp.is_active = true
-             ORDER BY sf.category, sf.feature_name`
+             AND fp.feature_key = ANY($1)
+             ORDER BY sf.category, sf.feature_name`,
+            [PAID_ADDON_FEATURES]
         );
         return result.rows;
     }
 
     // Update feature pricing
     static async update(featureKey, updateData) {
+        if (!isAllowedFeature(featureKey)) {
+            throw new Error('Feature key is not available for paid addons');
+        }
         const { price_per_month, is_active } = updateData;
         const updates = [];
         const values = [];
@@ -87,13 +101,18 @@ class FeaturePricing {
             return [];
         }
 
+        const allowedKeys = featureKeys.filter(isAllowedFeature);
+        if (allowedKeys.length === 0) {
+            return [];
+        }
+
         try {
             const result = await query(
                 `SELECT fp.*, sf.feature_name
                  FROM feature_pricing fp
                  JOIN store_features sf ON sf.feature_key = fp.feature_key
                  WHERE fp.feature_key = ANY($1) AND fp.is_active = true`,
-                [featureKeys]
+                [allowedKeys]
             );
             return result.rows;
         } catch (error) {

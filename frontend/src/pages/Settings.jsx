@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useStore } from '../contexts/StoreContext';
 import ManageBanks from '../components/settings/ManageBanks';
 import ManageCreditCards from '../components/settings/ManageCreditCards';
 import ManageDepartments from '../components/settings/ManageDepartments';
@@ -19,6 +20,7 @@ import HandheldDevices from '../components/settings/HandheldDevices';
 
 const Settings = () => {
   const { user } = useAuth();
+  const { isFeatureEnabled } = useStore();
   const [activeTab, setActiveTab] = useState('store-profile');
 
   // Listen for custom event to set active tab (e.g., from dashboard)
@@ -41,6 +43,8 @@ const Settings = () => {
     );
   }
 
+  const handheldTabEnabled = user?.role === 'super_admin' || isFeatureEnabled('handheld_devices');
+
   const tabs = [
     { id: 'store-profile', label: 'Store Profile' },
     { id: 'cash-drawer-settings', label: 'Cash Drawer Settings' },
@@ -57,7 +61,7 @@ const Settings = () => {
     { id: 'manage-credit-cards', label: 'Manage Credit Cards' },
     { id: 'chart-of-accounts', label: 'Chart of Accounts' },
     { id: 'manage-taxes', label: 'Local Taxes' },
-    ...(user?.role === 'super_admin' ? [{ id: 'handheld-devices', label: 'Handheld Devices' }] : []),
+    ...(handheldTabEnabled ? [{ id: 'handheld-devices', label: 'Handheld Devices' }] : []),
   ];
 
   const renderContent = () => {

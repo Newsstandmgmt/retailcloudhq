@@ -1,6 +1,7 @@
 const express = require('express');
 const StoreSubscription = require('../models/StoreSubscription');
 const { authenticate, authorize } = require('../middleware/auth');
+const { PAID_ADDON_FEATURES } = require('../constants/addonFeatures');
 
 const router = express.Router();
 
@@ -209,6 +210,7 @@ router.get('/store/:storeId/available-addons', async (req, res) => {
 
         // Filter to only features not in template and not already added
         const availableAddons = allFeatures.filter(f => 
+            PAID_ADDON_FEATURES.includes(f.feature_key) &&
             !templateFeatureKeys.includes(f.feature_key) && 
             !existingAddons.includes(f.feature_key)
         );
