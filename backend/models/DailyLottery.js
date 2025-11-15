@@ -16,7 +16,7 @@ class DailyLottery {
             pa_lottery_due = 0,
             fulton_bank_lottery_deposit = 0,
             fulton_bank_balance = 0,
-            // New Google Sheets fields
+            // Extended lottery import fields
             retailer_number,
             location_name,
             balance_forward = 0,

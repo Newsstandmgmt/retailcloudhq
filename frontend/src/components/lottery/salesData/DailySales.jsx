@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { lotterySalesDataAPI, googleSheetsAPI } from '../../../services/api';
+import { lotterySalesDataAPI } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 
 const DailySales = ({ storeId }) => {
@@ -37,12 +37,9 @@ const DailySales = ({ storeId }) => {
     notes: ''
   });
   const [alert, setAlert] = useState(null);
-  const [syncLogs, setSyncLogs] = useState([]);
-  const [showSyncStatus, setShowSyncStatus] = useState(false);
 
   useEffect(() => {
     loadSales();
-    loadSyncLogs();
   }, [storeId]);
 
   const loadSales = async () => {
@@ -58,34 +55,12 @@ const DailySales = ({ storeId }) => {
     }
   };
 
-  const loadSyncLogs = async () => {
-    try {
-      const response = await googleSheetsAPI.getLogs(storeId);
-      // Filter for lottery sync logs only
-      const lotteryLogs = (response.data.logs || []).filter(
-        log => log.sync_type === 'lottery'
-      );
-      setSyncLogs(lotteryLogs.slice(0, 10)); // Show last 10 syncs
-    } catch (error) {
-      console.error('Error loading sync logs:', error);
-    }
-  };
-
   const getDataSource = (sale) => {
     if (!sale.entered_by) {
-      // Check notes for source identification
-      if (sale.notes) {
-        if (sale.notes.includes('Auto-imported from lottery daily email') || 
-            sale.notes.includes('Auto-imported from lottery') && sale.notes.includes('email')) {
-          return { type: 'gmail', label: 'Gmail', color: 'blue' };
-        }
-        if (sale.notes.includes('Auto-imported from Google Sheets') || 
-            sale.notes.includes('Google Sheets')) {
-          return { type: 'google-sheets', label: 'Google Sheets', color: 'green' };
-        }
+      if (sale.notes && sale.notes.toLowerCase().includes('email')) {
+        return { type: 'gmail', label: 'Gmail Import', color: 'blue' };
       }
-      // Default to Google Sheets if no notes but entered_by is null (system entry)
-      return { type: 'google-sheets', label: 'Google Sheets', color: 'green' };
+      return { type: 'system', label: 'System Import', color: 'green' };
     }
     // Manual entry (has entered_by)
     return { type: 'manual', label: 'Manual', color: 'gray' };
@@ -205,146 +180,26 @@ const DailySales = ({ storeId }) => {
 
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-semibold">Daily Sales Reports</h3>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowSyncStatus(!showSyncStatus)}
-            className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 text-sm"
-          >
-            {showSyncStatus ? 'Hide' : 'Show'} Integration Status
-          </button>
-          <button
-            onClick={() => {
-              resetForm();
-              setEditingDate(null);
-              setShowForm(true);
-            }}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            + Add Daily Sale
-          </button>
-        </div>
+        <button
+          onClick={() => {
+            resetForm();
+            setEditingDate(null);
+            setShowForm(true);
+          }}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
+          + Add Daily Sale
+        </button>
       </div>
 
-      {/* Integration Sync Status Section - Always visible by default */}
       <div className="mb-6 bg-white border border-gray-200 rounded-lg p-6">
-        <h4 className="text-md font-semibold text-gray-900 mb-4">Integration Data Status</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div className="border border-gray-200 rounded-lg p-4">
-              <h5 className="text-sm font-medium text-gray-700 mb-2">Data Sources</h5>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Google Sheets</span>
-                  <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
-                    {sales.filter(s => getDataSource(s).type === 'google-sheets').length} entries
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Gmail</span>
-                  <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
-                    {sales.filter(s => getDataSource(s).type === 'gmail').length} entries
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Manual Entry</span>
-                  <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
-                    {sales.filter(s => getDataSource(s).type === 'manual').length} entries
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="border border-gray-200 rounded-lg p-4">
-              <h5 className="text-sm font-medium text-gray-700 mb-2">Recent Sync Activity</h5>
-              {syncLogs.length === 0 ? (
-                <p className="text-sm text-gray-500">No sync activity yet</p>
-              ) : (
-                <div className="space-y-2">
-                  {syncLogs.slice(0, 5).map((log) => (
-                    <div key={log.id} className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">
-                        {new Date(log.sync_started_at).toLocaleDateString()}
-                      </span>
-                      <span className={`px-2 py-1 rounded text-xs ${
-                        log.status === 'success'
-                          ? 'bg-green-100 text-green-800'
-                          : log.status === 'failed'
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {log.status}
-                      </span>
-                      <span className="text-gray-500">
-                        {log.records_processed} processed
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="text-xs text-gray-500">
-            <p>💡 Data is automatically pulled from configured integrations (Google Sheets or Gmail).</p>
-            <p>You can also manually enter data or edit imported entries.</p>
-            <p className="mt-2">
-              <button
-                onClick={() => setShowSyncStatus(!showSyncStatus)}
-                className="text-[#2d8659] hover:underline"
-              >
-                {showSyncStatus ? 'Hide detailed sync logs' : 'Show detailed sync logs'}
-              </button>
-            </p>
-          </div>
-        </div>
-      
-      {/* Detailed Sync Logs - Collapsible */}
-      {showSyncStatus && syncLogs.length > 0 && (
-        <div className="mt-4 border-t pt-4">
-          <h5 className="text-sm font-medium text-gray-700 mb-3">Detailed Sync History</h5>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date/Time</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Records</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Added</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Updated</th>
-                  {syncLogs.some(log => log.error_message) && (
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Error</th>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {syncLogs.map((log) => (
-                  <tr key={log.id}>
-                    <td className="px-4 py-2 whitespace-nowrap">
-                      {new Date(log.sync_started_at).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-2">
-                      <span className={`px-2 py-1 rounded text-xs ${
-                        log.status === 'success'
-                          ? 'bg-green-100 text-green-800'
-                          : log.status === 'failed'
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {log.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2">{log.records_processed || 0}</td>
-                    <td className="px-4 py-2 text-green-600">{log.records_added || 0}</td>
-                    <td className="px-4 py-2 text-blue-600">{log.records_updated || 0}</td>
-                    {syncLogs.some(l => l.error_message) && (
-                      <td className="px-4 py-2 text-xs text-red-600 max-w-xs truncate">
-                        {log.error_message || '-'}
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+        <h4 className="text-md font-semibold text-gray-900 mb-2">Integration Data Status</h4>
+        <p className="text-sm text-gray-600">
+          Lottery sales are automatically updated when Gmail integrations import new reports.
+          Manual edits can be made at any time to correct or supplement imported numbers.
+        </p>
+      </div>
+
 
       {showForm && (
         <div className="mb-6 bg-white border border-gray-200 rounded-lg p-6">
@@ -496,8 +351,8 @@ const DailySales = ({ storeId }) => {
       ) : sales.length === 0 ? (
         <div className="text-center py-8 text-gray-500">
           <p>No daily sales entries found.</p>
-          <p className="text-sm mt-2">Data will appear here when pulled from integrations (Google Sheets or Gmail) or manually entered.</p>
-          <p className="text-sm mt-1">Configure integrations in Settings → Integrations tab.</p>
+          <p className="text-sm mt-2">Data will appear here when Gmail integrations import reports or when entries are added manually.</p>
+          <p className="text-sm mt-1">Configure email integrations in Settings → Integrations.</p>
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow overflow-x-auto">

@@ -1,6 +1,5 @@
 const app = require('./app');
 require('dotenv').config();
-const scheduler = require('./services/scheduler');
 const EmailMonitorCron = require('./services/emailMonitorCron');
 const SquareSyncCron = require('./services/squareSyncCron');
 const fs = require('fs').promises;
@@ -78,11 +77,6 @@ app.listen(PORT, HOST, () => {
     console.log(`🌐 Network: http://${HOST === '0.0.0.0' ? 'YOUR_IP' : HOST}:${PORT}`);
     console.log(`📱 For Android Emulator: Use http://10.0.2.2:${PORT}`);
     console.log(`📱 For Physical Device: Use your computer's IP address (check with ifconfig/ipconfig)`);
-    
-    // Start Google Sheets sync scheduler
-    if (process.env.ENABLE_GOOGLE_SHEETS_SYNC !== 'false') {
-        scheduler.start();
-    }
     
     // Start email monitoring cron
     if (process.env.ENABLE_EMAIL_MONITOR !== 'false') {

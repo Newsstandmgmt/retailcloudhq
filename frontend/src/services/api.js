@@ -460,16 +460,6 @@ export const lotteryReportMappingsAPI = {
   reapply: (storeId, data) => api.post(`/api/lottery-report-mappings/store/${storeId}/reapply`, data),
 };
 
-// Google Sheets API
-export const googleSheetsAPI = {
-  getByStore: (storeId) => api.get(`/api/google-sheets/stores/${storeId}`),
-  create: (storeId, data) => api.post(`/api/google-sheets/stores/${storeId}`, data),
-  update: (id, data) => api.put(`/api/google-sheets/${id}`, data),
-  delete: (id) => api.delete(`/api/google-sheets/${id}`),
-  test: (id) => api.post(`/api/google-sheets/${id}/test`),
-  sync: (id) => api.post(`/api/google-sheets/${id}/sync`),
-};
-
 // Purchase Invoices API
 export const purchaseInvoicesAPI = {
   getByStore: (storeId, filters = {}) => {
@@ -598,14 +588,6 @@ export const dataConfigurationAPI = {
     const effectiveStoreId = storeId || 'default';
     return api.put(`/api/data-configuration/formulas/${effectiveStoreId}`, data);
   },
-  getFieldMappings: () => api.get(`/api/data-configuration/field-mappings`),
-  getFieldMappingsByStore: (storeId) => api.get(`/api/data-configuration/field-mappings/store/${storeId}`),
-  updateFieldMapping: (mappingId, data) => api.put(`/api/data-configuration/field-mappings/${mappingId}`, data),
-  getAvailableFields: (dataType) => api.get(`/api/data-configuration/available-fields/${dataType}`),
-  getDataFlow: () => api.get(`/api/data-configuration/data-flow`),
-  updateDataFlow: (mappingId, data) => api.put(`/api/data-configuration/data-flow/${mappingId}`, data),
-  getIntegrationSources: () => api.get(`/api/data-configuration/integration-sources`),
-  testConnection: (sourceId, sourceType) => api.post(`/api/data-configuration/integration-sources/${sourceId}/test`, { sourceType }),
   getFormTemplates: () => api.get(`/api/data-configuration/form-templates`),
   getFormTemplate: (templateId, storeId) => {
     const params = storeId ? `?store_id=${storeId}` : '';

@@ -1,4 +1,4 @@
--- Update daily_lottery table to include all Google Sheets fields
+-- Update daily_lottery table to include all extended import fields
 -- Run this to add new columns for detailed lottery tracking
 
 ALTER TABLE daily_lottery 
@@ -27,7 +27,7 @@ ADD COLUMN IF NOT EXISTS gift_cards DECIMAL(10, 2) DEFAULT 0,
 ADD COLUMN IF NOT EXISTS prepaid DECIMAL(10, 2) DEFAULT 0,
 ADD COLUMN IF NOT EXISTS total_due DECIMAL(10, 2) DEFAULT 0;
 
--- Update existing fields to match Google Sheets data
+-- Update existing fields to match imported lottery data
 -- Map existing fields to new structure if needed
 COMMENT ON COLUMN daily_lottery.total_lottery_cash IS 'Total lottery cash (can be calculated from Draw Sales + Scratch-Offs Sales)';
 COMMENT ON COLUMN daily_lottery.daily_lottery_cash IS 'Daily lottery cash (Draw Sales)';

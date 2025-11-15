@@ -11,7 +11,7 @@ RetailCloudHQ/
 │   ├── middleware/         # Auth, audit logging, and error instrumentation
 │   ├── models/             # Query builders and data access helpers
 │   ├── routes/             # REST endpoints grouped by domain
-│   ├── services/           # Google Sheets sync, notifications, reports, schedulers
+│   ├── services/           # Integrations, notifications, reports, schedulers
 │   └── scripts/            # Database bootstrap and maintenance tooling
 ├── frontend/               # React 19 + Vite admin console with Tailwind UI
 │   ├── src/components/     # Reusable UI widgets (tables, forms, layouts)
@@ -29,7 +29,7 @@ RetailCloudHQ/
 - **Core backend:** Node 18+, Express 4, PostgreSQL 14+, JWT auth, cron-based schedulers, Google APIs.
 - **Web frontend:** React 19, Vite, Tailwind CSS, React Router, Recharts, Axios.
 - **Mobile client:** React Native 0.73 (Android-first), AsyncStorage, Vision Camera (barcode), axios.
-- **Automation & integrations:** Google Sheets ingestion, Gmail monitoring, recurring expense engine, notification service, audit logging, XLSX import/export.
+- **Automation & integrations:** Gmail monitoring, recurring expense engine, notification service, audit logging, XLSX import/export.
 - **Deployment target:** Railway (API + Postgres) and Netlify (frontend). Production relies on `VITE_API_URL=https://retailcloudhq-production.up.railway.app` and `CORS_ORIGIN=https://retailcloudhq.netlify.app`.
 
 ## Feature Highlights
@@ -38,7 +38,7 @@ RetailCloudHQ/
 - **Financial operations:** Daily revenue, lottery (instant/draw), cash-on-hand, bank deposits, payroll, utilities, operating expenses, COGS, and journal entries.
 - **Inventory & purchasing:** Product catalog, inventory orders, vendor invoices, barcode-ready handheld workflows, customer tabs, credit cards, and bank management.
 - **Billing & subscriptions:** Store subscriptions, feature pricing, invoices, payment history, notifications, and license tracking with document uploads.
-- **Automation:** Google Sheets ingestion, Gmail parsing for lottery results, scheduled recurring expenses, notification digests, audit logging and reporting exports.
+- **Automation:** Gmail parsing for lottery results, scheduled recurring expenses, notification digests, audit logging and reporting exports.
 - **Observability:** Structured JSON error logging to `backend/logs/errors.json`, `/health` endpoint, and admin UI dashboards.
 
 ## Prerequisites
@@ -47,7 +47,7 @@ RetailCloudHQ/
 - npm (or pnpm/yarn) for dependency management
 - PostgreSQL 14+ with a database named `retail_management`
 - Android Studio + JDK 17 (only if you plan to run the mobile app)
-- Optional: Google Cloud service account with Sheets API access, Gmail API credentials
+- Optional: Google Cloud service account with Gmail API credentials for lottery email ingestion
 
 ## Local Development
 
@@ -77,7 +77,6 @@ RetailCloudHQ/
    JWT_EXPIRE=7d
 
    CORS_ORIGIN=http://localhost:5173
-   ENABLE_GOOGLE_SHEETS_SYNC=true
    ENABLE_EMAIL_MONITOR=false
    ```
 3. Prepare the database:
@@ -92,7 +91,7 @@ RetailCloudHQ/
    # or
    npm start       # production mode
    ```
-   The server exposes `/` and `/health` for quick smoke tests. Background cron jobs (Google Sheets sync, recurring expenses, notifications) start automatically unless disabled via env.
+   The server exposes `/` and `/health` for quick smoke tests. Background cron jobs (recurring expenses, notifications) start automatically unless disabled via env.
 
 #### Useful backend scripts
 
@@ -141,7 +140,6 @@ RetailCloudHQ/
 ## Data & Integrations
 
 - **Database schema:** Complete definitions live in `backend/config/database.sql` with supplemental migrations in the same directory.
-- **Google Sheets ingestion:** Configure store-level credentials using the API (`/api/google-sheets`) and supply service account JSON via env or file path. Scheduler pulls hourly/daily depending on per-store settings.
 - **Gmail lottery monitor:** When `ENABLE_EMAIL_MONITOR=true`, the cron defined in `services/emailMonitorCron.js` polls linked mailbox accounts to automate lottery report ingestion.
 - **Recurring expenses:** `services/recurringExpensesService.js` generates expenses daily at 3 AM (America/New_York) and exposes manual triggers via `/api/recurring-expenses/process`.
 - **Notifications:** Alerts for overdue invoices, payment reminders, device lock statuses, etc., are generated nightly at 4 AM and surfaced in the admin UI (`/notifications` routes).
@@ -152,7 +150,7 @@ RetailCloudHQ/
 - **Backend (Railway):**
   - Set `CORS_ORIGIN=https://retailcloudhq.netlify.app` (comma-separate additional origins).
   - Run `node scripts/init-db.js` after provisioning the managed PostgreSQL instance.
-  - Configure optional vars: `ENABLE_GOOGLE_SHEETS_SYNC`, `ENABLE_EMAIL_MONITOR`, `GOOGLE_APPLICATION_CREDENTIALS`, `SMTP_*` (if email dispatch is enabled).
+  - Configure optional vars: `ENABLE_EMAIL_MONITOR`, `GOOGLE_APPLICATION_CREDENTIALS`, `SMTP_*` (if email dispatch is enabled).
 - **Frontend (Netlify):**
   - Build command: `npm run build`
   - Publish directory: `dist`

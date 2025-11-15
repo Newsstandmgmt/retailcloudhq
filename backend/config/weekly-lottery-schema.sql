@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS weekly_lottery (
     lottery_commission DECIMAL(10, 2) DEFAULT 0,
     pa_lottery_due DECIMAL(10, 2) DEFAULT 0,
     
-    -- Google Sheets fields (same as daily)
+    -- Extended import fields (same as daily)
     retailer_number VARCHAR(50),
     location_name VARCHAR(255),
     balance_forward DECIMAL(10, 2) DEFAULT 0,

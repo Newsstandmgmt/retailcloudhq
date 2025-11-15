@@ -12,7 +12,6 @@ import StoreForm from './pages/StoreForm';
 import StoreDetail from './pages/StoreDetail';
 import Revenue from './pages/Revenue';
 import BusinessAnalytics from './pages/BusinessAnalytics';
-import StoreIntegrations from './pages/StoreIntegrations';
 import AdminManagement from './pages/AdminManagement';
 import AdminDetail from './pages/AdminDetail';
 import Billing from './pages/Billing';
@@ -101,16 +100,6 @@ function App() {
               <ProtectedRoute requiredRole={['super_admin']}>
                 <Layout>
                   <StoreDetail />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/stores/:storeId/integrations"
-            element={
-              <ProtectedRoute requiredRole={['super_admin', 'admin']}>
-                <Layout>
-                  <StoreIntegrations />
                 </Layout>
               </ProtectedRoute>
             }

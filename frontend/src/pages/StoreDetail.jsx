@@ -465,13 +465,6 @@ const StoreDetail = () => {
               <p className="text-sm text-green-700">Manage invoices and payments</p>
             </Link>
             <Link
-              to={`/stores/${id}/integrations`}
-              className="block w-full text-left px-4 py-3 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg transition-colors"
-            >
-              <p className="font-medium text-purple-900">Manage Integrations</p>
-              <p className="text-sm text-purple-700">Google Sheets & other integrations</p>
-            </Link>
-            <Link
               to={`/lottery?storeId=${id}`}
               className="block w-full text-left px-4 py-3 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors"
             >

@@ -95,7 +95,6 @@ app.use('/api/expenses', require('./routes/expenses'));
 app.use('/api/licenses', require('./routes/licenses'));
 app.use('/api/store-licenses', require('./routes/storeLicenses'));
 app.use('/api/customers', require('./routes/customers'));
-app.use('/api/google-sheets', require('./routes/googleSheets'));
 app.use('/api/billing', require('./routes/billing'));
 app.use('/api/data-configuration', require('./routes/dataConfiguration'));
 app.use('/api/database-browser', require('./routes/databaseBrowser'));

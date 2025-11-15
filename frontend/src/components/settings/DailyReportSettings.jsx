@@ -50,7 +50,7 @@ const DailyReportSettings = () => {
                 onChange={(e) => setSettings({ ...settings, auto_sync_enabled: e.target.checked })}
                 className="w-4 h-4 text-[#2d8659] border-gray-300 rounded focus:ring-[#2d8659]"
               />
-              <span className="ml-2 text-sm text-gray-600">Enable automatic data sync from Google Sheets</span>
+              <span className="ml-2 text-sm text-gray-600">Enable automatic data sync from connected integrations</span>
             </div>
           </div>
 
