@@ -246,20 +246,6 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     }
   }, [invoiceForm.vendor_id, includeAllPendingItems]);
 
-  useEffect(() => {
-    if (invoiceForm.vendor_id) {
-      ensureVendorPricing(invoiceForm.vendor_id);
-    } else {
-      setActiveVendorPricingMap({});
-    }
-  }, [invoiceForm.vendor_id, ensureVendorPricing]);
-
-  useEffect(() => {
-    if (editForm?.vendor_id) {
-      ensureVendorPricing(editForm.vendor_id);
-    }
-  }, [editForm?.vendor_id, ensureVendorPricing]);
-
   const productsById = useMemo(() => {
     const map = new Map();
     products.forEach((product) => {
@@ -1738,6 +1724,20 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     setEditForm((prev) => ({ ...prev, vendor_id: vendorId }));
     ensureVendorPricing(vendorId);
   };
+
+useEffect(() => {
+  if (invoiceForm.vendor_id) {
+    ensureVendorPricing(invoiceForm.vendor_id);
+  } else {
+    setActiveVendorPricingMap({});
+  }
+}, [invoiceForm.vendor_id, ensureVendorPricing]);
+
+useEffect(() => {
+  if (editForm?.vendor_id) {
+    ensureVendorPricing(editForm.vendor_id);
+  }
+}, [editForm?.vendor_id, ensureVendorPricing]);
 
   const handleRemoveProductFromInvoice = (productId) => {
     setInvoiceForm(prev => ({
