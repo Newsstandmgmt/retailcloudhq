@@ -4,6 +4,8 @@ import { storesAPI, statisticsAPI, revenueAPI, purchaseInvoicesAPI, expensesAPI,
 import { useAuth } from '../contexts/AuthContext';
 import LotteryEmailSettings from '../components/lottery/LotteryEmailSettings';
 import CashDrawerSettings from '../components/settings/CashDrawerSettings';
+import SquareIntegrationSettings from '../components/settings/SquareIntegrationSettings';
+import HandheldDevices from '../components/settings/HandheldDevices';
 import { US_STATES } from '../utils/usStates';
 
 const StoreDetail = () => {
@@ -25,6 +27,7 @@ const StoreDetail = () => {
   });
   const [templates, setTemplates] = useState([]);
   const [lotteryConfig, setLotteryConfig] = useState(null);
+  const [integrationTab, setIntegrationTab] = useState('square');
 
   useEffect(() => {
     if (id && user?.role === 'super_admin') {
@@ -227,53 +230,15 @@ const StoreDetail = () => {
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 border-l-4 border-purple-500">
-          <p className="text-sm text-gray-600 mb-1">Created</p>
-          <p className="text-lg font-semibold text-gray-900">
-            {new Date(store.created_at).toLocaleDateString()}
+          <p className="text-sm text-gray-600 mb-1">Employees & Managers</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {stats?.employees?.total_employees ?? 0} employees
+          </p>
+          <p className="text-xs text-gray-500 mt-2">
+            {stats?.managers?.total_managers ?? 0} managers
           </p>
         </div>
       </div>
-
-      {/* Detailed Statistics */}
-      {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
-            <p className="text-sm text-gray-600 mb-1">Revenue Entries</p>
-            <p className="text-2xl font-bold text-gray-900">{stats.revenue?.total_entries || 0}</p>
-            {stats.revenue?.last_entry_date && (
-              <p className="text-xs text-gray-500 mt-2">
-                Last: {new Date(stats.revenue.last_entry_date).toLocaleDateString()}
-              </p>
-            )}
-          </div>
-
-          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-orange-500">
-            <p className="text-sm text-gray-600 mb-1">Purchase Invoices</p>
-            <p className="text-2xl font-bold text-gray-900">{stats.invoices?.total_invoices || 0}</p>
-            <p className="text-xs text-gray-500 mt-2">
-              {stats.invoices?.unpaid_invoices || 0} unpaid ({formatCurrency(stats.invoices?.unpaid_amount || 0)})
-            </p>
-          </div>
-
-          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-red-500">
-            <p className="text-sm text-gray-600 mb-1">Operating Expenses</p>
-            <p className="text-2xl font-bold text-gray-900">{stats.expenses?.total_expenses || 0}</p>
-            <p className="text-xs text-gray-500 mt-2">
-              Total: {formatCurrency(stats.expenses?.total_amount || 0)}
-            </p>
-          </div>
-
-          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
-            <p className="text-sm text-gray-600 mb-1">Employees & Managers</p>
-            <p className="text-2xl font-bold text-gray-900">
-              {stats.employees?.total_employees || 0} employees
-            </p>
-            <p className="text-xs text-gray-500 mt-2">
-              {stats.managers?.total_managers || 0} managers
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* Cash Drawer Settings */}
       <div className="mb-6 bg-white rounded-lg shadow">
@@ -475,41 +440,78 @@ const StoreDetail = () => {
         </div>
       </div>
 
-      {/* Lottery Integration & Settings */}
-      {store.state && (
-        <div className="mt-6 bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold">Lottery Integration & Settings</h2>
-            <p className="text-sm text-gray-600 mt-1">
-              Configure email-based lottery data import and state lottery settings for {store.state}
-            </p>
-          </div>
-          <div className="p-6">
-            {lotteryConfig && (
-              <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm font-medium text-blue-900 mb-2">
-                  State Lottery Configuration: {lotteryConfig.lottery_name || lotteryConfig.state_name}
-                </p>
-                <p className="text-xs text-blue-700">
-                  Email Domain: {lotteryConfig.official_email_domain || 'Not configured'}
-                </p>
-                <p className="text-xs text-blue-700">
-                  Retailer ID Label: {lotteryConfig.retailer_id_label || 'Retailer ID'}
-                </p>
-              </div>
-            )}
-            <LotteryEmailSettings storeId={id} />
-          </div>
-        </div>
-      )}
-
-      {!store.state && (
-        <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <p className="text-sm text-yellow-800">
-            <strong>Note:</strong> Set the store's state in the store settings above to enable lottery integration configuration.
+      {/* Store Integrations */}
+      <div className="mt-6 bg-white rounded-lg shadow">
+        <div className="px-6 py-4 border-b border-gray-200 flex flex-col gap-1">
+          <h2 className="text-lg font-semibold">Store Integrations</h2>
+          <p className="text-sm text-gray-600">
+            Manage POS and automated data imports for this store. Square and Gmail connections are configured per store.
           </p>
         </div>
-      )}
+        <div className="px-6 border-b border-gray-200 bg-gray-50">
+          <nav className="flex -mb-px overflow-x-auto">
+            {[
+              { id: 'square', label: 'Square POS', icon: '💳' },
+              { id: 'lottery', label: 'Lottery Email Import', icon: '📧' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setIntegrationTab(tab.id)}
+                className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors flex items-center gap-2 ${
+                  integrationTab === tab.id
+                    ? 'border-[#2d8659] text-[#2d8659]'
+                    : 'border-transparent text-gray-600 hover:text-[#2d8659] hover:border-[#2d8659]'
+                }`}
+              >
+                <span>{tab.icon}</span>
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+        <div className="p-6">
+          {integrationTab === 'square' && <SquareIntegrationSettings storeId={id} />}
+          {integrationTab === 'lottery' && (
+            <>
+              {store.state ? (
+                <>
+                  {lotteryConfig && (
+                    <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-sm font-medium text-blue-900 mb-2">
+                        State Lottery Configuration: {lotteryConfig.lottery_name || lotteryConfig.state_name}
+                      </p>
+                      <p className="text-xs text-blue-700">
+                        Email Domain: {lotteryConfig.official_email_domain || 'Not configured'}
+                      </p>
+                      <p className="text-xs text-blue-700">
+                        Retailer ID Label: {lotteryConfig.retailer_id_label || 'Retailer ID'}
+                      </p>
+                    </div>
+                  )}
+                  <LotteryEmailSettings storeId={id} />
+                </>
+              ) : (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
+                  <strong>Note:</strong> Set the store's state in the store settings above to enable lottery integration configuration.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Handheld Device Management */}
+      <div className="mt-6 bg-white rounded-lg shadow">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold">Handheld Device Management</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            Register handheld devices for {store.name} and manage employee access. Only Super Admins can provision or lock devices.
+          </p>
+        </div>
+        <div className="p-6">
+          <HandheldDevices storeIdOverride={id} storeNameOverride={store.name} embedded />
+        </div>
+      </div>
     </div>
   );
 };

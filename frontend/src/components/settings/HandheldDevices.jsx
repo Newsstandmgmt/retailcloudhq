@@ -3,11 +3,17 @@ import { useStore } from '../../contexts/StoreContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { mobileDevicesAPI } from '../../services/api';
 
-const HandheldDevices = () => {
+const HandheldDevices = ({
+  storeIdOverride = null,
+  storeNameOverride = null,
+  embedded = false,
+}) => {
   const { selectedStore } = useStore();
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'super_admin';
   const canManageAssignments = user?.role === 'admin' || isSuperAdmin;
+  const activeStoreId = storeIdOverride || selectedStore?.id || null;
+  const activeStoreName = storeNameOverride || selectedStore?.name || '';
   const [codes, setCodes] = useState([]);
   const [devices, setDevices] = useState([]);
   const [codesLoading, setCodesLoading] = useState(true);
@@ -44,24 +50,30 @@ const HandheldDevices = () => {
   });
 
   useEffect(() => {
-    if (!selectedStore) return;
+    if (!activeStoreId) {
+      setDevices([]);
+      setCodes([]);
+      setCodesLoading(false);
+      return;
+    }
+
     if (isSuperAdmin) {
-      loadCodes();
+      loadCodes(activeStoreId);
     } else {
       setCodes([]);
       setCodesLoading(false);
     }
-    loadDevices();
-  }, [selectedStore, includeUsed, includeInactive, isSuperAdmin]);
+    loadDevices(activeStoreId);
+  }, [activeStoreId, includeUsed, includeInactive, isSuperAdmin]);
 
-  const loadCodes = async () => {
-    if (!selectedStore || !isSuperAdmin) {
+  const loadCodes = async (storeId = activeStoreId) => {
+    if (!storeId || !isSuperAdmin) {
       setCodesLoading(false);
       return;
     }
     try {
       setCodesLoading(true);
-      const response = await mobileDevicesAPI.getCodes(selectedStore.id, includeUsed);
+      const response = await mobileDevicesAPI.getCodes(storeId, includeUsed);
       setCodes(response.data.codes || []);
     } catch (error) {
       console.error('Error loading codes:', error);
@@ -71,24 +83,24 @@ const HandheldDevices = () => {
     }
   };
 
-  const loadDevices = async () => {
-    if (!selectedStore) return;
+  const loadDevices = async (storeId = activeStoreId) => {
+    if (!storeId) return;
     try {
       const response = isSuperAdmin
-        ? await mobileDevicesAPI.getDevices(selectedStore.id, includeInactive)
-        : await mobileDevicesAPI.getAssignableDevices(selectedStore.id, includeInactive);
+        ? await mobileDevicesAPI.getDevices(storeId, includeInactive)
+        : await mobileDevicesAPI.getAssignableDevices(storeId, includeInactive);
       setDevices(response.data.devices || []);
     } catch (error) {
       console.error('Error loading devices:', error);
     }
   };
 
-  const loadUsers = async () => {
-    if (!selectedStore) return;
+  const loadUsers = async (storeId = activeStoreId) => {
+    if (!storeId) return;
     try {
       const response = isSuperAdmin
-        ? await mobileDevicesAPI.getUsers(selectedStore.id)
-        : await mobileDevicesAPI.getAssignableUsers(selectedStore.id);
+        ? await mobileDevicesAPI.getUsers(storeId)
+        : await mobileDevicesAPI.getAssignableUsers(storeId);
       setUsers(response.data.users || []);
     } catch (error) {
       console.error('Error loading users:', error);
@@ -96,9 +108,9 @@ const HandheldDevices = () => {
   };
 
   const handleGenerateCode = async () => {
-    if (!selectedStore || !isSuperAdmin) return;
+    if (!activeStoreId || !isSuperAdmin) return;
     try {
-      const response = await mobileDevicesAPI.generateCode(selectedStore.id, {
+      const response = await mobileDevicesAPI.generateCode(activeStoreId, {
         expires_at: newCode.expires_at || null,
         max_uses: parseInt(newCode.max_uses) || 1,
         notes: newCode.notes || null
@@ -115,7 +127,7 @@ const HandheldDevices = () => {
   };
 
   const handleAssignUser = async () => {
-    if (!selectedDevice || !assignForm.user_id) {
+    if (!selectedDevice || !assignForm.user_id || !activeStoreId) {
       alert('Please select a user');
       return;
     }
@@ -142,7 +154,7 @@ const HandheldDevices = () => {
           assignForm.device_pin || null
         );
       } else {
-        await mobileDevicesAPI.assignEmployee(selectedStore.id, selectedDevice.device_id, {
+        await mobileDevicesAPI.assignEmployee(activeStoreId, selectedDevice.device_id, {
           user_id: assignForm.user_id,
           device_pin: assignForm.device_pin || null,
           permissions: assignForm.permissions,
@@ -180,7 +192,7 @@ const HandheldDevices = () => {
       if (isSuperAdmin) {
         await mobileDevicesAPI.unassignUser(deviceId);
       } else {
-        await mobileDevicesAPI.unassignEmployee(selectedStore.id, deviceId);
+        await mobileDevicesAPI.unassignEmployee(activeStoreId, deviceId);
       }
       loadDevices();
     } catch (error) {
@@ -312,28 +324,32 @@ const HandheldDevices = () => {
     return new Date(dateString).toLocaleString();
   };
 
-  if (!selectedStore) {
+  if (!activeStoreId) {
     return (
-      <div className="p-6 text-center text-gray-500">
-        Please select a store to manage handheld devices.
+      <div className={`${embedded ? '' : 'p-6'} text-center text-gray-500`}>
+        {embedded
+          ? 'Store information unavailable. Please reload the page.'
+          : 'Please select a store to manage handheld devices.'}
       </div>
     );
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-2">Handheld Device Management</h2>
-        {isSuperAdmin ? (
-          <p className="text-sm text-gray-600">
-            Generate registration codes to link Android devices to this store. Each code can be used to register one device with specific access permissions.
-          </p>
-        ) : (
-          <p className="text-sm text-gray-600">
-            Devices are provisioned by Super Admins. Once a device is registered for your store you can assign employees and manage their PIN access below.
-          </p>
-        )}
-      </div>
+    <div className={embedded ? '' : 'p-6'}>
+      {!embedded && (
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Handheld Device Management</h2>
+          {isSuperAdmin ? (
+            <p className="text-sm text-gray-600">
+              Generate registration codes to link Android devices to this store. Each code can be used to register one device with specific access permissions.
+            </p>
+          ) : (
+            <p className="text-sm text-gray-600">
+              Devices are provisioned by Super Admins. Once a device is registered for your store you can assign employees and manage their PIN access below.
+            </p>
+          )}
+        </div>
+      )}
 
       {isSuperAdmin && (
         <>
