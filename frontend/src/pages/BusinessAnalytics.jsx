@@ -518,12 +518,6 @@ const BusinessAnalytics = () => {
               {formatCurrency(totalInstantSalesValue)}
             </div>
           </div>
-          <div className="bg-white rounded-lg shadow p-4 border-l-4 border-yellow-500">
-            <div className="text-sm font-medium text-gray-600 mb-1">Total Newspaper Sales</div>
-            <div className="text-2xl font-bold text-yellow-600">
-              {formatCurrency(totalNewspaperSalesValue)}
-            </div>
-          </div>
           <div className="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
             <div className="text-sm font-medium text-gray-600 mb-1">Lottery Cash On Hand</div>
             <div className="text-2xl font-bold text-purple-600">
@@ -534,35 +528,6 @@ const BusinessAnalytics = () => {
         </div>
       )}
 
-      {/* Weekly Lottery Info Section */}
-      {weeklyLotteryData && (
-        <div className="bg-white rounded-lg shadow p-6 mb-6 border-l-4 border-purple-500">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Weekly Lottery Information</h3>
-          <p className="text-sm text-gray-600 mb-4">
-            Latest entry: <strong>{formatDate(weeklyLotteryData.entry_date)}</strong>
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-purple-50 rounded-lg p-4">
-              <div className="text-sm font-medium text-gray-600 mb-1">Weekly Lottery Commission</div>
-              <div className="text-xl font-bold text-purple-600">
-                {formatCurrency(weeklyLotteryData.weekly_lottery_commission || 0)}
-              </div>
-            </div>
-            <div className="bg-purple-50 rounded-lg p-4">
-              <div className="text-sm font-medium text-gray-600 mb-1">13 Week Average</div>
-              <div className="text-xl font-bold text-purple-600">
-                {formatCurrency(weeklyLotteryData.thirteen_week_average || 0)}
-              </div>
-            </div>
-            <div className="bg-purple-50 rounded-lg p-4">
-              <div className="text-sm font-medium text-gray-600 mb-1">Weekly Lottery Due</div>
-              <div className="text-xl font-bold text-purple-600">
-                {formatCurrency(weeklyLotteryData.weekly_lottery_due || 0)}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Daily Report Table - Shows all entered data */}
       {selectedStore && dateRange.start && dateRange.end && (
