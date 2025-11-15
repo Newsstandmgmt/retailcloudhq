@@ -341,6 +341,7 @@ const BusinessAnalytics = () => {
     acc.calculatedBusinessCash += parseFloat(entry.calculated_business_cash || 0);
     acc.calculatedLotteryOwed += parseFloat(entry.calculated_lottery_owed || 0);
     acc.dailyBusinessTotal += parseFloat(entry.calculated_business_cash || 0) || 0;
+    acc.newspaperSales += parseFloat(entry.newspaper_sold || 0);
     return acc;
   }, {
     totalCash: 0,
@@ -355,6 +356,7 @@ const BusinessAnalytics = () => {
     calculatedBusinessCash: 0,
     calculatedLotteryOwed: 0,
     dailyBusinessTotal: 0,
+    newspaperSales: 0,
   });
 
   const calculatedDailyBusinessTotal = totals.dailyBusinessTotal > 0
@@ -365,6 +367,7 @@ const BusinessAnalytics = () => {
   const totalCreditCardSalesValue = totals.businessCreditCard;
   const totalOnlineSalesValue = totals.onlineSales > 0 ? totals.onlineSales : totals.onlineNet;
   const totalInstantSalesValue = totals.totalInstant;
+  const totalNewspaperSalesValue = totals.newspaperSales;
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-US', {
@@ -513,6 +516,12 @@ const BusinessAnalytics = () => {
             <div className="text-sm font-medium text-gray-600 mb-1">Total Instant Sales</div>
             <div className="text-2xl font-bold text-orange-600">
               {formatCurrency(totalInstantSalesValue)}
+            </div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4 border-l-4 border-yellow-500">
+            <div className="text-sm font-medium text-gray-600 mb-1">Total Newspaper Sales</div>
+            <div className="text-2xl font-bold text-yellow-600">
+              {formatCurrency(totalNewspaperSalesValue)}
             </div>
           </div>
           <div className="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">

@@ -379,12 +379,8 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
       instantAdjustment: acc.instantAdjustment + parseFloat(revenue.total_instant_adjustment || 0),
       instantPay: acc.instantPay + parseFloat(revenue.instant_pay || 0),
       lotteryCreditCard: acc.lotteryCreditCard + parseFloat(revenue.lottery_credit_card || 0),
-      weeklyLotteryCommission: acc.weeklyLotteryCommission + parseFloat(revenue.weekly_lottery_commission || 0),
-      thirteenWeekAverage: acc.thirteenWeekAverage + parseFloat(revenue.thirteen_week_average || 0),
-      weeklyLotteryDue: acc.weeklyLotteryDue + parseFloat(revenue.weekly_lottery_due || 0),
       dailyBusiness: acc.dailyBusiness + calculateDailyBusinessAmount(revenue, tabData),
-      businessCashOnHand: acc.businessCashOnHand + cashOnHand.businessCashOnHand,
-      lotteryCashOnHand: acc.lotteryCashOnHand + cashOnHand.lotteryCashOnHand
+      newspaperSales: acc.newspaperSales + parseFloat(revenue.newspaper_sold || 0),
     };
   }, {
     totalCash: 0,
@@ -399,12 +395,8 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
     instantAdjustment: 0,
     instantPay: 0,
     lotteryCreditCard: 0,
-    weeklyLotteryCommission: 0,
-    thirteenWeekAverage: 0,
-    weeklyLotteryDue: 0,
     dailyBusiness: 0,
-    businessCashOnHand: 0,
-    lotteryCashOnHand: 0
+    newspaperSales: 0,
   });
 
   const handleExportExcel = () => {
@@ -795,11 +787,7 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
                   { key: 'instant_adjustment', label: 'Instant Adjustment', getValue: (r) => formatCurrency(r.total_instant_adjustment) },
                   { key: 'instant_pay', label: 'Instant Pay', getValue: (r) => formatCurrency(r.instant_pay) },
                   { key: 'lottery_cc', label: 'Lottery Card Trans', getValue: (r) => formatCurrency(r.lottery_credit_card) },
-                  { key: 'weekly_lottery_commission', label: 'Weekly Lottery Commission', getValue: (r) => formatCurrency(r.weekly_lottery_commission), isHighlighted: true, bgColor: 'bg-purple-50', textColor: 'text-purple-800', isBold: true },
-                  { key: 'thirteen_week_average', label: '13 Week Average', getValue: (r) => formatCurrency(r.thirteen_week_average), isHighlighted: true, bgColor: 'bg-purple-50', textColor: 'text-purple-800', isBold: true },
-                  { key: 'weekly_lottery_due', label: 'Weekly Lottery Due', getValue: (r) => formatCurrency(r.weekly_lottery_due), isHighlighted: true, bgColor: 'bg-purple-50', textColor: 'text-purple-800', isBold: true },
-                  { key: 'business_cash_on_hand', label: 'Business Cash On Hand', getValue: (r, date) => formatCurrency(cashOnHandData[date]?.businessCashOnHand || 0), color: 'text-blue-600', isBold: true },
-                  { key: 'lottery_cash_on_hand', label: 'Lottery Cash On Hand', getValue: (r, date) => formatCurrency(cashOnHandData[date]?.lotteryCashOnHand || 0), color: 'text-purple-600', isBold: true },
+                  { key: 'newspaper_sales', label: 'Newspaper Sales', getValue: (r) => formatCurrency(r.newspaper_sold) },
                 ].map((field) => {
                   const sortedRevenues = [...revenueData].sort((a, b) => new Date(a.entry_date) - new Date(b.entry_date));
                   let totalValue = 0;
@@ -816,12 +804,8 @@ const DailyReportTable = ({ storeId, selectedDate, onDateSelect, initialDateRang
                   else if (field.key === 'instant_adjustment') totalValue = totals.instantAdjustment;
                   else if (field.key === 'instant_pay') totalValue = totals.instantPay;
                   else if (field.key === 'lottery_cc') totalValue = totals.lotteryCreditCard;
-                  else if (field.key === 'weekly_lottery_commission') totalValue = totals.weeklyLotteryCommission;
-                  else if (field.key === 'thirteen_week_average') totalValue = totals.thirteenWeekAverage;
-                  else if (field.key === 'weekly_lottery_due') totalValue = totals.weeklyLotteryDue;
                   else if (field.key === 'daily_business_amount') totalValue = totals.dailyBusiness;
-                  else if (field.key === 'business_cash_on_hand') totalValue = totals.businessCashOnHand;
-                  else if (field.key === 'lottery_cash_on_hand') totalValue = totals.lotteryCashOnHand;
+                  else if (field.key === 'newspaper_sales') totalValue = totals.newspaperSales;
                   
                   // For Daily Business Amount, determine color based on comparison with Credit Card Sales
                   let rowBgColor = field.isHighlighted ? (field.bgColor || 'bg-green-50') : '';

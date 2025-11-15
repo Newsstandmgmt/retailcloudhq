@@ -666,6 +666,8 @@ const handleSyncSquareSales = async () => {
     { key: 'lottery_credit_card', label: 'Lottery Card Trans', required: false },
   ];
 
+  const isNewspaperEnabled = !!storeSettings?.enable_newspaper_sales;
+
   const lastSquareSync =
     formData.square_synced_at || currentRevenueData?.square_synced_at || null;
 
@@ -913,6 +915,37 @@ const handleSyncSquareSales = async () => {
                 </div>
               </div>
             </div>
+
+            {/* Newspaper Sales Section */}
+            {isNewspaperEnabled && (
+              <div className="border-t border-gray-200 pt-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Newspaper Sales</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label
+                      htmlFor="newspaper_sold"
+                      className="block text-sm font-medium text-gray-700 mb-1"
+                    >
+                      Daily Newspaper Sales
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      id="newspaper_sold"
+                      name="newspaper_sold"
+                      value={formData.newspaper_sold || ''}
+                      onChange={handleChange}
+                      disabled={formData.store_closed}
+                      className={`w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${formData.store_closed ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Recorded for analytics only; this value will not change cash or revenue totals.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Customer Tab Section - Auto-pulled from customer tab data */}
             <div className="border border-blue-200 rounded-lg p-4 bg-blue-50">
