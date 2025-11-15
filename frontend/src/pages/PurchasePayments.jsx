@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../contexts/StoreContext';
 import { useAuth } from '../contexts/AuthContext';
-import { purchaseInvoicesAPI, banksAPI, creditCardsAPI, productsAPI, inventoryOrdersAPI, crossStorePaymentsAPI } from '../services/api';
+import { purchaseInvoicesAPI, banksAPI, creditCardsAPI, productsAPI, inventoryOrdersAPI } from '../services/api';
 
 const PurchasePayments = () => {
   const { selectedStore, stores } = useStore();
@@ -25,43 +25,6 @@ const PurchasePayments = () => {
   const [vendors, setVendors] = useState([]);
   const [banks, setBanks] = useState([]);
   const [creditCards, setCreditCards] = useState([]);
-  const [crossStorePayments, setCrossStorePayments] = useState([]);
-  const [crossStoreLoading, setCrossStoreLoading] = useState(false);
-  const [crossStoreError, setCrossStoreError] = useState('');
-  const [showCrossStoreModal, setShowCrossStoreModal] = useState(false);
-  const [crossStoreSubmitting, setCrossStoreSubmitting] = useState(false);
-  const [updatingAllocationId, setUpdatingAllocationId] = useState(null);
-  const [showCrossStoreReimbursementModal, setShowCrossStoreReimbursementModal] = useState(false);
-  const [crossStoreReimbursementAllocation, setCrossStoreReimbursementAllocation] = useState(null);
-const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
-  method: 'cash',
-  amount: '',
-  cashAmount: '',
-  reference: '',
-  note: '',
-  bankId: '',
-});
-  const [crossStoreReimbursementSubmitting, setCrossStoreReimbursementSubmitting] = useState(false);
-  const [crossStoreForm, setCrossStoreForm] = useState({
-    split_mode: 'amount',
-    source_store_id: '',
-    payment_date: new Date().toISOString().split('T')[0],
-    payment_method: 'bank',
-    payment_reference: '',
-    paid_to: '',
-    amount: '',
-    notes: '',
-    allocations: [],
-  });
-  const crossStorePaymentMethods = [
-    { value: 'bank', label: 'Bank Transfer' },
-    { value: 'card', label: 'Store Credit Card' },
-    { value: 'check', label: 'Check' },
-    { value: 'cash', label: 'Cash' },
-    { value: 'ach', label: 'ACH' },
-    { value: 'other', label: 'Other' },
-  ];
-  
   const createEmptyInvoiceForm = () => ({
     invoice_number: '',
     purchase_date: new Date().toISOString().split('T')[0],
@@ -83,7 +46,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     is_cigarette_purchase: false,
     cigarette_cartons_purchased: '',
     expected_revenue: '',
-    revenue_calculation_method: 'none', // 'none', 'manual', 'product_selection', 'auto_calculate'
+    revenue_calculation_method: 'manual', // 'manual' or 'auto_calculate'
     invoice_items: [], // Array of { product_id, quantity }
   });
   
@@ -93,7 +56,6 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
   
   // Products for revenue calculation
   const [products, setProducts] = useState([]);
-  const [selectedProducts, setSelectedProducts] = useState([]); // For product selection
   const [calculatingRevenue, setCalculatingRevenue] = useState(false);
 
   // Pending inventory order items for revenue calculation
@@ -106,10 +68,6 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
   const [sellPriceDialog, setSellPriceDialog] = useState(null);
   const [vendorPricingCache, setVendorPricingCache] = useState({});
   const [activeVendorPricingMap, setActiveVendorPricingMap] = useState({});
-  const [crossStoreAllocations, setCrossStoreAllocations] = useState([]);
-  const [allocationSaving, setAllocationSaving] = useState(false);
-  const [allocationError, setAllocationError] = useState('');
-  const [existingAllocations, setExistingAllocations] = useState([]);
   
   // Edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -143,10 +101,6 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       ...overrides,
     });
     setCalculatedInvoiceAmount(null);
-    setCrossStoreAllocations([]);
-    setExistingAllocations([]);
-    setAllocationError('');
-    setAllocationSaving(false);
   };
 
   
@@ -161,6 +115,13 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
 
+  const normalizeRevenueMethod = (method) => {
+    if (method === 'auto_calculate' || method === 'product_selection') {
+      return 'auto_calculate';
+    }
+    return 'manual';
+  };
+
   useEffect(() => {
     if (selectedStore) {
       loadInvoices();
@@ -169,11 +130,6 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       loadCreditCards();
       loadProducts();
       loadStoreTaxes();
-      loadCrossStorePayments(selectedStore.id);
-      setCrossStoreForm((prev) => ({
-        ...prev,
-        source_store_id: selectedStore.id,
-      }));
     } else {
       setStoreTaxes([]);
     }
@@ -402,37 +358,6 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     };
   };
 
-  const storeNameMap = useMemo(() => {
-    const map = new Map();
-    stores.forEach((store) => {
-      map.set(store.id, store.name);
-    });
-    return map;
-  }, [stores]);
-
-  const allocatableStores = useMemo(() => {
-    if (!selectedStore) return [];
-    return stores.filter(
-      (store) =>
-        store.id !== selectedStore.id &&
-        store.is_active !== false &&
-        !store.deleted_at
-    );
-  }, [stores, selectedStore]);
-
-  const crossStoreAllocationSummary = useMemo(() => {
-    return crossStoreAllocations.reduce(
-      (totals, row) => {
-        const qty = parseFloat(row.quantity || 0);
-        const amount = parseFloat(row.amount || 0);
-        totals.totalQuantity += Number.isFinite(qty) ? qty : 0;
-        totals.totalAmount += Number.isFinite(amount) ? amount : 0;
-        return totals;
-      },
-      { totalQuantity: 0, totalAmount: 0 }
-    );
-  }, [crossStoreAllocations]);
-
   const handleCostSaveDecision = (decision) => {
     if (!costSaveDialog) return;
     setCostSaveDialog(null);
@@ -447,85 +372,6 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     if (!sellPriceDialog) return;
     setSellPriceDialog(null);
     // TODO: update sell price + store overrides via backend
-  };
-
-  const loadInvoiceAllocations = useCallback(
-    async (invoiceId) => {
-      if (!invoiceId) return;
-      try {
-        const response = await purchaseInvoicesAPI.getAllocations(invoiceId);
-        setExistingAllocations(response.data?.allocations || []);
-      } catch (error) {
-        console.error('Error loading invoice allocations:', error);
-      }
-    },
-    []
-  );
-
-  const saveCrossStoreAllocations = useCallback(
-    async (invoiceId) => {
-      if (!invoiceId || crossStoreAllocations.length === 0) return;
-      const rows = crossStoreAllocations.filter((row) => row.target_store_id);
-      if (rows.length === 0) return;
-      setAllocationSaving(true);
-      setAllocationError('');
-      try {
-        await Promise.all(
-          rows.map((row) => {
-            const metadata = {
-              split_type: row.split_type,
-              quantity: row.split_type === 'quantity' ? parseFloat(row.quantity || 0) : undefined,
-              reimbursement_required: row.reimbursement_required !== false,
-              note: row.note || '',
-            };
-            return purchaseInvoicesAPI.createAllocation(invoiceId, {
-              target_store_id: row.target_store_id,
-              allocation_items: invoiceForm.invoice_items || [],
-              allocation_amount:
-                row.split_type === 'amount' ? parseFloat(row.amount || 0) || 0 : null,
-              allocation_metadata: metadata,
-              cross_store_payment_id: null,
-            });
-          })
-        );
-        setCrossStoreAllocations([]);
-      } catch (error) {
-        console.error('Error saving allocations:', error);
-        setAllocationError(error.response?.data?.error || error.message || 'Failed to save allocations');
-        throw error;
-      } finally {
-        setAllocationSaving(false);
-      }
-    },
-    [crossStoreAllocations, invoiceForm.invoice_items]
-  );
-
-  const generateAllocationTempId = () =>
-    (crypto?.randomUUID ? crypto.randomUUID() : `alloc-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-
-  const handleAddAllocationRow = () => {
-    setCrossStoreAllocations((prev) => [
-      ...prev,
-      {
-        tempId: generateAllocationTempId(),
-        target_store_id: '',
-        split_type: 'quantity',
-        quantity: '',
-        amount: '',
-        reimbursement_required: true,
-        note: '',
-      },
-    ]);
-  };
-
-  const handleUpdateAllocationRow = (tempId, updates) => {
-    setCrossStoreAllocations((prev) =>
-      prev.map((row) => (row.tempId === tempId ? { ...row, ...updates } : row))
-    );
-  };
-
-  const handleRemoveAllocationRow = (tempId) => {
-    setCrossStoreAllocations((prev) => prev.filter((row) => row.tempId !== tempId));
   };
 
   const computeVapeTaxPerUnit = (unitCost) => {
@@ -768,26 +614,27 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       is_cigarette_purchase: invoice.is_cigarette_purchase || false,
       cigarette_cartons_purchased: invoice.cigarette_cartons_purchased ? String(invoice.cigarette_cartons_purchased) : '',
       expected_revenue: invoice.expected_revenue || '',
-      revenue_calculation_method: invoice.revenue_calculation_method || 'none',
+      revenue_calculation_method: normalizeRevenueMethod(invoice.revenue_calculation_method),
       invoice_items: normalizedItems,
     });
     setFocusCostSection(Boolean(options.focusCost));
     setShowEditModal(true);
-    setCrossStoreAllocations([]);
-    loadInvoiceAllocations(invoice.id);
   };
 
   const handleEditRevenueMethodChange = (method) => {
     const updatedForm = {
       ...editForm,
       revenue_calculation_method: method,
-      expected_revenue: method === 'none' ? '' : editForm.expected_revenue,
-      invoice_items: method === 'none' ? [] : editForm.invoice_items,
+      invoice_items: method === 'manual' ? [] : editForm.invoice_items,
     };
+
+    if (method === 'manual') {
+      updatedForm.expected_revenue = '';
+    }
 
     setEditForm(updatedForm);
 
-    if (method === 'product_selection' || method === 'auto_calculate') {
+    if (method === 'auto_calculate') {
       openRevenueCalculationModal('edit', updatedForm);
     }
   };
@@ -994,541 +841,11 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     }
   };
 
-  const loadCrossStorePayments = async (storeId) => {
-    if (!storeId) return;
-    try {
-      setCrossStoreLoading(true);
-      const response = await crossStorePaymentsAPI.list({
-        store_id: storeId,
-        role: 'all',
-        limit: 100,
-      });
-      setCrossStorePayments(response.data.payments || []);
-      setCrossStoreError('');
-    } catch (error) {
-      console.error('Error loading cross-store payments:', error);
-      setCrossStoreError(error.response?.data?.error || 'Failed to load cross-store payments.');
-    } finally {
-      setCrossStoreLoading(false);
-    }
-  };
-
-  const resetCrossStoreForm = (defaultSourceStoreId) => {
-    const sourceId = defaultSourceStoreId || selectedStore?.id || '';
-    const defaultTarget = stores.find((store) => store.id !== sourceId);
-    const sourceStore = stores.find((store) => store.id === sourceId);
-    setCrossStoreForm({
-      split_mode: 'amount',
-      source_store_id: sourceId,
-      payment_date: new Date().toISOString().split('T')[0],
-      payment_method: 'bank',
-      payment_reference: '',
-      paid_to: '',
-      amount: '',
-      notes: '',
-      allocations: [
-        {
-          target_store_id: defaultTarget ? defaultTarget.id : '',
-          allocated_amount: '',
-          percentage: '',
-          memo: '',
-          target_type: 'manual',
-          reimbursement_required: true,
-          reimbursement_note: '',
-        },
-      ],
-    });
-  };
-
-  const handleOpenCrossStoreModal = () => {
-    resetCrossStoreForm(selectedStore?.id);
-    setShowCrossStoreModal(true);
-  };
-
-  const handleCloseCrossStoreModal = () => {
-    setShowCrossStoreModal(false);
-    resetCrossStoreForm(selectedStore?.id);
-  };
-
-  const handleAddCrossStoreAllocation = () => {
-    setCrossStoreForm((prev) => ({
-      ...prev,
-      allocations: [
-        ...prev.allocations,
-        {
-          target_store_id: '',
-          allocated_amount: '',
-          percentage: '',
-          memo: '',
-          target_type: 'manual',
-          reimbursement_required: true,
-          reimbursement_note: '',
-        },
-      ],
-    }));
-  };
-
-  const handleUpdateCrossStoreAllocation = (index, field, value) => {
-    setCrossStoreForm((prev) => {
-      const updated = [...prev.allocations];
-      let newValue = value;
-      if (field === 'reimbursement_required') {
-        newValue = !!value;
-      }
-      updated[index] = {
-        ...updated[index],
-        [field]: newValue,
-      };
-      return {
-        ...prev,
-        allocations: updated,
-      };
-    });
-  };
-
-  const handleRemoveCrossStoreAllocation = (index) => {
-    setCrossStoreForm((prev) => ({
-      ...prev,
-      allocations: prev.allocations.filter((_, allocIndex) => allocIndex !== index),
-    }));
-  };
-
-  const isCrossStorePercentageMode = crossStoreForm.split_mode === 'percentage';
-  const getCrossStoreBreakdown = () => {
-    const totalAmount = parseFloat(crossStoreForm.amount);
-    const amounts = [];
-    const percentages = [];
-
-    if (isCrossStorePercentageMode && Number.isFinite(totalAmount) && totalAmount > 0) {
-      const rawPercentages = crossStoreForm.allocations.map((allocation) => {
-        const perc = parseFloat(allocation.percentage ?? allocation.allocation_percentage);
-        return Number.isFinite(perc) ? perc : NaN;
-      });
-
-      let runningAmount = 0;
-      crossStoreForm.allocations.forEach((allocation, index) => {
-        const perc = rawPercentages[index];
-        percentages.push(perc);
-
-        if (!Number.isFinite(perc)) {
-          amounts.push(NaN);
-          return;
-        }
-
-        let amount;
-        if (index === crossStoreForm.allocations.length - 1) {
-          amount = parseFloat((totalAmount - runningAmount).toFixed(2));
-        } else {
-          amount = Math.round(totalAmount * perc * 100) / 100;
-          runningAmount += amount;
-          amount = parseFloat(amount.toFixed(2));
-        }
-        amounts.push(amount);
-      });
-    } else {
-      const totalAmountNumber = Number.isFinite(parseFloat(crossStoreForm.amount))
-        ? parseFloat(crossStoreForm.amount)
-        : NaN;
-
-      crossStoreForm.allocations.forEach((allocation) => {
-        const amount = parseFloat(allocation.allocated_amount ?? allocation.amount);
-        amounts.push(Number.isFinite(amount) ? parseFloat(amount.toFixed(2)) : NaN);
-
-        const rawPercentage = parseFloat(allocation.percentage ?? allocation.allocation_percentage);
-        if (Number.isFinite(rawPercentage)) {
-          percentages.push(rawPercentage);
-        } else if (Number.isFinite(totalAmountNumber) && totalAmountNumber > 0 && Number.isFinite(amount)) {
-          percentages.push(parseFloat(((amount / totalAmountNumber) * 100).toFixed(3)));
-        } else {
-          percentages.push(NaN);
-        }
-      });
-    }
-
-    const total = amounts.reduce((sum, value) => (Number.isFinite(value) ? sum + value : sum), 0);
-    return { amounts, percentages, total };
-  };
-
-  const crossStoreBreakdown = getCrossStoreBreakdown();
-  const crossStoreAllocationAmounts = crossStoreBreakdown.amounts;
-  const crossStoreAllocationPercentages = crossStoreBreakdown.percentages;
-  const crossStoreAllocatedTotal = crossStoreBreakdown.total;
-  const crossStoreTotalAmount = parseFloat(crossStoreForm.amount);
-  const crossStoreDifference =
-    (Number.isFinite(crossStoreTotalAmount) ? crossStoreTotalAmount : 0) - crossStoreAllocatedTotal;
-  const crossStoreDifferenceWithinTolerance = Math.abs(crossStoreDifference) < 0.01;
-  const hasSourceAllocation = crossStoreForm.allocations.some(
-    (allocation) => allocation.target_store_id === crossStoreForm.source_store_id
-  );
-  const crossStoreSourceStore = stores.find((store) => store.id === crossStoreForm.source_store_id);
-
-  const handleCrossStoreSplitModeChange = (mode) => {
-    setCrossStoreForm((prev) => {
-      if (prev.split_mode === mode) {
-        return prev;
-      }
-
-      const totalAmount = parseFloat(prev.amount);
-      return {
-        ...prev,
-        split_mode: mode,
-        allocations: prev.allocations.map((allocation) => {
-          if (mode === 'percentage') {
-            const amount = parseFloat(allocation.allocated_amount ?? allocation.amount);
-            const derivedPercentage =
-              Number.isFinite(totalAmount) && totalAmount > 0 && Number.isFinite(amount)
-                ? (amount / totalAmount) * 100
-                : NaN;
-            return {
-              ...allocation,
-              allocated_amount: '',
-              percentage: Number.isFinite(derivedPercentage)
-                ? derivedPercentage.toFixed(3)
-                : allocation.percentage || '',
-            };
-          }
-
-          const rawPercentage = parseFloat(allocation.percentage ?? allocation.allocation_percentage);
-          const derivedAmount =
-            Number.isFinite(totalAmount) && totalAmount > 0 && Number.isFinite(rawPercentage)
-              ? (totalAmount * rawPercentage) / 100
-              : NaN;
-
-          return {
-            ...allocation,
-            allocated_amount: Number.isFinite(derivedAmount)
-              ? derivedAmount.toFixed(2)
-              : allocation.allocated_amount || '',
-            percentage: allocation.percentage || (Number.isFinite(rawPercentage) ? rawPercentage.toFixed(3) : ''),
-          };
-        }),
-      };
-    });
-  };
-
-  const handleSubmitCrossStorePayment = async (event) => {
-    event.preventDefault();
-
-    if (!crossStoreForm.source_store_id) {
-      alert('Please select the source store for this payment.');
-      return;
-    }
-
-    const totalPaymentAmount = parseFloat(crossStoreForm.amount);
-    if (!Number.isFinite(totalPaymentAmount) || totalPaymentAmount <= 0) {
-      alert('Please enter a valid total payment amount.');
-      return;
-    }
-
-    if (!crossStoreForm.payment_method) {
-      alert('Please select a payment method.');
-      return;
-    }
-
-    if (!crossStoreForm.payment_date) {
-      alert('Please select a payment date.');
-      return;
-    }
-
-    if (!crossStoreForm.allocations.length) {
-      alert('Add at least one store allocation.');
-      return;
-    }
-
-    if (isCrossStorePercentageMode) {
-      let percentageTotal = 0;
-      for (const allocation of crossStoreForm.allocations) {
-        const perc = parseFloat(allocation.percentage ?? allocation.allocation_percentage);
-        if (!Number.isFinite(perc) || perc <= 0) {
-          alert('Each allocation must have a percentage greater than 0%.');
-          return;
-        }
-        percentageTotal += perc;
-      }
-
-      if (!Number.isFinite(percentageTotal)) {
-        alert('Allocation percentages must be valid numbers.');
-        return;
-      }
-
-      if (percentageTotal > 100.01) {
-        alert('Allocation percentages cannot exceed 100%.');
-        return;
-      }
-
-      if (percentageTotal < 99.99 && hasSourceAllocation) {
-        alert('Allocation percentages must add up to 100% when the paying store already has an allocation.');
-        return;
-      }
-    }
-
-    for (let index = 0; index < crossStoreForm.allocations.length; index++) {
-      const allocation = crossStoreForm.allocations[index];
-      if (!allocation.target_store_id) {
-        alert('Each allocation must have a target store selected.');
-        return;
-      }
-      const allocationAmount = crossStoreAllocationAmounts[index];
-      if (!Number.isFinite(allocationAmount) || allocationAmount <= 0) {
-        alert('Each allocation must have a valid amount.');
-        return;
-      }
-      if (isCrossStorePercentageMode) {
-        const allocationPercentage = parseFloat(allocation.percentage ?? allocation.allocation_percentage);
-        if (!Number.isFinite(allocationPercentage) || allocationPercentage <= 0) {
-          alert('Each allocation must have a valid percentage.');
-          return;
-        }
-      }
-    }
-
-    try {
-      setCrossStoreSubmitting(true);
-      let allocationsPayload = crossStoreForm.allocations.map((allocation, index) => {
-        const amount = crossStoreAllocationAmounts[index];
-        const rawPercentage = isCrossStorePercentageMode
-          ? crossStoreAllocationPercentages[index]
-          : parseFloat(allocation.percentage ?? allocation.allocation_percentage);
-        const normalizedPercentage =
-          Number.isFinite(rawPercentage) && rawPercentage > 0
-            ? parseFloat(rawPercentage.toFixed(3))
-            : Number.isFinite(totalPaymentAmount) && totalPaymentAmount > 0 && Number.isFinite(amount)
-              ? parseFloat(((amount / totalPaymentAmount) * 100).toFixed(3))
-              : null;
-
-        return {
-          target_store_id: allocation.target_store_id,
-          amount: Number.isFinite(amount) ? parseFloat(amount.toFixed(2)) : 0,
-          memo: allocation.memo || null,
-          target_type: allocation.target_type || null,
-          reimbursement_required: allocation.reimbursement_required !== false,
-          reimbursement_note: allocation.reimbursement_note || null,
-          allocation_percentage: normalizedPercentage,
-        };
-      });
-
-      let remainingDifference = crossStoreDifference;
-      if (!crossStoreDifferenceWithinTolerance) {
-        if (remainingDifference > 0.01 && !hasSourceAllocation && crossStoreForm.source_store_id) {
-          const remainderAmount = parseFloat(remainingDifference.toFixed(2));
-          const remainderPercentage =
-            Number.isFinite(totalPaymentAmount) && totalPaymentAmount > 0
-              ? parseFloat(((remainderAmount / totalPaymentAmount) * 100).toFixed(3))
-              : null;
-
-          allocationsPayload.push({
-            target_store_id: crossStoreForm.source_store_id,
-            amount: remainderAmount,
-            memo: 'Auto remainder for paying store',
-            target_type: 'manual',
-            reimbursement_required: false,
-            reimbursement_note: null,
-            allocation_percentage: remainderPercentage,
-          });
-          remainingDifference = 0;
-        } else {
-          alert('Allocated amounts must match the total payment amount.');
-          return;
-        }
-      }
-
-      await crossStorePaymentsAPI.create({
-        split_mode: crossStoreForm.split_mode,
-        source_store_id: crossStoreForm.source_store_id,
-        payment_date: crossStoreForm.payment_date,
-        payment_method: crossStoreForm.payment_method,
-        payment_reference: crossStoreForm.payment_reference || null,
-        amount: totalPaymentAmount,
-        currency: 'USD',
-        paid_to: crossStoreForm.paid_to || null,
-        notes: crossStoreForm.notes || null,
-        allocations: allocationsPayload,
-      });
-
-      alert('Cross-store payment recorded successfully.');
-      setShowCrossStoreModal(false);
-      const refreshStoreId = crossStoreForm.source_store_id || selectedStore?.id;
-      resetCrossStoreForm(refreshStoreId);
-      if (refreshStoreId) {
-        loadCrossStorePayments(refreshStoreId);
-      }
-    } catch (error) {
-      console.error('Error creating cross-store payment:', error);
-      alert(error.response?.data?.error || 'Failed to create cross-store payment.');
-    } finally {
-      setCrossStoreSubmitting(false);
-    }
-  };
-
-  const handleUpdateAllocationStatus = async (
-    allocationId,
-    updates,
-    successMessage = 'Reimbursement status updated.'
-  ) => {
-    if (!selectedStore) return false;
-    try {
-      setUpdatingAllocationId(allocationId);
-      await crossStorePaymentsAPI.updateAllocationReimbursement(allocationId, updates);
-      await loadCrossStorePayments(selectedStore.id);
-      alert(successMessage);
-      return true;
-    } catch (error) {
-      console.error('Error updating reimbursement status:', error);
-      alert(error.response?.data?.error || 'Failed to update reimbursement status.');
-      return false;
-    } finally {
-      setUpdatingAllocationId(null);
-    }
-  };
-
-  const formatCurrency = (value) => {
-    const number = parseFloat(value);
-    if (!Number.isFinite(number)) {
-      return '$0.00';
-    }
-    return number.toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  };
-
-  const formatReimbursementMethod = (method) => {
-    if (!method) return '';
-    if (method === 'ach') return 'ACH Transfer';
-    if (method === 'bank') return 'Bank Transfer';
-    return method
-      .toString()
-      .split('_')
-      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-      .join(' ');
-  };
-
   const handlePendingQuantityChange = (itemId, value) => {
     setPendingDeliveryQuantities(prev => ({
       ...prev,
       [itemId]: value
     }));
-  };
-
-  const handleOpenCrossStoreReimbursementModal = (allocation) => {
-    if (!allocation) return;
-    const defaultAmount = parseFloat(allocation.reimbursed_amount ?? allocation.allocated_amount ?? 0);
-    const defaultCash = parseFloat(
-      allocation.reimbursed_cash_amount ?? allocation.reimbursed_amount ?? allocation.allocated_amount ?? 0
-    );
-    const initialMethod = allocation.reimbursement_method || 'cash';
-
-    const fallbackBankId =
-      allocation.reimbursement_bank_id ||
-      (initialMethod !== 'cash'
-        ? banks.find((bank) => bank.is_default_bank)?.id || banks[0]?.id || ''
-        : '');
-
-    setCrossStoreReimbursementForm({
-      method: initialMethod,
-      amount: Number.isFinite(defaultAmount) && defaultAmount > 0 ? defaultAmount.toFixed(2) : '',
-      cashAmount:
-        initialMethod === 'cash' && Number.isFinite(defaultCash) && defaultCash > 0
-          ? defaultCash.toFixed(2)
-          : '',
-      reference:
-        allocation.reimbursement_method === 'check'
-          ? allocation.reimbursement_check_number || ''
-          : allocation.reimbursement_reference || '',
-      note: allocation.reimbursement_note || '',
-      bankId: fallbackBankId,
-    });
-    setCrossStoreReimbursementAllocation(allocation);
-    setShowCrossStoreReimbursementModal(true);
-  };
-
-  const handleCloseCrossStoreReimbursementModal = () => {
-    setShowCrossStoreReimbursementModal(false);
-    setCrossStoreReimbursementAllocation(null);
-    setCrossStoreReimbursementForm({
-      method: 'cash',
-      amount: '',
-      cashAmount: '',
-      reference: '',
-      note: '',
-      bankId: '',
-    });
-  };
-
-  const handleSubmitCrossStoreReimbursement = async (e) => {
-    e.preventDefault();
-    if (!crossStoreReimbursementAllocation) return;
-
-    const parsedAmount = parseFloat(
-      crossStoreReimbursementForm.amount || crossStoreReimbursementAllocation.allocated_amount || 0
-    );
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      alert('Enter a valid reimbursement amount.');
-      return;
-    }
-
-    const method = crossStoreReimbursementForm.method;
-    if (
-      (method === 'check' || method === 'ach') &&
-      banks.length > 0 &&
-      !crossStoreReimbursementForm.bankId
-    ) {
-      alert('Select the bank account used for this reimbursement.');
-      return;
-    }
-    if (method === 'check' && !crossStoreReimbursementForm.reference.trim()) {
-      alert('Enter the check number used for this reimbursement.');
-      return;
-    }
-    if (method === 'ach' && !crossStoreReimbursementForm.reference.trim()) {
-      alert('Enter the ACH confirmation or reference number.');
-      return;
-    }
-
-    const payload = {
-      status: 'completed',
-      reimbursed_amount: parsedAmount,
-      reimbursement_method: method,
-      reimbursement_note: crossStoreReimbursementForm.note || undefined,
-      reimbursement_payment_method: method,
-    };
-
-    if (method === 'cash') {
-      const parsedCash = parseFloat(
-        crossStoreReimbursementForm.cashAmount || crossStoreReimbursementForm.amount || parsedAmount
-      );
-      if (!Number.isFinite(parsedCash) || parsedCash <= 0) {
-        alert('Enter a valid cash amount for reimbursement.');
-        return;
-      }
-      payload.reimbursed_cash_amount = parsedCash;
-      payload.reimbursement_reference = crossStoreReimbursementForm.reference || undefined;
-    } else if (method === 'check') {
-      payload.reimbursement_check_number = crossStoreReimbursementForm.reference || undefined;
-      payload.reimbursement_bank_id = crossStoreReimbursementForm.bankId || undefined;
-      payload.reimbursement_reference = crossStoreReimbursementForm.reference || undefined;
-    } else if (method === 'ach') {
-      payload.reimbursement_bank_id = crossStoreReimbursementForm.bankId || undefined;
-      payload.reimbursement_reference = crossStoreReimbursementForm.reference || undefined;
-    } else {
-      payload.reimbursement_reference = crossStoreReimbursementForm.reference || undefined;
-    }
-
-    try {
-      setCrossStoreReimbursementSubmitting(true);
-      const success = await handleUpdateAllocationStatus(
-        crossStoreReimbursementAllocation.id,
-        payload,
-        'Reimbursement recorded.'
-      );
-      if (success) {
-        handleCloseCrossStoreReimbursementModal();
-      }
-    } finally {
-      setCrossStoreReimbursementSubmitting(false);
-    }
   };
 
   const handleAddPendingItemToInvoice = async (pendingItem) => {
@@ -1612,8 +929,8 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
           return {
             ...prev,
             invoice_items: updatedItems,
-            revenue_calculation_method: prev.revenue_calculation_method === 'none'
-              ? 'product_selection'
+            revenue_calculation_method: prev.revenue_calculation_method === 'manual'
+              ? 'auto_calculate'
               : prev.revenue_calculation_method
           };
         });
@@ -1681,7 +998,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     }
   };
 
-  const handleCloseRevenueModal = async ({ saveChanges = true } = {}) => {
+  const handleCloseRevenueModal = ({ saveChanges = true } = {}) => {
     if (revenueModalContext === 'edit') {
       if (saveChanges) {
         setEditForm(prev => ({
@@ -1691,14 +1008,6 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
           revenue_calculation_method: invoiceForm.revenue_calculation_method,
           invoice_items: invoiceForm.invoice_items,
         }));
-        if (crossStoreAllocations.length > 0 && editingInvoice?.id) {
-          try {
-            await saveCrossStoreAllocations(editingInvoice.id);
-            await loadInvoiceAllocations(editingInvoice.id);
-          } catch {
-            return;
-          }
-        }
       }
       resetInvoiceFormState();
     } else if (
@@ -1714,8 +1023,6 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     setPendingDeliveryQuantities({});
     setPendingItemsError('');
     setRevenueModalContext('create');
-    setCrossStoreAllocations([]);
-    setAllocationSaving(false);
   };
 
   // Calculate invoice amount (cost) from invoice_items
@@ -1802,6 +1109,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       setInvoiceForm({
         ...createEmptyInvoiceForm(),
         ...sourceForm,
+        revenue_calculation_method: 'auto_calculate',
         invoice_items: normalizedItems,
         purchase_date: sourceForm.purchase_date || new Date().toISOString().split('T')[0],
       });
@@ -1860,8 +1168,8 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
         ...prev,
         invoice_items: [...prev.invoice_items, newItem],
         revenue_calculation_method:
-          prev.revenue_calculation_method === 'none'
-            ? 'product_selection'
+          prev.revenue_calculation_method === 'manual'
+            ? 'auto_calculate'
             : prev.revenue_calculation_method,
       };
     });
@@ -2189,7 +1497,7 @@ useEffect(() => {
       let finalExpectedRevenue = invoiceForm.expected_revenue ? parseFloat(invoiceForm.expected_revenue) : null;
       let finalInvoiceItems = invoiceForm.invoice_items || [];
       
-      if (invoiceForm.revenue_calculation_method === 'product_selection' || invoiceForm.revenue_calculation_method === 'auto_calculate') {
+      if (invoiceForm.revenue_calculation_method === 'auto_calculate') {
         if (invoiceForm.invoice_items && invoiceForm.invoice_items.length > 0) {
           try {
             const response = await productsAPI.calculateRevenue(selectedStore.id, invoiceForm.invoice_items);
@@ -2213,6 +1521,9 @@ useEffect(() => {
         ? (parseInt(invoiceForm.cigarette_cartons_purchased, 10) || 0)
         : 0;
 
+      const revenueMethod =
+        invoiceForm.revenue_calculation_method === 'auto_calculate' ? 'auto_calculate' : 'manual';
+
       const invoiceData = {
         ...invoiceForm,
         invoice_number: (invoiceForm.payment_option === 'cash') ? undefined : invoiceForm.invoice_number,
@@ -2228,7 +1539,7 @@ useEffect(() => {
         reimbursement_payment_method: invoiceForm.is_reimbursable && invoiceForm.reimbursement_status === 'reimbursed' ? invoiceForm.reimbursement_payment_method : null,
         reimbursement_check_number: invoiceForm.is_reimbursable && invoiceForm.reimbursement_status === 'reimbursed' && invoiceForm.reimbursement_payment_method === 'check' ? invoiceForm.reimbursement_check_number : null,
         expected_revenue: finalExpectedRevenue,
-        revenue_calculation_method: invoiceForm.revenue_calculation_method !== 'none' ? invoiceForm.revenue_calculation_method : null,
+        revenue_calculation_method: revenueMethod,
         invoice_items: finalInvoiceItems.length > 0 ? finalInvoiceItems : null,
         is_cigarette_purchase: isCigarettePurchase,
         cigarette_cartons_purchased: cigaretteCartonsPurchased,
@@ -2238,7 +1549,6 @@ useEffect(() => {
       alert('Invoice created successfully!');
       setShowAddInvoiceModal(false);
       resetInvoiceFormState({ payment_option: 'pay_later' });
-      setSelectedProducts([]);
       loadInvoices();
     } catch (error) {
       alert('Error creating invoice: ' + (error.response?.data?.error || error.message));
@@ -2248,22 +1558,6 @@ useEffect(() => {
 
   // Get display records (invoices + payment records)
   const displayRecords = getDisplayRecords();
-
-  const pendingReimbursements = crossStorePayments.flatMap((payment) =>
-    (payment.allocations || []).filter(
-      (allocation) =>
-        allocation.reimbursement_required !== false &&
-        allocation.reimbursement_status === 'pending'
-    )
-  );
-
-  const pendingReimbursementAmount = pendingReimbursements.reduce((sum, allocation) => {
-    const amount = parseFloat(allocation.allocated_amount);
-    if (!Number.isFinite(amount)) {
-      return sum;
-    }
-    return sum + amount;
-  }, 0);
 
   const filteredInvoices = displayRecords.filter(record => {
     if (!searchTerm) return true;
@@ -2300,17 +1594,6 @@ useEffect(() => {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Purchase & Payments</h1>
         <div className="flex gap-3">
-          {(user?.role === 'admin' || user?.role === 'super_admin') && (stores || []).filter(store => store.is_active !== false && !store.deleted_at).length > 1 && (
-            <button
-              onClick={handleOpenCrossStoreModal}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.1 0-2 .9-2 2v7h4v-7c0-1.1-.9-2-2-2zm0-5a3 3 0 013 3v1h3a2 2 0 012 2v2.268a2 2 0 01-.586 1.414l-1.828 1.828A2 2 0 0117 15.732V17a2 2 0 01-2 2h-6a2 2 0 01-2-2v-1.268a2 2 0 01-.586-1.414L4.586 12.682A2 2 0 014 11.268V9a2 2 0 012-2h3V6a3 3 0 013-3z" />
-              </svg>
-              Cross-Store Payment
-            </button>
-          )}
           <button
             onClick={() => setShowAddInvoiceModal(true)}
             className="px-4 py-2 bg-[#2d8659] text-white rounded-lg hover:bg-[#256b49] transition-colors flex items-center gap-2"
@@ -2331,274 +1614,6 @@ useEffect(() => {
           </button>
         </div>
       </div>
-
-      {(user?.role === 'admin' || user?.role === 'super_admin') && selectedStore && (
-        <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Cross-Store Payments</h2>
-              <p className="text-sm text-gray-500">
-                Payments recorded from {selectedStore.name} and allocations to other stores you manage.
-              </p>
-            </div>
-            <button
-              onClick={() => loadCrossStorePayments(selectedStore.id)}
-              className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={crossStoreLoading}
-            >
-              <svg className={`w-4 h-4 ${crossStoreLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0119 5" />
-              </svg>
-              Refresh
-            </button>
-          </div>
-        {pendingReimbursements.length > 0 && (
-          <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
-            <span className="font-medium text-orange-700">
-              {pendingReimbursements.length} pending reimbursement{pendingReimbursements.length === 1 ? '' : 's'}
-            </span>
-            <span className="text-gray-600">
-              Pending amount: {formatCurrency(pendingReimbursementAmount)}
-            </span>
-          </div>
-        )}
-          {crossStoreError && (
-            <div className="mb-3 text-sm text-red-600">
-              {crossStoreError}
-            </div>
-          )}
-          {crossStoreLoading ? (
-            <div className="py-6 text-center text-sm text-gray-500">Loading cross-store payments...</div>
-          ) : crossStorePayments.length === 0 ? (
-            <div className="py-6 text-center text-sm text-gray-500">
-              No cross-store payments recorded for this store yet.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-2 text-left font-medium text-gray-600">Payment Date</th>
-                    <th className="px-4 py-2 text-left font-medium text-gray-600">Source Store</th>
-                    <th className="px-4 py-2 text-left font-medium text-gray-600">Payment Details</th>
-                    <th className="px-4 py-2 text-left font-medium text-gray-600">Allocations</th>
-                    <th className="px-4 py-2 text-right font-medium text-gray-600">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {crossStorePayments.map((payment) => (
-                    <tr key={payment.id}>
-                      <td className="px-4 py-3 align-top text-gray-700">
-                        <div className="font-medium">{new Date(payment.payment_date).toLocaleDateString()}</div>
-                        <div className="text-xs text-gray-500">
-                          {payment.created_at ? new Date(payment.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <div className="font-medium text-gray-900">{payment.source_store_name || 'Source Store'}</div>
-                        {payment.paid_to && <div className="text-xs text-gray-500">Paid to: {payment.paid_to}</div>}
-                      </td>
-                      <td className="px-4 py-3 align-top text-gray-700">
-                        <div className="font-medium capitalize">{payment.payment_method.replace(/_/g, ' ')}</div>
-                        {payment.payment_reference && (
-                          <div className="text-xs text-gray-500">Ref: {payment.payment_reference}</div>
-                        )}
-                        {payment.notes && (
-                          <div className="text-xs text-gray-500 mt-1 line-clamp-2">{payment.notes}</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <div className="space-y-3">
-                          {payment.allocations && payment.allocations.length > 0 ? (
-                            payment.allocations.map((allocation) => {
-                              const reimbursementRequired = allocation.reimbursement_required !== false;
-                              const status = allocation.reimbursement_status || (reimbursementRequired ? 'pending' : 'not_required');
-                              const isPending = reimbursementRequired && status === 'pending';
-                              const isCompleted = reimbursementRequired && status === 'completed';
-                              const statusLabel = !reimbursementRequired
-                                ? 'Not Required'
-                                : isCompleted
-                                  ? 'Reimbursed'
-                                  : 'Pending';
-                              const statusClass = !reimbursementRequired
-                                ? 'bg-gray-100 text-gray-600'
-                                : isCompleted
-                                  ? 'bg-green-100 text-green-700'
-                                  : 'bg-orange-100 text-orange-700';
-                              const reimbursedDate = allocation.reimbursed_at
-                                ? new Date(allocation.reimbursed_at).toLocaleDateString()
-                                : null;
-                              const reimbursedTime = allocation.reimbursed_at
-                                ? new Date(allocation.reimbursed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                                : null;
-                              const allocationPercentage = parseFloat(allocation.allocation_percentage);
-
-                              return (
-                                <div key={allocation.id} className="border border-gray-200 rounded-md bg-white p-3 shadow-sm">
-                                  <div className="flex flex-wrap items-start justify-between gap-2">
-                                    <div>
-                                      <div className="font-medium text-gray-900">
-                                        {allocation.target_store_name || 'Target Store'}
-                                      </div>
-                                      {allocation.memo && (
-                                        <div className="text-xs text-gray-500 mt-1">
-                                          Note: {allocation.memo}
-                                        </div>
-                                      )}
-                                      {allocation.reimbursement_method && (
-                                        <div className="text-xs text-gray-500 mt-1 space-y-0.5">
-                                          <div>
-                                            Method: {formatReimbursementMethod(allocation.reimbursement_method)}
-                                            {allocation.reimbursement_method === 'check' &&
-                                              allocation.reimbursement_check_number &&
-                                              ` • Check #${allocation.reimbursement_check_number}`}
-                                            {allocation.reimbursement_method === 'ach' &&
-                                              allocation.reimbursement_reference &&
-                                              ` • Ref: ${allocation.reimbursement_reference}`}
-                                            {allocation.reimbursement_method !== 'check' &&
-                                              allocation.reimbursement_method !== 'ach' &&
-                                              allocation.reimbursement_reference &&
-                                              ` • Ref: ${allocation.reimbursement_reference}`}
-                                          </div>
-                                          {allocation.reimbursement_bank_name && (
-                                            <div>
-                                              Bank: {allocation.reimbursement_bank_name}
-                                              {allocation.reimbursement_bank_short_name
-                                                ? ` (${allocation.reimbursement_bank_short_name})`
-                                                : ''}
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
-                                      {allocation.reimbursement_method === 'cash' &&
-                                        Number.isFinite(parseFloat(allocation.reimbursed_cash_amount)) && (
-                                          <div className="text-xs text-gray-500">
-                                            Cash posted: {formatCurrency(allocation.reimbursed_cash_amount)}
-                                          </div>
-                                        )}
-                                    </div>
-                                    <div className="text-right">
-                                      <div className="font-semibold text-gray-900">
-                                        {formatCurrency(allocation.allocated_amount)}
-                                      </div>
-                                      <div className="text-xs text-gray-500">
-                                        Allocated
-                                        {Number.isFinite(allocationPercentage) && (
-                                          <span className="ml-1">
-                                            ({allocationPercentage.toFixed(2)}%)
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
-                                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 font-medium ${statusClass}`}>
-                                      {statusLabel}
-                                    </span>
-                                    {isCompleted && (
-                                      <span className="text-gray-500">
-                                        {allocation.reimbursed_amount
-                                          ? `Reimbursed ${formatCurrency(allocation.reimbursed_amount)}`
-                                          : 'Reimbursed'}
-                                        {reimbursedDate ? ` on ${reimbursedDate}` : ''}
-                                        {reimbursedTime ? ` at ${reimbursedTime}` : ''}
-                                      </span>
-                                    )}
-                                    {isPending && (
-                                      <span className="text-orange-600">
-                                        Awaiting reimbursement
-                                      </span>
-                                    )}
-                                    {!reimbursementRequired && (
-                                      <span className="text-gray-500">
-                                        No reimbursement required
-                                      </span>
-                                    )}
-                                  </div>
-                                  {allocation.reimbursement_note && (
-                                    <div className="mt-2 text-xs text-gray-500">
-                                      Reimbursement note: {allocation.reimbursement_note}
-                                    </div>
-                                  )}
-                                  <div className="mt-2 flex flex-wrap gap-2">
-                                    {isPending && (
-                                      <button
-                                        type="button"
-                                          onClick={() => handleOpenCrossStoreReimbursementModal(allocation)}
-                                        className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                                        disabled={updatingAllocationId === allocation.id}
-                                      >
-                                        {updatingAllocationId === allocation.id ? 'Updating…' : 'Reimburse'}
-                                      </button>
-                                    )}
-                                    {isPending && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleUpdateAllocationStatus(
-                                            allocation.id,
-                                            { status: 'not_required' },
-                                            'Marked as not requiring reimbursement.'
-                                          )
-                                        }
-                                        className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                                        disabled={updatingAllocationId === allocation.id}
-                                      >
-                                        {updatingAllocationId === allocation.id ? 'Updating…' : 'Mark Not Required'}
-                                      </button>
-                                    )}
-                                    {isCompleted && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleUpdateAllocationStatus(
-                                            allocation.id,
-                                            { status: 'pending' },
-                                            'Reimbursement marked as pending.'
-                                          )
-                                        }
-                                        className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                                        disabled={updatingAllocationId === allocation.id}
-                                      >
-                                        {updatingAllocationId === allocation.id ? 'Updating…' : 'Mark Pending'}
-                                      </button>
-                                    )}
-                                    {!reimbursementRequired && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleUpdateAllocationStatus(
-                                            allocation.id,
-                                            { status: 'pending', reimbursement_required: true },
-                                            'Reimbursement requirement enabled and set to pending.'
-                                          )
-                                        }
-                                        className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                                        disabled={updatingAllocationId === allocation.id}
-                                      >
-                                        {updatingAllocationId === allocation.id ? 'Updating…' : 'Require Reimbursement'}
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })
-                          ) : (
-                            <div className="text-sm text-gray-500">No allocations.</div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 align-top text-right font-semibold text-gray-900">
-                        {formatCurrency(payment.amount)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Filters and Search Section */}
       <div className="bg-white rounded-lg shadow p-4 mb-4">
@@ -3202,28 +2217,19 @@ useEffect(() => {
                       value={invoiceForm.revenue_calculation_method}
                       onChange={(e) => {
                         const method = e.target.value;
-                        setInvoiceForm({ 
-                          ...invoiceForm, 
+                        setInvoiceForm((prev) => ({
+                          ...prev,
                           revenue_calculation_method: method,
-                          expected_revenue: method === 'none' ? '' : invoiceForm.expected_revenue,
-                          invoice_items: method === 'none' ? [] : invoiceForm.invoice_items
-                        });
-                        if (method === 'product_selection') {
-                          // Auto-calculate when method changes
-                          setTimeout(() => {
-                            if (invoiceForm.invoice_items.length > 0) {
-                              calculateExpectedRevenue();
-                            }
-                          }, 100);
-                        } else if (method === 'auto_calculate') {
+                          expected_revenue: method === 'manual' ? '' : prev.expected_revenue,
+                          invoice_items: method === 'manual' ? [] : prev.invoice_items,
+                        }));
+                        if (method === 'auto_calculate') {
                           openRevenueCalculationModal('create');
                         }
                       }}
                       className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659] focus:border-transparent"
                     >
-                      <option value="none">No Revenue Calculation</option>
                       <option value="manual">Enter Expected Revenue Manually</option>
-                      <option value="product_selection">Select Products & Calculate</option>
                       <option value="auto_calculate">Calculate Cost (Which is invoice amount) and Revenue</option>
                     </select>
 
@@ -3245,197 +2251,7 @@ useEffect(() => {
                       </div>
                     )}
 
-                    {/* Product Selection */}
-                    {invoiceForm.revenue_calculation_method === 'product_selection' && (
-                      <div className="mt-3 space-y-3">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Select Products Delivered
-                          </label>
-                          <div className="border border-gray-300 rounded-md p-3 max-h-48 overflow-y-auto">
-                            {products.length === 0 ? (
-                              <p className="text-sm text-gray-500">No products available. <a href="/inventory/products" className="text-[#2d8659] hover:underline">Add products</a> first.</p>
-                            ) : (
-                              <div className="space-y-2">
-                                {products.map((product) => {
-                                  const invoiceItem = invoiceForm.invoice_items.find(item => item.product_id === product.id);
-                                  const isSelected = !!invoiceItem;
-                                  const variantOptionsBase = parseProductVariants(product);
-                                  const variantOptions = [...variantOptionsBase];
-                                  if (
-                                    invoiceItem?.variant_name &&
-                                    !variantOptions.find(
-                                      (variant) =>
-                                        variant.name === invoiceItem.variant_name ||
-                                        variant.variant === invoiceItem.variant_name
-                                    )
-                                  ) {
-                                    variantOptions.push({
-                                      name: invoiceItem.variant_name,
-                                      upc: invoiceItem.variant_upc,
-                                    });
-                                  }
-                                  const showVariantSelector =
-                                    (product.variants_enabled && variantOptions.length > 0) ||
-                                    variantOptions.length > 1 ||
-                                    Boolean(invoiceItem?.variant_name);
-                                  let selectedVariantValue = '';
-                                  if (invoiceItem?.variant_id) {
-                                    selectedVariantValue = invoiceItem.variant_id;
-                                  } else if (invoiceItem?.variant_name) {
-                                    const matchIndex = variantOptions.findIndex(
-                                      (variant) =>
-                                        variant.name === invoiceItem.variant_name ||
-                                        variant.variant === invoiceItem.variant_name
-                                    );
-                                    if (matchIndex >= 0) {
-                                      selectedVariantValue = getVariantKey(variantOptions[matchIndex], matchIndex);
-                                    } else {
-                                      selectedVariantValue = invoiceItem.variant_name;
-                                    }
-                                  }
-                                  return (
-                                    <div key={product.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
-                                      <div className="flex-1">
-                                        <div className="font-medium text-sm">{product.full_product_name}</div>
-                                        <div className="text-xs text-gray-500">
-                                          ${parseFloat(product.sell_price_per_piece || 0).toFixed(2)} per piece
-                                        </div>
-                                      </div>
-                                      {isSelected ? (
-                                        <div className="flex flex-col gap-2">
-                                          <div className="flex items-center gap-2">
-                                            <input
-                                              type="number"
-                                              min="0"
-                                              step="0.01"
-                                              value={invoiceItem.quantity || 0}
-                                              onChange={(e) => {
-                                                const qty = parseFloat(e.target.value) || 0;
-                                                if (qty > 0) {
-                                                  handleUpdateProductQuantity(product.id, qty);
-                                                } else {
-                                                  handleRemoveProductFromInvoice(product.id);
-                                                }
-                                                setTimeout(() => calculateExpectedRevenue(), 100);
-                                              }}
-                                              className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
-                                              placeholder="Qty"
-                                            />
-                                            <input
-                                              type="number"
-                                              min="0"
-                                              step="0.01"
-                                              value={invoiceItem.unit_cost || product.cost_price || 0}
-                                              onChange={(e) => {
-                                                handleUpdateProductUnitCost(product.id, e.target.value);
-                                              }}
-                                              className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
-                                              placeholder="Unit Cost"
-                                            />
-                                            {vendorCost !== null && vendorCost !== undefined && (
-                                              <button
-                                                type="button"
-                                                onClick={() => handleApplyVendorCostToInvoiceItem(product.id)}
-                                                className="text-xs text-[#2d8659] border border-[#2d8659]/30 px-2 py-1 rounded hover:bg-[#2d8659]/10"
-                                              >
-                                                Use vendor price (${parseFloat(vendorCost).toFixed(2)})
-                                              </button>
-                                            )}
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                handleRemoveProductFromInvoice(product.id);
-                                                setTimeout(() => calculateExpectedRevenue(), 100);
-                                              }}
-                                              className="text-red-600 hover:text-red-800 text-sm"
-                                            >
-                                              Remove
-                                            </button>
-                                          </div>
-                                          {showVariantSelector && (
-                                            <div className="flex flex-col gap-1 text-xs text-gray-600">
-                                              <label className="font-medium text-gray-700">Variant</label>
-                                              <select
-                                                value={selectedVariantValue}
-                                                onChange={(e) => handleUpdateProductVariant(product.id, e.target.value)}
-                                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
-                                              >
-                                                <option value="">Select variant</option>
-                                                {variantOptions.map((variant, idx) => {
-                                                  const key = getVariantKey(variant, idx);
-                                                  return (
-                                                    <option key={key} value={key}>
-                                                      {(variant.name || variant.variant || `Variant ${idx + 1}`) +
-                                                        (variant.upc ? ` (${variant.upc})` : '')}
-                                                    </option>
-                                                  );
-                                                })}
-                                              </select>
-                                            </div>
-                                          )}
-                                          {product.vape_tax && (
-                                            <label className="flex items-center gap-2 text-xs">
-                                              <input
-                                                type="checkbox"
-                                                checked={invoiceItem.vape_tax_paid || false}
-                                                onChange={(e) => handleUpdateProductVapeTax(product.id, e.target.checked)}
-                                                className="rounded border-gray-300 text-yellow-600 focus:ring-yellow-500"
-                                              />
-                                              <span className="text-yellow-700 font-medium">
-                                                Vape Tax Paid
-                                                {vapeTaxLabel ? ` (${vapeTaxLabel})` : ''}
-                                              </span>
-                                            </label>
-                                          )}
-                                          {invoiceItem.vape_tax_paid && (
-                                            <div className="text-[11px] text-yellow-700">
-                                              {(() => {
-                                                const perUnitTax = parseFloat(invoiceItem.vape_tax_amount_per_unit || 0) || 0;
-                                                return `Added per unit: $${perUnitTax.toFixed(2)}`;
-                                              })()}
-                                            </div>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            handleAddProductToInvoice(product);
-                                            setTimeout(() => calculateExpectedRevenue(), 100);
-                                          }}
-                                          className="px-3 py-1 bg-[#2d8659] text-white text-sm rounded hover:bg-[#256b49]"
-                                        >
-                                          Add
-                                        </button>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        {invoiceForm.invoice_items.length > 0 && (
-                          <div className="bg-gray-50 p-3 rounded">
-                            <div className="flex justify-between items-center">
-                              <span className="text-sm font-medium text-gray-700">Expected Revenue:</span>
-                              <span className="text-lg font-bold text-[#2d8659]">
-                                ${calculatingRevenue ? 'Calculating...' : parseFloat(invoiceForm.expected_revenue || 0).toFixed(2)}
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={calculateExpectedRevenue}
-                              disabled={calculatingRevenue}
-                              className="mt-2 text-sm text-[#2d8659] hover:underline disabled:opacity-50"
-                            >
-                              {calculatingRevenue ? 'Calculating...' : 'Recalculate'}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
+
 
                     {/* Auto Calculate - Show button to open Revenue Calculation modal */}
                     {invoiceForm.revenue_calculation_method === 'auto_calculate' && (
@@ -3683,515 +2499,7 @@ useEffect(() => {
         </div>
       )}
 
-      {showCrossStoreReimbursementModal && crossStoreReimbursementAllocation && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 px-4">
-          <div className="bg-white w-full max-w-md rounded-lg shadow-xl p-6">
-            <h2 className="text-lg font-semibold text-gray-900">Record Reimbursement</h2>
-            <p className="text-sm text-gray-500 mb-4">
-              {selectedStore?.name
-                ? `${selectedStore.name} is recording a reimbursement for ${crossStoreReimbursementAllocation.target_store_name || 'the assigned store'}.`
-                : 'Record reimbursement for this cross-store allocation.'}
-            </p>
-            <form onSubmit={handleSubmitCrossStoreReimbursement} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Reimbursement Amount</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={crossStoreReimbursementForm.amount}
-                  onChange={(e) =>
-                    setCrossStoreReimbursementForm((prev) => ({ ...prev, amount: e.target.value }))
-                  }
-                  placeholder={formatCurrency(
-                    crossStoreReimbursementAllocation.reimbursed_amount ??
-                      crossStoreReimbursementAllocation.allocated_amount
-                  )}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
-                <select
-                  value={crossStoreReimbursementForm.method}
-                  onChange={(e) => {
-                    const nextMethod = e.target.value;
-                    setCrossStoreReimbursementForm((prev) => ({
-                      ...prev,
-                      method: nextMethod,
-                      cashAmount: nextMethod === 'cash' ? (prev.cashAmount || prev.amount || '') : '',
-                      bankId:
-                        nextMethod === 'cash'
-                          ? ''
-                          : prev.bankId ||
-                            (banks.find((bank) => bank.is_default_bank)?.id || banks[0]?.id || ''),
-                      reference:
-                        nextMethod === 'check' && prev.reference
-                          ? prev.reference
-                          : nextMethod === 'cash'
-                            ? prev.reference
-                            : prev.reference,
-                    }));
-                  }}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                >
-                  <option value="cash">Cash</option>
-                  <option value="check">Check</option>
-                  <option value="ach">ACH / Bank Transfer</option>
-                  <option value="other">Other</option>
-                </select>
-                {crossStoreReimbursementForm.method === 'cash' && (
-                  <p className="mt-2 text-xs text-gray-500">
-                    Selecting cash automatically adjusts Cash On Hand for both the paying and receiving stores.
-                  </p>
-                )}
-              </div>
-              {crossStoreReimbursementForm.method === 'cash' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Cash Amount</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={crossStoreReimbursementForm.cashAmount}
-                    onChange={(e) =>
-                      setCrossStoreReimbursementForm((prev) => ({ ...prev, cashAmount: e.target.value }))
-                    }
-                    placeholder={
-                      crossStoreReimbursementForm.amount ||
-                      formatCurrency(
-                        crossStoreReimbursementAllocation.reimbursed_cash_amount ??
-                          crossStoreReimbursementAllocation.allocated_amount
-                      )
-                    }
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                    required
-                  />
-                </div>
-              )}
-              {(crossStoreReimbursementForm.method === 'check' ||
-                crossStoreReimbursementForm.method === 'ach') && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Bank Account</label>
-                  <select
-                    value={crossStoreReimbursementForm.bankId}
-                    onChange={(e) =>
-                      setCrossStoreReimbursementForm((prev) => ({
-                        ...prev,
-                        bankId: e.target.value,
-                      }))
-                    }
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                  >
-                    <option value="">Select bank account</option>
-                    {banks.map((bank) => (
-                      <option key={bank.id} value={bank.id}>
-                        {bank.bank_name}
-                        {bank.bank_short_name ? ` (${bank.bank_short_name})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {crossStoreReimbursementForm.method === 'check'
-                    ? 'Check Number'
-                    : crossStoreReimbursementForm.method === 'ach'
-                      ? 'ACH / Transfer Reference'
-                      : 'Reference (optional)'}
-                </label>
-                <input
-                  type="text"
-                  value={crossStoreReimbursementForm.reference}
-                  onChange={(e) =>
-                    setCrossStoreReimbursementForm((prev) => ({ ...prev, reference: e.target.value }))
-                  }
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                  placeholder={
-                    crossStoreReimbursementForm.method === 'check'
-                      ? 'Enter check number'
-                      : crossStoreReimbursementForm.method === 'ach'
-                        ? 'Enter ACH confirmation / reference'
-                        : 'Reference or memo'
-                  }
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Reimbursement Note <span className="text-xs text-gray-400">(optional)</span>
-                </label>
-                <textarea
-                  rows={3}
-                  value={crossStoreReimbursementForm.note}
-                  onChange={(e) =>
-                    setCrossStoreReimbursementForm((prev) => ({ ...prev, note: e.target.value }))
-                  }
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                  placeholder="Any additional notes for this reimbursement"
-                />
-              </div>
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={handleCloseCrossStoreReimbursementModal}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
-                  disabled={crossStoreReimbursementSubmitting}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 text-sm"
-                  disabled={crossStoreReimbursementSubmitting}
-                >
-                  {crossStoreReimbursementSubmitting ? 'Recording…' : 'Record Reimbursement'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Cross-Store Payment Modal */}
-      {showCrossStoreModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900">Record Cross-Store Payment</h2>
-                <p className="text-sm text-gray-500">
-                  Track payments made from one store that need to be allocated to other stores under your management.
-                </p>
-              </div>
-              <button onClick={handleCloseCrossStoreModal} className="text-gray-400 hover:text-gray-600">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmitCrossStorePayment} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Source Store</label>
-                  <select
-                    value={crossStoreForm.source_store_id}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setCrossStoreForm((prev) => ({
-                        ...prev,
-                        source_store_id: value,
-                      }));
-                    }}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                  >
-                    <option value="">Select store</option>
-                    {(stores || [])
-                      .filter((store) => store.is_active !== false && !store.deleted_at)
-                      .map((store) => (
-                        <option key={store.id} value={store.id}>
-                          {store.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
-                  <input
-                    type="date"
-                    value={crossStoreForm.payment_date}
-                    onChange={(e) => setCrossStoreForm((prev) => ({ ...prev, payment_date: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
-                  <select
-                    value={crossStoreForm.payment_method}
-                    onChange={(e) => setCrossStoreForm((prev) => ({ ...prev, payment_method: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent capitalize"
-                  >
-                    {crossStorePaymentMethods.map((method) => (
-                      <option key={method.value} value={method.value}>
-                        {method.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Reference / Check No. <span className="text-xs text-gray-400">(optional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={crossStoreForm.payment_reference}
-                    onChange={(e) => setCrossStoreForm((prev) => ({ ...prev, payment_reference: e.target.value }))}
-                    placeholder="e.g., Check #1234 or Card ending 4321"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Payee <span className="text-xs text-gray-400">(optional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={crossStoreForm.paid_to}
-                    onChange={(e) => setCrossStoreForm((prev) => ({ ...prev, paid_to: e.target.value }))}
-                    placeholder="Vendor, credit card, or payee name"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Total Payment Amount</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={crossStoreForm.amount}
-                    onChange={(e) => setCrossStoreForm((prev) => ({ ...prev, amount: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes <span className="text-xs text-gray-400">(optional)</span>
-                </label>
-                <textarea
-                  value={crossStoreForm.notes}
-                  onChange={(e) => setCrossStoreForm((prev) => ({ ...prev, notes: e.target.value }))}
-                  rows={3}
-                  placeholder="Add context for this payment, e.g., 'Paid via Store A card for Store B & C inventory'"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <div className="flex flex-col gap-3 mb-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h3 className="text-lg font-semibold text-gray-900">Allocate to other stores</h3>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Split By:</span>
-                      <div className="inline-flex rounded-md shadow-sm border border-gray-200 overflow-hidden">
-                        <button
-                          type="button"
-                          onClick={() => handleCrossStoreSplitModeChange('amount')}
-                          className={`px-3 py-1.5 text-sm font-medium ${
-                            isCrossStorePercentageMode
-                              ? 'bg-white text-gray-600 hover:bg-gray-50'
-                              : 'bg-purple-600 text-white'
-                          }`}
-                        >
-                          Dollar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleCrossStoreSplitModeChange('percentage')}
-                          className={`px-3 py-1.5 text-sm font-medium ${
-                            isCrossStorePercentageMode
-                              ? 'bg-purple-600 text-white'
-                              : 'bg-white text-gray-600 hover:bg-gray-50'
-                          }`}
-                        >
-                          Percentage
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleAddCrossStoreAllocation}
-                    className="inline-flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700 transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    Add Store Allocation
-                  </button>
-                </div>
-
-                {crossStoreForm.allocations.length === 0 ? (
-                  <div className="p-4 border border-dashed border-gray-300 rounded-md text-sm text-gray-500">
-                    Add at least one target store allocation.
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {crossStoreForm.allocations.map((allocation, index) => (
-                      <div
-                        key={index}
-                        className="border border-gray-200 rounded-xl bg-white shadow-sm p-4 space-y-4"
-                      >
-                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                          <div className="md:col-span-4">
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Target Store</label>
-                            <select
-                              value={allocation.target_store_id}
-                              onChange={(e) =>
-                                handleUpdateCrossStoreAllocation(index, 'target_store_id', e.target.value)
-                              }
-                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                            >
-                              <option value="">Select store</option>
-                              {stores
-                                .filter((store) => store.is_active !== false && !store.deleted_at)
-                                .map((store) => (
-                                  <option key={store.id} value={store.id}>
-                                    {store.name}
-                                    {store.id === crossStoreForm.source_store_id ? ' (Paying Store)' : ''}
-                                  </option>
-                                ))}
-                            </select>
-                          </div>
-                          <div className="md:col-span-3">
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">
-                              {isCrossStorePercentageMode ? 'Percentage' : 'Amount'}
-                            </label>
-                            {isCrossStorePercentageMode ? (
-                              <>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  value={allocation.percentage}
-                                  onChange={(e) =>
-                                    handleUpdateCrossStoreAllocation(index, 'percentage', e.target.value)
-                                  }
-                                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                                />
-                                <p className="mt-1 text-xs text-gray-500">
-                                  Amount: {formatCurrency(crossStoreAllocationAmounts[index] || 0)}
-                                </p>
-                              </>
-                            ) : (
-                              <>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  value={allocation.allocated_amount}
-                                  onChange={(e) =>
-                                    handleUpdateCrossStoreAllocation(index, 'allocated_amount', e.target.value)
-                                  }
-                                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                                />
-                                <p className="mt-1 text-xs text-gray-500">
-                                  {Number.isFinite(crossStoreAllocationPercentages[index])
-                                    ? `≈ ${crossStoreAllocationPercentages[index].toFixed(2)}%`
-                                    : 'Percentage shown after totals entered'}
-                                </p>
-                              </>
-                            )}
-                          </div>
-                          <div className="md:col-span-5">
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">
-                              Notes <span className="text-xs text-gray-400">(optional)</span>
-                            </label>
-                            <input
-                              type="text"
-                              value={allocation.memo}
-                              onChange={(e) => handleUpdateCrossStoreAllocation(index, 'memo', e.target.value)}
-                              placeholder="Describe this allocation"
-                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                          <label className="inline-flex items-center text-sm text-gray-700">
-                            <input
-                              type="checkbox"
-                              checked={allocation.reimbursement_required !== false}
-                              onChange={(e) =>
-                                handleUpdateCrossStoreAllocation(index, 'reimbursement_required', e.target.checked)
-                              }
-                              className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                            />
-                            <span className="ml-2">Reimbursement required</span>
-                          </label>
-                          <p className="text-xs text-gray-500">
-                            Uncheck if the paying store will absorb this expense and no reimbursement is expected.
-                          </p>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-semibold text-gray-700 mb-1">
-                            Reimbursement Note <span className="text-xs text-gray-400">(optional)</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={allocation.reimbursement_note || ''}
-                            onChange={(e) =>
-                              handleUpdateCrossStoreAllocation(index, 'reimbursement_note', e.target.value)
-                            }
-                            placeholder="Add a note for the receiving store"
-                            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                          />
-                        </div>
-                        {crossStoreForm.allocations.length > 1 && (
-                          <div className="text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveCrossStoreAllocation(index)}
-                              className="text-sm text-red-600 hover:text-red-800"
-                            >
-                              Remove allocation
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-gray-200 pt-4">
-                <div className="text-sm text-gray-600">
-                  Allocated Total:{' '}
-                  <span className="font-semibold text-gray-900">{formatCurrency(crossStoreAllocatedTotal)}</span>
-                </div>
-                <div
-                  className={`text-sm font-semibold ${
-                    crossStoreDifferenceWithinTolerance ? 'text-green-600' : 'text-orange-600'
-                  }`}
-                >
-                  Remaining Difference:{' '}
-                  {formatCurrency(crossStoreDifference)}
-                </div>
-              {!crossStoreDifferenceWithinTolerance &&
-                crossStoreDifference > 0.01 &&
-                !hasSourceAllocation &&
-                crossStoreSourceStore && (
-                  <div className="text-xs text-gray-500">
-                    The remaining difference will be automatically allocated to {crossStoreSourceStore.name} when you
-                    save.
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={handleCloseCrossStoreModal}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                  disabled={crossStoreSubmitting}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={crossStoreSubmitting}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {crossStoreSubmitting ? 'Saving...' : 'Save Cross-Store Payment'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Make Payment Modal */}
       {showMakePaymentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -4927,13 +3235,11 @@ useEffect(() => {
                       Revenue Calculation
                     </label>
                     <select
-                      value={editForm.revenue_calculation_method || 'none'}
+                      value={editForm.revenue_calculation_method || 'manual'}
                       onChange={(e) => handleEditRevenueMethodChange(e.target.value)}
                       className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
                     >
-                      <option value="none">No Revenue Calculation</option>
                       <option value="manual">Enter Expected Revenue Manually</option>
-                      <option value="product_selection">Select Products & Calculate</option>
                       <option value="auto_calculate">Calculate Cost & Revenue</option>
                     </select>
 
@@ -4954,7 +3260,7 @@ useEffect(() => {
                       </div>
                     )}
 
-                    {['product_selection', 'auto_calculate'].includes(editForm.revenue_calculation_method) && (
+                    {editForm.revenue_calculation_method === 'auto_calculate' && (
                       <div className="mt-3 space-y-3">
                         <button
                           type="button"
@@ -5579,215 +3885,6 @@ useEffect(() => {
                                   </button>
                                 )}
                               </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Cross-Store Allocations */}
-                <div className="border border-gray-200 rounded-lg p-4 space-y-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">Cross-Store Allocations</h3>
-                      <p className="text-sm text-gray-600">
-                        Split this invoice across other stores. Child invoices will be generated when this form is saved.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleAddAllocationRow}
-                      disabled={allocatableStores.length === 0}
-                      className="px-3 py-1.5 text-sm font-medium rounded-md border border-dashed border-gray-300 hover:border-[#2d8659] hover:text-[#2d8659] disabled:opacity-50"
-                    >
-                      + Add Allocation
-                    </button>
-                  </div>
-
-                  {allocatableStores.length === 0 ? (
-                    <div className="text-sm text-gray-500">
-                      No other active stores are available for allocations.
-                    </div>
-                  ) : crossStoreAllocations.length === 0 ? (
-                    <div className="text-sm text-gray-500">
-                      No allocations added yet. Use the button above to distribute this invoice to other stores.
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {crossStoreAllocations.map((allocation) => (
-                        <div
-                          key={allocation.tempId}
-                          className="border border-gray-100 rounded-lg p-3 bg-gray-50 space-y-3"
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="flex-1">
-                              <label className="block text-xs font-medium text-gray-600 mb-1">Target Store</label>
-                              <select
-                                value={allocation.target_store_id}
-                                onChange={(e) =>
-                                  handleUpdateAllocationRow(allocation.tempId, {
-                                    target_store_id: e.target.value,
-                                  })
-                                }
-                                className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                              >
-                                <option value="">Select store</option>
-                                {allocatableStores.map((store) => (
-                                  <option key={store.id} value={store.id}>
-                                    {store.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveAllocationRow(allocation.tempId)}
-                              className="text-gray-400 hover:text-red-500"
-                            >
-                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">Allocation Type</label>
-                              <select
-                                value={allocation.split_type}
-                                onChange={(e) =>
-                                  handleUpdateAllocationRow(allocation.tempId, {
-                                    split_type: e.target.value,
-                                  })
-                                }
-                                className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                              >
-                                <option value="quantity">Quantity (packs)</option>
-                                <option value="amount">Cost Amount</option>
-                              </select>
-                            </div>
-                            {allocation.split_type === 'quantity' ? (
-                              <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">Quantity (packs)</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={allocation.quantity}
-                                  onChange={(e) =>
-                                    handleUpdateAllocationRow(allocation.tempId, {
-                                      quantity: e.target.value,
-                                    })
-                                  }
-                                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                                  placeholder="e.g., 4"
-                                />
-                              </div>
-                            ) : (
-                              <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">Allocation Amount ($)</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={allocation.amount}
-                                  onChange={(e) =>
-                                    handleUpdateAllocationRow(allocation.tempId, {
-                                      amount: e.target.value,
-                                    })
-                                  }
-                                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                                  placeholder="e.g., 250"
-                                />
-                              </div>
-                            )}
-                            <div className="flex flex-col justify-end">
-                              <label className="inline-flex items-center text-sm text-gray-700">
-                                <input
-                                  type="checkbox"
-                                  checked={allocation.reimbursement_required}
-                                  onChange={(e) =>
-                                    handleUpdateAllocationRow(allocation.tempId, {
-                                      reimbursement_required: e.target.checked,
-                                    })
-                                  }
-                                  className="rounded border-gray-300 text-[#2d8659] focus:ring-[#2d8659]"
-                                />
-                                <span className="ml-2">Reimbursement required</span>
-                              </label>
-                            </div>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
-                            <textarea
-                              value={allocation.note}
-                              onChange={(e) =>
-                                handleUpdateAllocationRow(allocation.tempId, {
-                                  note: e.target.value,
-                                })
-                              }
-                              rows={2}
-                              className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                              placeholder="Reason for allocation, delivery notes, etc."
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {allocationError && (
-                    <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">
-                      {allocationError}
-                    </div>
-                  )}
-
-                  {crossStoreAllocations.length > 0 && (
-                    <div className="border-t pt-3 text-sm text-gray-700">
-                      <div className="flex justify-between">
-                        <span>Total quantity allocated</span>
-                        <span className="font-semibold">{crossStoreAllocationSummary.totalQuantity.toFixed(0)} packs</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Total amount allocated</span>
-                        <span className="font-semibold">
-                          ${crossStoreAllocationSummary.totalAmount.toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  {existingAllocations.length > 0 && (
-                    <div className="border-t pt-4">
-                      <h4 className="text-sm font-semibold text-gray-900 mb-2">Existing Allocations</h4>
-                      <div className="space-y-2">
-                        {existingAllocations.map((allocation) => {
-                          const targetName =
-                            storeNameMap.get(allocation.target_store_id) || allocation.target_store_id;
-                          return (
-                            <div
-                              key={allocation.id}
-                              className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border border-gray-200 rounded-lg p-3 bg-white"
-                            >
-                              <div>
-                                <p className="text-sm font-medium text-gray-900">{targetName}</p>
-                                <p className="text-xs text-gray-600">
-                                  Amount:{' '}
-                                  {allocation.allocation_amount
-                                    ? `$${parseFloat(allocation.allocation_amount).toFixed(2)}`
-                                    : 'n/a'}
-                                </p>
-                              </div>
-                              {allocation.child_invoice_id && (
-                                <a
-                                  href={`/purchase-payments?invoiceId=${allocation.child_invoice_id}&action=cost`}
-                                  className="text-xs text-[#2d8659] hover:underline"
-                                >
-                                  View child invoice
-                                </a>
-                              )}
                             </div>
                           );
                         })}
