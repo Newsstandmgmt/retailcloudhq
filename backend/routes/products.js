@@ -3,6 +3,7 @@ const multer = require('multer');
 const XLSX = require('xlsx');
 const Product = require('../models/Product');
 const StoreProductOverride = require('../models/StoreProductOverride');
+const ProductVendorPrice = require('../models/ProductVendorPrice');
 const { authenticate, canAccessStore } = require('../middleware/auth');
 
 const router = express.Router();
@@ -104,7 +105,7 @@ router.get('/store/:storeId/generate-id', canAccessStore, async (req, res) => {
 // Create product
 router.post('/store/:storeId', canAccessStore, async (req, res) => {
     try {
-        const { store_overrides, ...incomingData } = req.body;
+        const { store_overrides, vendor_pricing, ...incomingData } = req.body;
         const productData = {
             ...incomingData,
             created_by: req.user.id
@@ -118,8 +119,13 @@ router.post('/store/:storeId', canAccessStore, async (req, res) => {
 
         if (Array.isArray(store_overrides)) {
             await StoreProductOverride.bulkSync(product.id, store_overrides, req.user.id);
-            product = await Product.findById(product.id);
         }
+
+        if (Array.isArray(vendor_pricing)) {
+            await ProductVendorPrice.bulkSync(product.id, vendor_pricing, req.user.id);
+        }
+
+        product = await Product.findById(product.id);
 
         res.status(201).json({ product });
     } catch (error) {
@@ -131,7 +137,7 @@ router.post('/store/:storeId', canAccessStore, async (req, res) => {
 // Update product
 router.put('/:productId', async (req, res) => {
     try {
-        const { store_overrides, ...updatePayload } = req.body;
+        const { store_overrides, vendor_pricing, ...updatePayload } = req.body;
         const product = await Product.findById(req.params.productId);
         if (!product) {
             return res.status(404).json({ error: 'Product not found' });
@@ -152,6 +158,10 @@ router.put('/:productId', async (req, res) => {
 
         if (Array.isArray(store_overrides)) {
             await StoreProductOverride.bulkSync(req.params.productId, store_overrides, req.user.id);
+        }
+
+        if (Array.isArray(vendor_pricing)) {
+            await ProductVendorPrice.bulkSync(req.params.productId, vendor_pricing, req.user.id);
         }
 
         const updatedProduct = await Product.findById(req.params.productId);
@@ -247,6 +257,45 @@ router.get('/store/:storeId/suppliers', canAccessStore, async (req, res) => {
         } else {
             res.status(500).json({ error: 'Failed to fetch suppliers', details: error.message });
         }
+    }
+});
+
+router.get('/store/:storeId/vendor-pricing', canAccessStore, async (req, res) => {
+    try {
+        const { vendor_id } = req.query;
+        const vendorPricing = await ProductVendorPrice.listByStore(
+            req.params.storeId,
+            vendor_id || null
+        );
+        res.json({ vendor_pricing: vendorPricing });
+    } catch (error) {
+        console.error('Get vendor pricing error:', error);
+        res.status(500).json({ error: 'Failed to fetch vendor pricing' });
+    }
+});
+
+router.get('/:productId/vendor-pricing/history', async (req, res) => {
+    try {
+        const product = await Product.findById(req.params.productId);
+        if (!product) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+
+        const { query } = require('../config/database');
+        const accessResult = await query(
+            'SELECT can_user_access_store($1, $2) as can_access',
+            [req.user.id, product.store_id]
+        );
+
+        if (!accessResult.rows[0]?.can_access) {
+            return res.status(403).json({ error: 'Access denied to this store.' });
+        }
+
+        const history = await ProductVendorPrice.listHistory(product.id);
+        res.json({ history });
+    } catch (error) {
+        console.error('Vendor pricing history error:', error);
+        res.status(500).json({ error: 'Failed to fetch vendor pricing history' });
     }
 });
 

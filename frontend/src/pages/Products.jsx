@@ -73,6 +73,7 @@ const Products = () => {
   const [editingVariantIndex, setEditingVariantIndex] = useState(null);
   const [editingVariantData, setEditingVariantData] = useState({ name: '', upc: '' });
   const [storeOverrides, setStoreOverrides] = useState([]);
+  const [vendorPricing, setVendorPricing] = useState([]);
   const [originalSellPrice, setOriginalSellPrice] = useState('');
   const [overridePrompt, setOverridePrompt] = useState(null);
 
@@ -85,6 +86,7 @@ const Products = () => {
     setEditingVariantIndex(null);
     setEditingVariantData({ name: '', upc: '' });
     setStoreOverrides([]);
+    setVendorPricing([]);
     setOriginalSellPrice('');
   };
 
@@ -114,6 +116,62 @@ const Products = () => {
     setStoreOverrides(normalized);
   };
 
+  const initializeVendorPricing = (existingEntries = []) => {
+    const normalized = (existingEntries || []).map((entry) => ({
+      tempId: entry.id || `${entry.vendor_id}-${Math.random().toString(36).slice(2)}`,
+      vendor_id: entry.vendor_id || '',
+      vendor_name: entry.vendor_name || '',
+      cost_price:
+        entry.cost_price !== undefined && entry.cost_price !== null
+          ? parseFloat(entry.cost_price).toFixed(2)
+          : '',
+      effective_from:
+        entry.effective_from ||
+        (entry.updated_at ? entry.updated_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+      notes: entry.notes || '',
+    }));
+    setVendorPricing(normalized);
+  };
+
+  const buildVendorPricingPayload = () => {
+    if (!vendorPricing || vendorPricing.length === 0) return [];
+    return vendorPricing
+      .filter((entry) => entry.vendor_id && entry.cost_price !== '')
+      .map((entry) => ({
+        vendor_id: entry.vendor_id,
+        cost_price: parseFloat(entry.cost_price),
+        effective_from: entry.effective_from || new Date().toISOString().split('T')[0],
+        notes: entry.notes || null,
+      }));
+  };
+
+  const addVendorPricingRow = () => {
+    setVendorPricing((prev) => [
+      ...prev,
+      {
+        tempId: crypto?.randomUUID ? crypto.randomUUID() : `vendor-${Date.now()}`,
+        vendor_id: '',
+        cost_price: '',
+        effective_from: new Date().toISOString().split('T')[0],
+        notes: '',
+      },
+    ]);
+  };
+
+  const updateVendorPricingRow = (tempId, updates) => {
+    setVendorPricing((prev) =>
+      prev.map((row) => (row.tempId === tempId ? { ...row, ...updates } : row))
+    );
+  };
+
+  const removeVendorPricingRow = (tempId) => {
+    setVendorPricing((prev) => prev.filter((row) => row.tempId !== tempId));
+  };
+
+  const selectedVendorIds = useMemo(() => {
+    return new Set(vendorPricing.filter((row) => row.vendor_id).map((row) => row.vendor_id));
+  }, [vendorPricing]);
+
   const buildStoreOverridesPayload = (baseStoreId) => {
     if (!storeOverrides || storeOverrides.length === 0) return [];
     return storeOverrides
@@ -139,6 +197,7 @@ const Products = () => {
     setOverridePrompt(null);
     const baseStoreId = selectedStore?.id || null;
     initializeStoreOverrides(baseStoreId, []);
+    initializeVendorPricing([]);
     setShowAddModal(true);
   };
 
@@ -581,6 +640,7 @@ const Products = () => {
           is_active: formData.is_active,
           auto_generate_id: editingProduct ? false : (formData.auto_generate_id && !formData.product_id),
         };
+        productData.vendor_pricing = buildVendorPricingPayload();
         productData.store_overrides = buildStoreOverridesPayload(baseStoreId);
         
         if (editingProduct) {
@@ -604,6 +664,7 @@ const Products = () => {
         
         // Remove variants array from the data sent to API (it's handled separately)
         delete productData.variants;
+        productData.vendor_pricing = buildVendorPricingPayload();
         productData.store_overrides = buildStoreOverridesPayload(baseStoreId);
         
         if (editingProduct) {
@@ -690,6 +751,7 @@ const Products = () => {
       setOverridePrompt(null);
       setOriginalSellPrice(product.sell_price_per_piece || '');
       initializeStoreOverrides(product.store_id, product.store_overrides || []);
+      initializeVendorPricing(product.vendor_pricing || []);
 
       // Parse variants from JSON if it exists, otherwise use variant field for backward compatibility
       let parsedVariants = [];
@@ -1469,6 +1531,127 @@ const Products = () => {
                   )}
                 </div>
               )}
+
+              <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Vendor Pricing</h3>
+                    <p className="text-xs text-gray-500">
+                      Track vendor-specific cost prices to auto-suggest costs when creating invoices.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addVendorPricingRow}
+                    className="text-sm px-3 py-1 rounded-md border border-dashed border-gray-300 hover:border-[#2d8659] hover:text-[#2d8659]"
+                  >
+                    + Add Vendor Price
+                  </button>
+                </div>
+                {vendors.length === 0 ? (
+                  <p className="text-sm text-gray-500">
+                    No vendors available yet. Add vendors in Purchase & Payments to begin tracking vendor pricing.
+                  </p>
+                ) : vendorPricing.length === 0 ? (
+                  <p className="text-sm text-gray-500">
+                    Click “Add Vendor Price” to link this product with vendor-specific costs.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {vendorPricing.map((row) => (
+                      <div
+                        key={row.tempId}
+                        className="border border-gray-100 rounded-lg p-3 bg-gray-50 space-y-3"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex-1">
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Vendor
+                            </label>
+                            <select
+                              value={row.vendor_id}
+                              onChange={(e) =>
+                                updateVendorPricingRow(row.tempId, {
+                                  vendor_id: e.target.value,
+                                })
+                              }
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                            >
+                              <option value="">Select vendor</option>
+                              {vendors.map((vendor) => {
+                                const disabled =
+                                  vendor.id !== row.vendor_id &&
+                                  selectedVendorIds.has(vendor.id);
+                                return (
+                                  <option key={vendor.id} value={vendor.id} disabled={disabled}>
+                                    {vendor.name}
+                                    {disabled ? ' (already used)' : ''}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeVendorPricingRow(row.tempId)}
+                            className="text-gray-400 hover:text-red-500 mt-6"
+                            title="Remove vendor pricing"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Cost Price
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={row.cost_price}
+                              onChange={(e) =>
+                                updateVendorPricingRow(row.tempId, { cost_price: e.target.value })
+                              }
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                              placeholder="e.g., 25.50"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Effective From
+                            </label>
+                            <input
+                              type="date"
+                              value={row.effective_from}
+                              onChange={(e) =>
+                                updateVendorPricingRow(row.tempId, { effective_from: e.target.value })
+                              }
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Notes
+                            </label>
+                            <input
+                              type="text"
+                              value={row.notes}
+                              onChange={(e) =>
+                                updateVendorPricingRow(row.tempId, { notes: e.target.value })
+                              }
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                              placeholder="Optional internal note"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Supplier (Vendor)</label>

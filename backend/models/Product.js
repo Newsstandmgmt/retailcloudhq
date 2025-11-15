@@ -1,5 +1,6 @@
 const { query } = require('../config/database');
 const StoreProductOverride = require('./StoreProductOverride');
+const ProductVendorPrice = require('./ProductVendorPrice');
 
 class Product {
     constructor(data) {
@@ -210,6 +211,7 @@ class Product {
         const product = new Product(result.rows[0]);
         if (product.id) {
             product.store_overrides = await StoreProductOverride.listByProduct(product.id);
+            product.vendor_pricing = await ProductVendorPrice.listByProduct(product.id);
         }
 
         return product;
@@ -342,6 +344,7 @@ class Product {
         const product = new Product(result.rows[0]);
         if (product && product.id) {
             product.store_overrides = await StoreProductOverride.listByProduct(product.id);
+            product.vendor_pricing = await ProductVendorPrice.listByProduct(product.id);
         }
         return product;
     }

@@ -102,6 +102,8 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
   const [pendingItemsError, setPendingItemsError] = useState('');
   const [includeAllPendingItems, setIncludeAllPendingItems] = useState(false);
   const [pendingDeliveryQuantities, setPendingDeliveryQuantities] = useState({});
+  const [vendorPricingCache, setVendorPricingCache] = useState({});
+  const [activeVendorPricingMap, setActiveVendorPricingMap] = useState({});
   
   // Edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -244,6 +246,20 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     }
   }, [invoiceForm.vendor_id, includeAllPendingItems]);
 
+  useEffect(() => {
+    if (invoiceForm.vendor_id) {
+      ensureVendorPricing(invoiceForm.vendor_id);
+    } else {
+      setActiveVendorPricingMap({});
+    }
+  }, [invoiceForm.vendor_id, ensureVendorPricing]);
+
+  useEffect(() => {
+    if (editForm?.vendor_id) {
+      ensureVendorPricing(editForm.vendor_id);
+    }
+  }, [editForm?.vendor_id, ensureVendorPricing]);
+
   const productsById = useMemo(() => {
     const map = new Map();
     products.forEach((product) => {
@@ -321,6 +337,67 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       variant_id: variant.id || variant.variant_id || null,
       variant_name: variantName,
       variant_upc: variant.upc || variant.barcode || '',
+    };
+  };
+
+  const ensureVendorPricing = useCallback(
+    async (vendorId) => {
+      if (!vendorId || !selectedStore) {
+        setActiveVendorPricingMap({});
+        return {};
+      }
+      if (vendorPricingCache[vendorId]) {
+        if (vendorId === invoiceForm.vendor_id) {
+          setActiveVendorPricingMap(vendorPricingCache[vendorId]);
+        }
+        return vendorPricingCache[vendorId];
+      }
+      try {
+        const response = await productsAPI.getStoreVendorPricing(selectedStore.id, vendorId);
+        const map = {};
+        (response.data?.vendor_pricing || []).forEach((entry) => {
+          if (!entry.product_id) return;
+          const cost = parseFloat(entry.cost_price);
+          if (!Number.isNaN(cost)) {
+            map[entry.product_id] = cost;
+          }
+        });
+        setVendorPricingCache((prev) => ({ ...prev, [vendorId]: map }));
+        if (vendorId === invoiceForm.vendor_id) {
+          setActiveVendorPricingMap(map);
+        }
+        return map;
+      } catch (error) {
+        console.error('Error loading vendor pricing:', error);
+        return {};
+      }
+    },
+    [invoiceForm.vendor_id, selectedStore, vendorPricingCache]
+  );
+
+  const getVendorCostForProduct = (productId, vendorIdOverride = null) => {
+    const vendorId = vendorIdOverride || invoiceForm.vendor_id;
+    if (!vendorId || !productId) return null;
+    const map =
+      vendorId === invoiceForm.vendor_id
+        ? activeVendorPricingMap
+        : vendorPricingCache[vendorId] || {};
+    if (!map || map[productId] === undefined) {
+      return null;
+    }
+    const cost = parseFloat(map[productId]);
+    return Number.isNaN(cost) ? null : cost;
+  };
+
+  const applyVendorCostToItem = (item, product, vendorIdOverride = null) => {
+    const productId = product?.id || item.product_id;
+    const vendorCost = getVendorCostForProduct(productId, vendorIdOverride);
+    if (vendorCost === null || vendorCost === undefined) {
+      return item;
+    }
+    return {
+      ...item,
+      unit_cost: vendorCost,
     };
   };
 
@@ -1397,9 +1474,10 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
               unit_cost: parseFloat(invoice_item.unit_cost || 0),
               vape_tax_paid: invoice_item.vape_tax_paid || false
             };
+            const vendorAdjustedItem = applyVendorCostToItem(newItem, sourceProduct, prev.vendor_id);
             updatedItems = [
               ...prev.invoice_items,
-              enhanceItem(newItem, prev.payment_option)
+              enhanceItem(vendorAdjustedItem, prev.payment_option)
             ];
           }
           return {
@@ -1633,6 +1711,8 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
         newItem = setItemVariantDetails(newItem, variants[0]);
       }
 
+      newItem = applyVendorCostToItem(newItem, product, prev.vendor_id);
+
       if (prev.payment_option === 'invoice') {
         newItem = setItemVapeTax(newItem, product, true);
       }
@@ -1647,6 +1727,16 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       };
     });
     triggerInvoiceRecalc();
+  };
+
+  const handleInvoiceVendorChange = (vendorId) => {
+    setInvoiceForm((prev) => ({ ...prev, vendor_id: vendorId }));
+    ensureVendorPricing(vendorId);
+  };
+
+  const handleEditVendorChange = (vendorId) => {
+    setEditForm((prev) => ({ ...prev, vendor_id: vendorId }));
+    ensureVendorPricing(vendorId);
   };
 
   const handleRemoveProductFromInvoice = (productId) => {
@@ -2778,7 +2868,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                     </label>
                     <select
                       value={invoiceForm.vendor_id}
-                      onChange={(e) => setInvoiceForm({ ...invoiceForm, vendor_id: e.target.value })}
+                      onChange={(e) => handleInvoiceVendorChange(e.target.value)}
                       className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659] focus:border-transparent"
                     >
                       <option value="">Select Vendor</option>
@@ -4305,7 +4395,7 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
                     </label>
                     <select
                       value={editForm.vendor_id}
-                      onChange={(e) => setEditForm({ ...editForm, vendor_id: e.target.value })}
+                      onChange={(e) => handleEditVendorChange(e.target.value)}
                       className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
                     >
                       <option value="">Select Vendor</option>

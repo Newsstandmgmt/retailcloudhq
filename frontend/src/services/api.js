@@ -259,6 +259,13 @@ export const productsAPI = {
   getBrands: (storeId) => api.get(`/api/products/store/${storeId}/brands`),
   getSuppliers: (storeId) => api.get(`/api/products/store/${storeId}/suppliers`),
   generateProductId: (storeId, category) => api.get(`/api/products/store/${storeId}/generate-id?category=${encodeURIComponent(category)}`),
+  getStoreVendorPricing: (storeId, vendorId) => {
+    const params = new URLSearchParams();
+    if (vendorId) params.append('vendor_id', vendorId);
+    const query = params.toString();
+    return api.get(`/api/products/store/${storeId}/vendor-pricing${query ? `?${query}` : ''}`);
+  },
+  getVendorPricingHistory: (productId) => api.get(`/api/products/${productId}/vendor-pricing/history`),
   calculateRevenue: (storeId, items) => api.post(`/api/products/store/${storeId}/calculate-revenue`, { items }),
   downloadTemplate: async (storeId) => {
     const token = localStorage.getItem('token');
