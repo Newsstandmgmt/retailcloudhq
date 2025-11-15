@@ -299,6 +299,46 @@ router.get('/:productId/vendor-pricing/history', async (req, res) => {
     }
 });
 
+// Update vendor pricing for a single product/vendor combination
+router.put('/:productId/vendor-pricing/:vendorId', async (req, res) => {
+    try {
+        const { productId, vendorId } = req.params;
+        const { cost_price, effective_from, notes, change_reason } = req.body || {};
+
+        if (!cost_price && cost_price !== 0) {
+            return res.status(400).json({ error: 'cost_price is required' });
+        }
+
+        const product = await Product.findById(productId);
+        if (!product) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+
+        const { query } = require('../config/database');
+        const accessResult = await query(
+            'SELECT can_user_access_store($1, $2) as can_access',
+            [req.user.id, product.store_id]
+        );
+
+        if (!accessResult.rows[0]?.can_access) {
+            return res.status(403).json({ error: 'Access denied to this store.' });
+        }
+
+        const payload = {
+            cost_price,
+            effective_from,
+            notes,
+            change_reason,
+        };
+
+        const updated = await ProductVendorPrice.upsert(productId, vendorId, payload, req.user.id);
+        res.json({ vendor_pricing: updated });
+    } catch (error) {
+        console.error('Update vendor pricing error:', error);
+        res.status(500).json({ error: error.message || 'Failed to update vendor pricing' });
+    }
+});
+
 // Calculate expected revenue for selected products
 router.post('/store/:storeId/calculate-revenue', canAccessStore, async (req, res) => {
     try {

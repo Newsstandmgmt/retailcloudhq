@@ -266,6 +266,8 @@ export const productsAPI = {
     return api.get(`/api/products/store/${storeId}/vendor-pricing${query ? `?${query}` : ''}`);
   },
   getVendorPricingHistory: (productId) => api.get(`/api/products/${productId}/vendor-pricing/history`),
+  updateVendorPricing: (productId, vendorId, data) =>
+    api.put(`/api/products/${productId}/vendor-pricing/${vendorId}`, data),
   calculateRevenue: (storeId, items) => api.post(`/api/products/store/${storeId}/calculate-revenue`, { items }),
   downloadTemplate: async (storeId) => {
     const token = localStorage.getItem('token');

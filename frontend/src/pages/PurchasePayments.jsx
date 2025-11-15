@@ -68,6 +68,19 @@ const PurchasePayments = () => {
   const [sellPriceDialog, setSellPriceDialog] = useState(null);
   const [vendorPricingCache, setVendorPricingCache] = useState({});
   const [activeVendorPricingMap, setActiveVendorPricingMap] = useState({});
+  const [productVendorPricingCache, setProductVendorPricingCache] = useState({});
+  const [productVendorPricingLoading, setProductVendorPricingLoading] = useState({});
+  const [productVendorPricingError, setProductVendorPricingError] = useState({});
+  const [vendorPricingExpanded, setVendorPricingExpanded] = useState({});
+  const [showPricingModal, setShowPricingModal] = useState(false);
+  const [pricingModalProduct, setPricingModalProduct] = useState(null);
+  const [pricingModalVendor, setPricingModalVendor] = useState(null);
+  const [pricingModalForm, setPricingModalForm] = useState({
+    baseCost: '',
+    vendorCost: '',
+    sellPrice: '',
+  });
+  const [pricingModalSubmitting, setPricingModalSubmitting] = useState(false);
   
   // Edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -356,6 +369,173 @@ const PurchasePayments = () => {
       ...item,
       unit_cost: vendorCost,
     };
+  };
+
+  const loadProductVendorPricing = useCallback(
+    async (productId) => {
+      if (!productId) return [];
+      if (productVendorPricingCache[productId]) {
+        return productVendorPricingCache[productId];
+      }
+      setProductVendorPricingLoading((prev) => ({ ...prev, [productId]: true }));
+      setProductVendorPricingError((prev) => ({ ...prev, [productId]: '' }));
+      try {
+        const response = await productsAPI.getById(productId);
+        const vendorPricing = response.data?.product?.vendor_pricing || [];
+        setProductVendorPricingCache((prev) => ({ ...prev, [productId]: vendorPricing }));
+        return vendorPricing;
+      } catch (error) {
+        console.error('Error loading product vendor pricing:', error);
+        const message = error.response?.data?.error || error.message || 'Failed to load vendor pricing';
+        setProductVendorPricingError((prev) => ({ ...prev, [productId]: message }));
+        return [];
+      } finally {
+        setProductVendorPricingLoading((prev) => ({ ...prev, [productId]: false }));
+      }
+    },
+    [productVendorPricingCache]
+  );
+
+  const handleToggleVendorPricing = (productId) => {
+    if (!vendorPricingExpanded[productId]) {
+      loadProductVendorPricing(productId);
+    }
+    setVendorPricingExpanded((prev) => ({
+      ...prev,
+      [productId]: !prev[productId],
+    }));
+  };
+
+  const handleApplyVendorPricingOption = (productId, vendorEntry) => {
+    if (!vendorEntry) return;
+    const vendorCost = parseFloat(vendorEntry.cost_price);
+    if (!Number.isFinite(vendorCost)) {
+      alert('Vendor price is missing or invalid.');
+      return;
+    }
+    setInvoiceForm((prev) => ({
+      ...prev,
+      invoice_items: prev.invoice_items.map((item) =>
+        item.product_id === productId ? { ...item, unit_cost: vendorCost } : item
+      ),
+    }));
+    triggerInvoiceRecalc();
+  };
+
+  const openPricingModal = (productId, vendorEntry = null) => {
+    const product = productsById.get(productId);
+    if (!product) return;
+    setPricingModalProduct(product);
+    setPricingModalVendor(vendorEntry);
+    setPricingModalForm({
+      baseCost:
+        product.cost_price !== undefined && product.cost_price !== null
+          ? String(product.cost_price)
+          : '',
+      vendorCost:
+        vendorEntry && vendorEntry.cost_price !== undefined && vendorEntry.cost_price !== null
+          ? String(vendorEntry.cost_price)
+          : '',
+      sellPrice:
+        product.sell_price_per_piece !== undefined && product.sell_price_per_piece !== null
+          ? String(product.sell_price_per_piece)
+          : '',
+    });
+    setShowPricingModal(true);
+  };
+
+  const closePricingModal = () => {
+    setShowPricingModal(false);
+    setPricingModalProduct(null);
+    setPricingModalVendor(null);
+    setPricingModalForm({
+      baseCost: '',
+      vendorCost: '',
+      sellPrice: '',
+    });
+    setPricingModalSubmitting(false);
+  };
+
+  const handlePricingModalChange = (field, value) => {
+    setPricingModalForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleSubmitPricingModal = async (event) => {
+    event.preventDefault();
+    if (!pricingModalProduct) return;
+
+    const baseCostValue = pricingModalForm.baseCost.trim();
+    const vendorCostValue = pricingModalForm.vendorCost.trim();
+    const sellPriceValue = pricingModalForm.sellPrice.trim();
+
+    if (
+      !baseCostValue &&
+      !vendorCostValue &&
+      !sellPriceValue
+    ) {
+      alert('Enter at least one value to update.');
+      return;
+    }
+
+    setPricingModalSubmitting(true);
+    try {
+      const productUpdates = {};
+      if (baseCostValue !== '') {
+        const parsedBaseCost = parseFloat(baseCostValue);
+        if (Number.isNaN(parsedBaseCost)) {
+          throw new Error('Base cost must be a number.');
+        }
+        productUpdates.cost_price = parsedBaseCost;
+      }
+      if (sellPriceValue !== '') {
+        const parsedSellPrice = parseFloat(sellPriceValue);
+        if (Number.isNaN(parsedSellPrice)) {
+          throw new Error('Selling price must be a number.');
+        }
+        productUpdates.sell_price_per_piece = parsedSellPrice;
+      }
+
+      if (Object.keys(productUpdates).length > 0) {
+        await productsAPI.update(pricingModalProduct.id, productUpdates);
+        setProducts((prev) =>
+          prev.map((product) =>
+            product.id === pricingModalProduct.id ? { ...product, ...productUpdates } : product
+          )
+        );
+      }
+
+      if (pricingModalVendor && vendorCostValue !== '') {
+        const parsedVendorCost = parseFloat(vendorCostValue);
+        if (Number.isNaN(parsedVendorCost)) {
+          throw new Error('Vendor cost must be a number.');
+        }
+        await productsAPI.updateVendorPricing(pricingModalProduct.id, pricingModalVendor.vendor_id, {
+          cost_price: parsedVendorCost,
+        });
+        setProductVendorPricingCache((prev) => {
+          const current = prev[pricingModalProduct.id] || [];
+          return {
+            ...prev,
+            [pricingModalProduct.id]: current.map((entry) =>
+              entry.vendor_id === pricingModalVendor.vendor_id
+                ? { ...entry, cost_price: parsedVendorCost }
+                : entry
+            ),
+          };
+        });
+      }
+
+      alert('Pricing updated successfully.');
+      closePricingModal();
+    } catch (error) {
+      console.error('Failed to update pricing:', error);
+      alert(error.response?.data?.error || error.message || 'Failed to update pricing.');
+    } finally {
+      setPricingModalSubmitting(false);
+    }
   };
 
   const handleCostSaveDecision = (decision) => {
@@ -3591,6 +3771,90 @@ useEffect(() => {
         </div>
       )}
 
+  {showPricingModal && pricingModalProduct && (
+    <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 px-4">
+      <div className="bg-white w-full max-w-lg rounded-lg shadow-xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">Update Pricing</h2>
+            <p className="text-sm text-gray-600">
+              {pricingModalProduct.full_product_name || pricingModalProduct.product_name}
+            </p>
+            {pricingModalVendor && (
+              <p className="text-xs text-gray-500">
+                Vendor: {pricingModalVendor.vendor_name || pricingModalVendor.vendor_id}
+              </p>
+            )}
+          </div>
+          <button onClick={closePricingModal} className="text-gray-400 hover:text-gray-600">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <form className="space-y-4" onSubmit={handleSubmitPricingModal}>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Base Cost Price</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={pricingModalForm.baseCost}
+              onChange={(e) => handlePricingModalChange('baseCost', e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
+              placeholder="Leave blank to skip"
+            />
+          </div>
+          {pricingModalVendor && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {pricingModalVendor.vendor_name || 'Vendor'} Cost Price
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={pricingModalForm.vendorCost}
+                onChange={(e) => handlePricingModalChange('vendorCost', e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
+                placeholder="Leave blank to skip"
+              />
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Selling Price Per Piece</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={pricingModalForm.sellPrice}
+              onChange={(e) => handlePricingModalChange('sellPrice', e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
+              placeholder="Leave blank to skip"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={closePricingModal}
+              className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+              disabled={pricingModalSubmitting}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-[#2d8659] text-white rounded-md hover:bg-[#256348] disabled:opacity-50"
+              disabled={pricingModalSubmitting}
+            >
+              {pricingModalSubmitting ? 'Updating...' : 'Update Pricing'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )}
+
       {/* Revenue Calculation Modal */}
       {showRevenueCalculationModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -3864,6 +4128,13 @@ useEffect(() => {
                                         Use vendor price (${parseFloat(vendorCost).toFixed(2)})
                                       </button>
                                     )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleVendorPricing(product.id)}
+                                      className="text-xs text-blue-600 border border-blue-200 rounded px-2 py-1 hover:bg-blue-50"
+                                    >
+                                      {vendorPricingExpanded[product.id] ? 'Hide vendor prices' : 'Other vendor prices'}
+                                    </button>
                                     <span className="text-sm font-medium text-[#2d8659] min-w-[80px] text-right">
                                       ${itemRevenue}
                                     </span>
@@ -3924,9 +4195,74 @@ useEffect(() => {
                 >
                   Save & Close
                 </button>
-              </div>
-            </div>
-          </div>
+                              </div>
+                            </div>
+                            {vendorPricingExpanded[product.id] && (
+                              <div className="mt-3 border border-dashed border-gray-300 rounded-md p-3 bg-white w-full">
+                                {productVendorPricingLoading[product.id] ? (
+                                  <p className="text-xs text-gray-500">Loading vendor pricing...</p>
+                                ) : productVendorPricingError[product.id] ? (
+                                  <p className="text-xs text-red-600">{productVendorPricingError[product.id]}</p>
+                                ) : (
+                                  <>
+                                    {(productVendorPricingCache[product.id] || []).length === 0 ? (
+                                      <p className="text-xs text-gray-500">
+                                        No vendor pricing records found for this product.
+                                      </p>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        {(productVendorPricingCache[product.id] || []).map((entry) => (
+                                          <div
+                                            key={`${entry.vendor_id}-${entry.id || entry.effective_from || ''}`}
+                                            className="flex flex-wrap items-center justify-between gap-2 text-xs border border-gray-100 rounded-md p-2"
+                                          >
+                                            <div>
+                                              <div className="font-semibold text-gray-800">
+                                                {entry.vendor_name || 'Vendor'}
+                                              </div>
+                                              <div className="text-gray-600">
+                                                Cost: ${parseFloat(entry.cost_price || 0).toFixed(2)}
+                                                {entry.effective_from && (
+                                                  <span className="ml-1 text-gray-400">
+                                                    • Effective {entry.effective_from}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleApplyVendorPricingOption(product.id, entry)}
+                                                className="px-2 py-1 text-[#2d8659] border border-[#2d8659]/40 rounded hover:bg-[#2d8659]/10"
+                                              >
+                                                Apply
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => openPricingModal(product.id, entry)}
+                                                className="px-2 py-1 text-blue-700 border border-blue-200 rounded hover:bg-blue-50"
+                                              >
+                                                Update Cost/Sell Price
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    <div className="mt-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => openPricingModal(product.id)}
+                                        className="text-xs text-gray-600 hover:text-gray-900"
+                                      >
+                                        Update base product pricing
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
         </div>
       )}
     </div>
