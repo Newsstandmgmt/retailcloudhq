@@ -102,6 +102,8 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
   const [pendingItemsError, setPendingItemsError] = useState('');
   const [includeAllPendingItems, setIncludeAllPendingItems] = useState(false);
   const [pendingDeliveryQuantities, setPendingDeliveryQuantities] = useState({});
+  const [costSaveDialog, setCostSaveDialog] = useState(null);
+  const [sellPriceDialog, setSellPriceDialog] = useState(null);
   const [vendorPricingCache, setVendorPricingCache] = useState({});
   const [activeVendorPricingMap, setActiveVendorPricingMap] = useState({});
   
@@ -326,6 +328,11 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     };
   };
 
+  const resetPlacementState = () => {
+    setPendingDeliveryQuantities({});
+    setPendingOrderItems([]);
+  };
+
   const ensureVendorPricing = useCallback(
     async (vendorId) => {
       if (!vendorId || !selectedStore) {
@@ -385,6 +392,22 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
       ...item,
       unit_cost: vendorCost,
     };
+  };
+
+  const handleCostSaveDecision = (decision) => {
+    if (!costSaveDialog) return;
+    setCostSaveDialog(null);
+    if (decision === 'vendor') {
+      // TODO: update vendor price via backend
+    } else if (decision === 'base') {
+      // TODO: update base cost via backend
+    }
+  };
+
+  const handleSellPriceDecision = (selection) => {
+    if (!sellPriceDialog) return;
+    setSellPriceDialog(null);
+    // TODO: update sell price + store overrides via backend
   };
 
   const computeVapeTaxPerUnit = (unitCost) => {
