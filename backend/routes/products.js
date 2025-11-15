@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const Product = require('../models/Product');
+const StoreProductOverride = require('../models/StoreProductOverride');
 const { authenticate, canAccessStore } = require('../middleware/auth');
 
 const router = express.Router();
@@ -103,8 +104,9 @@ router.get('/store/:storeId/generate-id', canAccessStore, async (req, res) => {
 // Create product
 router.post('/store/:storeId', canAccessStore, async (req, res) => {
     try {
+        const { store_overrides, ...incomingData } = req.body;
         const productData = {
-            ...req.body,
+            ...incomingData,
             created_by: req.user.id
         };
 
@@ -112,7 +114,13 @@ router.post('/store/:storeId', canAccessStore, async (req, res) => {
             return res.status(400).json({ error: 'Product name is required' });
         }
 
-        const product = await Product.create(req.params.storeId, productData);
+        let product = await Product.create(req.params.storeId, productData);
+
+        if (Array.isArray(store_overrides)) {
+            await StoreProductOverride.bulkSync(product.id, store_overrides, req.user.id);
+            product = await Product.findById(product.id);
+        }
+
         res.status(201).json({ product });
     } catch (error) {
         console.error('Create product error:', error);
@@ -123,6 +131,7 @@ router.post('/store/:storeId', canAccessStore, async (req, res) => {
 // Update product
 router.put('/:productId', async (req, res) => {
     try {
+        const { store_overrides, ...updatePayload } = req.body;
         const product = await Product.findById(req.params.productId);
         if (!product) {
             return res.status(404).json({ error: 'Product not found' });
@@ -139,7 +148,13 @@ router.put('/:productId', async (req, res) => {
             return res.status(403).json({ error: 'Access denied to this store.' });
         }
 
-        const updatedProduct = await Product.update(req.params.productId, req.body);
+        await Product.update(req.params.productId, updatePayload);
+
+        if (Array.isArray(store_overrides)) {
+            await StoreProductOverride.bulkSync(req.params.productId, store_overrides, req.user.id);
+        }
+
+        const updatedProduct = await Product.findById(req.params.productId);
         if (!updatedProduct) {
             return res.status(404).json({ error: 'Product not found' });
         }

@@ -1,4 +1,5 @@
 const { query } = require('../config/database');
+const StoreProductOverride = require('./StoreProductOverride');
 
 class Product {
     constructor(data) {
@@ -206,7 +207,12 @@ class Product {
             return null;
         }
 
-        return new Product(result.rows[0]);
+        const product = new Product(result.rows[0]);
+        if (product.id) {
+            product.store_overrides = await StoreProductOverride.listByProduct(product.id);
+        }
+
+        return product;
     }
 
     // Update product
@@ -333,7 +339,11 @@ class Product {
             return null;
         }
 
-        return new Product(result.rows[0]);
+        const product = new Product(result.rows[0]);
+        if (product && product.id) {
+            product.store_overrides = await StoreProductOverride.listByProduct(product.id);
+        }
+        return product;
     }
 
     // Delete product (soft delete)

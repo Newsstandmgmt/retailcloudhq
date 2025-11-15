@@ -3,8 +3,29 @@ import { useStore } from '../contexts/StoreContext';
 import { useAuth } from '../contexts/AuthContext';
 import { productsAPI, purchaseInvoicesAPI } from '../services/api';
 
+const defaultProductFormState = {
+  product_id: '',
+  category: '',
+  brand: '',
+  product_name: '',
+  variant: '',
+  variants: [],
+  variants_enabled: false,
+  vape_tax: false,
+  cost_price: '',
+  quantity_per_pack: '1',
+  sell_price_per_piece: '',
+  supplier: '',
+  upc: '',
+  notes: '',
+  is_active: true,
+  auto_generate_id: true,
+};
+
+const buildDefaultProductForm = () => ({ ...defaultProductFormState });
+
 const Products = () => {
-  const { selectedStore } = useStore();
+  const { selectedStore, stores } = useStore();
   const { user } = useAuth();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -45,29 +66,94 @@ const Products = () => {
   });
 
   // Form state
-  const [formData, setFormData] = useState({
-    product_id: '',
-    category: '',
-    brand: '',
-    product_name: '',
-    variant: '', // Keep for backward compatibility, but we'll use variants array
-    variants: [], // Array of { name: string, upc: string } objects
-    variants_enabled: false, // Toggle to enable variant feature
-    vape_tax: false, // Toggle for PA Vape Tax tracking
-    cost_price: '',
-    quantity_per_pack: '1',
-    sell_price_per_piece: '',
-    supplier: '',
-    upc: '',
-    notes: '',
-    is_active: true,
-    auto_generate_id: true
-  });
+  const [formData, setFormData] = useState(buildDefaultProductForm);
   
   // Variant management state
   const [newVariant, setNewVariant] = useState({ name: '', upc: '' });
   const [editingVariantIndex, setEditingVariantIndex] = useState(null);
   const [editingVariantData, setEditingVariantData] = useState({ name: '', upc: '' });
+  const [storeOverrides, setStoreOverrides] = useState([]);
+  const [originalSellPrice, setOriginalSellPrice] = useState('');
+  const [overridePrompt, setOverridePrompt] = useState(null);
+
+  const getActiveStores = () =>
+    stores.filter((store) => store.is_active !== false && !store.deleted_at);
+
+  const resetProductForm = () => {
+    setFormData(buildDefaultProductForm());
+    setNewVariant({ name: '', upc: '' });
+    setEditingVariantIndex(null);
+    setEditingVariantData({ name: '', upc: '' });
+    setStoreOverrides([]);
+    setOriginalSellPrice('');
+  };
+
+  const initializeStoreOverrides = (baseStoreId, existingOverrides = []) => {
+    const overridesByStore = new Map(
+      (existingOverrides || []).map((override) => [override.store_id, override])
+    );
+
+    const normalized = getActiveStores()
+      .filter((store) => !baseStoreId || store.id !== baseStoreId)
+      .map((store) => {
+        const existing = overridesByStore.get(store.id);
+        const price =
+          existing && existing.custom_sell_price !== null && existing.custom_sell_price !== undefined
+            ? parseFloat(existing.custom_sell_price).toFixed(2)
+            : '';
+        return {
+          store_id: store.id,
+          store_name: store.name,
+          override_enabled: existing ? existing.override_enabled : false,
+          custom_sell_price: price,
+          note: existing?.note || '',
+          updated_at: existing?.updated_at || null,
+        };
+      });
+
+    setStoreOverrides(normalized);
+  };
+
+  const buildStoreOverridesPayload = (baseStoreId) => {
+    if (!storeOverrides || storeOverrides.length === 0) return [];
+    return storeOverrides
+      .filter((override) => override.store_id && override.store_id !== baseStoreId)
+      .map((override) => {
+        const parsedPrice =
+          override.override_enabled && override.custom_sell_price !== ''
+            ? parseFloat(override.custom_sell_price)
+            : null;
+        return {
+          store_id: override.store_id,
+          override_enabled: override.override_enabled === true,
+          custom_sell_price:
+            parsedPrice !== null && !Number.isNaN(parsedPrice) ? parsedPrice : null,
+          note: override.note || null,
+        };
+      });
+  };
+
+  const handleOpenAddModal = () => {
+    resetProductForm();
+    setEditingProduct(null);
+    setOverridePrompt(null);
+    const baseStoreId = selectedStore?.id || null;
+    initializeStoreOverrides(baseStoreId, []);
+    setShowAddModal(true);
+  };
+
+  const openOverridePrompt = (storesPending, newPriceValue) => {
+    const selection = {};
+    storesPending.forEach((store) => {
+      selection[store.store_id] = true;
+    });
+    setOverridePrompt({
+      stores: storesPending,
+      newPrice: newPriceValue,
+      previousPrice: originalSellPrice || null,
+      selection,
+    });
+  };
   
   // Calculated profit statistics
   const [profitStats, setProfitStats] = useState({
@@ -406,8 +492,11 @@ const Products = () => {
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (e, options = {}) => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
+    const skipOverridePrompt = options.skipOverridePrompt === true;
     if (!selectedStore) {
       alert('Please select a store');
       return;
@@ -433,6 +522,31 @@ const Products = () => {
       }
     }
 
+    if (!skipOverridePrompt && editingProduct) {
+      const previousPrice =
+        originalSellPrice !== '' && originalSellPrice !== null
+          ? parseFloat(originalSellPrice)
+          : null;
+      const newPrice =
+        formData.sell_price_per_piece !== '' && formData.sell_price_per_piece !== null
+          ? parseFloat(formData.sell_price_per_piece)
+          : null;
+
+      if (
+        previousPrice !== null &&
+        newPrice !== null &&
+        !Number.isNaN(previousPrice) &&
+        !Number.isNaN(newPrice) &&
+        previousPrice !== newPrice
+      ) {
+        const overridesNeedingPrompt = storeOverrides.filter((override) => override.override_enabled);
+        if (overridesNeedingPrompt.length > 0) {
+          openOverridePrompt(overridesNeedingPrompt, newPrice);
+          return;
+        }
+      }
+    }
+
     try {
       // Get base product ID first
       let baseProductId = formData.product_id;
@@ -444,6 +558,8 @@ const Products = () => {
           console.error('Error generating base product ID:', error);
         }
       }
+
+      const baseStoreId = editingProduct?.store_id || selectedStore.id;
 
       if (formData.variants_enabled && formData.variants.length > 0) {
         // Create ONE parent product with variants stored as JSON
@@ -463,8 +579,9 @@ const Products = () => {
           vape_tax: formData.vape_tax,
           notes: formData.notes,
           is_active: formData.is_active,
-          auto_generate_id: editingProduct ? false : (formData.auto_generate_id && !formData.product_id)
+          auto_generate_id: editingProduct ? false : (formData.auto_generate_id && !formData.product_id),
         };
+        productData.store_overrides = buildStoreOverridesPayload(baseStoreId);
         
         if (editingProduct) {
           await productsAPI.update(editingProduct.id, productData);
@@ -487,6 +604,7 @@ const Products = () => {
         
         // Remove variants array from the data sent to API (it's handled separately)
         delete productData.variants;
+        productData.store_overrides = buildStoreOverridesPayload(baseStoreId);
         
         if (editingProduct) {
           await productsAPI.update(editingProduct.id, productData);
@@ -499,27 +617,8 @@ const Products = () => {
       setShowAddModal(false);
       setShowEditModal(false);
       setEditingProduct(null);
-      setFormData({
-        product_id: '',
-        category: '',
-        brand: '',
-        product_name: '',
-        variant: '',
-        variants: [],
-        variants_enabled: false,
-        vape_tax: false,
-        cost_price: '',
-        quantity_per_pack: '1',
-        sell_price_per_piece: '',
-        supplier: '',
-        upc: '',
-        notes: '',
-        is_active: true,
-        auto_generate_id: true
-      });
-      setNewVariant({ name: '', upc: '' });
-      setEditingVariantIndex(null);
-      setEditingVariantData({ name: '', upc: '' });
+      resetProductForm();
+      setOverridePrompt(null);
       loadProducts();
       loadCategories();
       loadBrands();
@@ -530,47 +629,107 @@ const Products = () => {
     }
   };
 
-  const handleEdit = (product) => {
-    setEditingProduct(product);
-    
-    // Parse variants from JSON if it exists, otherwise use variant field for backward compatibility
-    let parsedVariants = [];
-    if (product.variants) {
-      try {
-        parsedVariants = typeof product.variants === 'string' 
-          ? JSON.parse(product.variants) 
-          : product.variants;
-      } catch (e) {
-        console.error('Error parsing variants:', e);
-        parsedVariants = [];
-      }
-    } else if (product.variant && product.variants_enabled) {
-      // Backward compatibility: if variant exists but no variants JSON, create array
-      parsedVariants = [{ name: product.variant, upc: product.upc || '' }];
-    } else if (product.variant) {
-      // Single variant (not variants_enabled)
-      parsedVariants = [{ name: product.variant, upc: product.upc || '' }];
-    }
-    
-    setFormData({
-      product_id: product.product_id || '',
-      category: product.category || '',
-      brand: product.brand || '',
-      product_name: product.product_name || '',
-      variant: product.variant || '',
-      variants: parsedVariants,
-      variants_enabled: product.variants_enabled || false,
-      vape_tax: product.vape_tax || false,
-      cost_price: product.cost_price || '',
-      quantity_per_pack: product.quantity_per_pack || '1',
-      sell_price_per_piece: product.sell_price_per_piece || '',
-      supplier: product.supplier || '',
-      upc: product.upc || '',
-      notes: product.notes || '',
-      is_active: product.is_active !== false,
-      auto_generate_id: false // Don't auto-generate for existing products
+  const handleOverridePromptSelectionChange = (storeId) => {
+    setOverridePrompt((prev) => {
+      if (!prev) return prev;
+      const currentSelection = prev.selection || {};
+      return {
+        ...prev,
+        selection: {
+          ...currentSelection,
+          [storeId]: !currentSelection[storeId],
+        },
+      };
     });
-    setShowEditModal(true);
+  };
+
+  const handleKeepExistingOverrides = () => {
+    setOverridePrompt(null);
+    handleSubmit(null, { skipOverridePrompt: true });
+  };
+
+  const handleApplyOverrideUpdates = () => {
+    if (!overridePrompt) {
+      return;
+    }
+
+    const selectedIds = Object.entries(overridePrompt.selection || {})
+      .filter(([, isSelected]) => isSelected)
+      .map(([storeId]) => storeId);
+
+    if (selectedIds.length === 0) {
+      handleKeepExistingOverrides();
+      return;
+    }
+
+    setStoreOverrides((prev) =>
+      prev.map((override) =>
+        selectedIds.includes(override.store_id)
+          ? {
+              ...override,
+              override_enabled: true,
+              custom_sell_price: overridePrompt.newPrice?.toString() || '',
+            }
+          : override
+      )
+    );
+    setOverridePrompt(null);
+    handleSubmit(null, { skipOverridePrompt: true });
+  };
+
+  const handleEdit = async (productSummary) => {
+    try {
+      const response = await productsAPI.getById(productSummary.id);
+      const product = response.data?.product;
+      if (!product) {
+        alert('Unable to load product details.');
+        return;
+      }
+
+      setEditingProduct(product);
+      setOverridePrompt(null);
+      setOriginalSellPrice(product.sell_price_per_piece || '');
+      initializeStoreOverrides(product.store_id, product.store_overrides || []);
+
+      // Parse variants from JSON if it exists, otherwise use variant field for backward compatibility
+      let parsedVariants = [];
+      if (product.variants) {
+        try {
+          parsedVariants =
+            typeof product.variants === 'string' ? JSON.parse(product.variants) : product.variants;
+        } catch (e) {
+          console.error('Error parsing variants:', e);
+          parsedVariants = [];
+        }
+      } else if (product.variant && product.variants_enabled) {
+        parsedVariants = [{ name: product.variant, upc: product.upc || '' }];
+      } else if (product.variant) {
+        parsedVariants = [{ name: product.variant, upc: product.upc || '' }];
+      }
+
+      setFormData({
+        product_id: product.product_id || '',
+        category: product.category || '',
+        brand: product.brand || '',
+        product_name: product.product_name || '',
+        variant: product.variant || '',
+        variants: parsedVariants,
+        variants_enabled: product.variants_enabled || false,
+        vape_tax: product.vape_tax || false,
+        cost_price: product.cost_price || '',
+        quantity_per_pack: product.quantity_per_pack || '1',
+        sell_price_per_piece: product.sell_price_per_piece || '',
+        supplier: product.supplier || '',
+        upc: product.upc || '',
+        notes: product.notes || '',
+        is_active: product.is_active !== false,
+        auto_generate_id: false,
+      });
+      setShowEditModal(true);
+    } catch (error) {
+      console.error('Error loading product:', error);
+      alert('Failed to load product details.');
+    }
   };
 
   const handleDelete = async (productId) => {
@@ -683,7 +842,7 @@ const Products = () => {
             {uploading ? 'Uploading...' : 'Bulk Upload'}
           </label>
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={handleOpenAddModal}
             className="px-4 py-2 bg-[#2d8659] text-white rounded-lg hover:bg-[#256b49]"
           >
             + Add Product
@@ -1198,6 +1357,119 @@ const Products = () => {
                 </div>
               )}
 
+              {getActiveStores().length > 1 && (
+                <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-900">Store Pricing Overrides</h3>
+                      <p className="text-xs text-gray-500">
+                        Base sell price: {formData.sell_price_per_piece ? `$${parseFloat(formData.sell_price_per_piece).toFixed(2)}` : 'not set'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Stores without overrides will automatically use the base sell price.
+                      </p>
+                    </div>
+                  </div>
+                  {storeOverrides.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      No additional stores available for overrides.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {storeOverrides.map((override) => (
+                        <div
+                          key={override.store_id}
+                          className="border border-gray-100 rounded-lg p-3 bg-gray-50"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{override.store_name}</p>
+                              <p className="text-xs text-gray-500">
+                                {override.override_enabled && override.custom_sell_price
+                                  ? `Custom price: $${parseFloat(override.custom_sell_price).toFixed(2)}`
+                                  : 'Using base sell price'}
+                              </p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="sr-only peer"
+                                checked={override.override_enabled}
+                                onChange={(e) =>
+                                  setStoreOverrides((prev) =>
+                                    prev.map((item) =>
+                                      item.store_id === override.store_id
+                                        ? {
+                                            ...item,
+                                            override_enabled: e.target.checked,
+                                            custom_sell_price:
+                                              e.target.checked && !item.custom_sell_price
+                                                ? formData.sell_price_per_piece || ''
+                                                : item.custom_sell_price,
+                                          }
+                                        : item
+                                    )
+                                  )
+                                }
+                              />
+                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[#2d8659]/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#2d8659]"></div>
+                            </label>
+                          </div>
+                          {override.override_enabled && (
+                            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                  Custom Sell Price
+                                </label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={override.custom_sell_price}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    setStoreOverrides((prev) =>
+                                      prev.map((item) =>
+                                        item.store_id === override.store_id
+                                          ? { ...item, custom_sell_price: value }
+                                          : item
+                                      )
+                                    );
+                                  }}
+                                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                                  placeholder="e.g., 1.75"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                  Notes (optional)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={override.note || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    setStoreOverrides((prev) =>
+                                      prev.map((item) =>
+                                        item.store_id === override.store_id
+                                          ? { ...item, note: value }
+                                          : item
+                                      )
+                                    );
+                                  }}
+                                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                                  placeholder="Internal note"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Supplier (Vendor)</label>
                 <div className="flex gap-2">
@@ -1269,22 +1541,8 @@ const Products = () => {
                     setShowAddModal(false);
                     setShowEditModal(false);
                     setEditingProduct(null);
-                    setFormData({
-                      product_id: '',
-                      category: '',
-                      brand: '',
-                      product_name: '',
-                      variant: '',
-                      variants: [],
-                      cost_price: '',
-                      quantity_per_pack: '1',
-                      sell_price_per_piece: '',
-                      supplier: '',
-                      upc: '',
-                      notes: '',
-                      is_active: true,
-                      auto_generate_id: true
-                    });
+                    resetProductForm();
+                    setOverridePrompt(null);
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
                 >
@@ -1298,6 +1556,69 @@ const Products = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {overridePrompt && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900">Update Store Overrides?</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Base sell price changed
+                {overridePrompt.previousPrice
+                  ? ` from $${parseFloat(overridePrompt.previousPrice || 0).toFixed(2)}`
+                  : ''}
+                {overridePrompt.newPrice !== undefined && overridePrompt.newPrice !== null
+                  ? ` to $${parseFloat(overridePrompt.newPrice).toFixed(2)}`
+                  : ''}
+                .
+              </p>
+              <p className="text-xs text-gray-500 mt-2">
+                Select the stores whose custom price should also update.
+              </p>
+              <div className="mt-4 border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+                {overridePrompt.stores.map((store) => (
+                  <label
+                    key={store.store_id}
+                    className="flex items-start gap-3 px-4 py-3 border-b last:border-b-0"
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-1 rounded border-gray-300 text-[#2d8659] focus:ring-[#2d8659]"
+                      checked={overridePrompt.selection?.[store.store_id] ?? false}
+                      onChange={() => handleOverridePromptSelectionChange(store.store_id)}
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{store.store_name}</p>
+                      <p className="text-xs text-gray-500">
+                        Current custom price:{' '}
+                        {store.custom_sell_price
+                          ? `$${parseFloat(store.custom_sell_price).toFixed(2)}`
+                          : 'not set'}
+                      </p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={handleKeepExistingOverrides}
+                  className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Keep Existing
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApplyOverrideUpdates}
+                  className="px-4 py-2 bg-[#2d8659] text-white rounded-md hover:bg-[#256b49]"
+                >
+                  Update Selected
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
