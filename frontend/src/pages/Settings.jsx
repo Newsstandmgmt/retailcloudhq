@@ -7,7 +7,6 @@ import ManageVendors from '../components/settings/ManageVendors';
 import ManageChartOfAccounts from '../components/settings/ManageChartOfAccounts';
 import ManageExpenseTypes from '../components/settings/ManageExpenseTypes';
 import OtherIncome from '../components/settings/OtherIncome';
-import DailyReportSettings from '../components/settings/DailyReportSettings';
 import StoreProfile from '../components/settings/StoreProfile';
 import ManageStoreManagers from '../components/settings/ManageStoreManagers';
 import ManageTaxes from '../components/settings/ManageTaxes';
@@ -20,7 +19,7 @@ import HandheldDevices from '../components/settings/HandheldDevices';
 
 const Settings = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('daily-report-settings');
+  const [activeTab, setActiveTab] = useState('store-profile');
 
   // Listen for custom event to set active tab (e.g., from dashboard)
   useEffect(() => {
@@ -43,7 +42,6 @@ const Settings = () => {
   }
 
   const tabs = [
-    { id: 'daily-report-settings', label: 'Daily Report Settings' },
     { id: 'store-profile', label: 'Store Profile' },
     { id: 'cash-drawer-settings', label: 'Cash Drawer Settings' },
     ...(user?.role === 'super_admin' ? [{ id: 'cash-drawer-calculation', label: 'Cash Drawer Calculations' }] : []),
@@ -64,8 +62,6 @@ const Settings = () => {
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'daily-report-settings':
-        return <DailyReportSettings />;
       case 'store-profile':
         return <StoreProfile />;
       case 'cash-drawer-settings':
@@ -99,7 +95,7 @@ const Settings = () => {
       case 'handheld-devices':
         return <HandheldDevices />;
       default:
-        return <DailyReportSettings />;
+        return <StoreProfile />;
     }
   };
 
