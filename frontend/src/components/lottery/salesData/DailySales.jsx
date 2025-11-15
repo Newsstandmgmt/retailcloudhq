@@ -8,9 +8,32 @@ const formatCurrency = (value) =>
     minimumFractionDigits: 2
   }).format(value || 0);
 
+const normalizeDate = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return value.toISOString().split('T')[0];
+  }
+  if (typeof value === 'string') {
+    let datePart = value.trim();
+    if (datePart.includes('T')) {
+      datePart = datePart.split('T')[0];
+    } else if (datePart.includes(' ')) {
+      const maybeDate = datePart.split(' ')[0];
+      if (maybeDate.includes('-')) {
+        datePart = maybeDate;
+      }
+    }
+    return datePart;
+  }
+  return null;
+};
+
 const formatDateLabel = (dateStr) => {
   if (!dateStr) return '-';
   const [year, month, day] = dateStr.split('-').map(Number);
+  if ([year, month, day].some((n) => Number.isNaN(n))) {
+    return dateStr;
+  }
   const date = new Date(year, month - 1, day);
   return date.toLocaleDateString('en-US', {
     weekday: 'short',
@@ -68,22 +91,24 @@ const DailySales = ({ storeId }) => {
       const lotteryEntries = lotteryRes.data.sales || [];
 
       const revenueMap = revenueEntries.reduce((acc, entry) => {
-        if (entry.entry_date) {
-          acc[entry.entry_date] = entry;
+        const dateKey = normalizeDate(entry.entry_date);
+        if (dateKey) {
+          acc[dateKey] = entry;
         }
         return acc;
       }, {});
 
       const lotteryMap = lotteryEntries.reduce((acc, entry) => {
-        if (entry.entry_date) {
-          acc[entry.entry_date] = entry;
+        const dateKey = normalizeDate(entry.entry_date);
+        if (dateKey) {
+          acc[dateKey] = entry;
         }
         return acc;
       }, {});
 
       const uniqueDates = Array.from(
         new Set([...Object.keys(revenueMap), ...Object.keys(lotteryMap)])
-      ).sort();
+      ).sort((a, b) => new Date(a) - new Date(b));
 
       const combinedRows = uniqueDates.map((date) => {
         const revenue = revenueMap[date] || {};
