@@ -405,11 +405,31 @@ export const lotteryAnalyticsAPI = {
 
 // Lottery Sales Data API
 export const lotterySalesDataAPI = {
-  getDailySales: (storeId, date) => api.get(`/api/lottery-sales-data/stores/${storeId}/daily/${date}`),
-  createOrUpdateDailySales: (storeId, data) => api.post(`/api/lottery-sales-data/stores/${storeId}/daily`, data),
-  getWeeklySales: (storeId, weekStart) => api.get(`/api/lottery-sales-data/stores/${storeId}/weekly/${weekStart}`),
+  getDailySales: (storeId, params = {}) => {
+    const searchParams = new URLSearchParams();
+    if (params.startDate) searchParams.append('startDate', params.startDate);
+    if (params.endDate) searchParams.append('endDate', params.endDate);
+    const query = searchParams.toString();
+    return api.get(`/api/lottery-sales-data/stores/${storeId}/daily${query ? `?${query}` : ''}`);
+  },
+  getDailySale: (storeId, date) => api.get(`/api/lottery-sales-data/stores/${storeId}/daily/${date}`),
+  saveDailySale: (storeId, data) => api.post(`/api/lottery-sales-data/stores/${storeId}/daily`, data),
+  deleteDailySale: (storeId, date) => api.delete(`/api/lottery-sales-data/stores/${storeId}/daily/${date}`),
+  getWeeklySales: (storeId, params = {}) => {
+    const searchParams = new URLSearchParams();
+    if (params.startDate) searchParams.append('startDate', params.startDate);
+    if (params.endDate) searchParams.append('endDate', params.endDate);
+    const query = searchParams.toString();
+    return api.get(`/api/lottery-sales-data/stores/${storeId}/weekly${query ? `?${query}` : ''}`);
+  },
   createOrUpdateWeeklySales: (storeId, data) => api.post(`/api/lottery-sales-data/stores/${storeId}/weekly`, data),
-  getWeeklySettlement: (storeId, weekStart) => api.get(`/api/lottery-sales-data/stores/${storeId}/weekly-settlement/${weekStart}`),
+  getWeeklySettlement: (storeId, params = {}) => {
+    const searchParams = new URLSearchParams();
+    if (params.startDate) searchParams.append('startDate', params.startDate);
+    if (params.endDate) searchParams.append('endDate', params.endDate);
+    const query = searchParams.toString();
+    return api.get(`/api/lottery-sales-data/stores/${storeId}/weekly-settlement${query ? `?${query}` : ''}`);
+  },
   createOrUpdateWeeklySettlement: (storeId, data) => api.post(`/api/lottery-sales-data/stores/${storeId}/weekly-settlement`, data),
   getThirteenWeekAverage: (storeId) => api.get(`/api/lottery-sales-data/stores/${storeId}/thirteen-week-average`),
   createOrUpdateThirteenWeekAverage: (storeId, data) => api.post(`/api/lottery-sales-data/stores/${storeId}/thirteen-week-average`, data),
