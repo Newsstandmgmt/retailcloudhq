@@ -939,6 +939,9 @@ export const mobileDevicesAPI = {
   getUsers: (storeId) => {
     return api.get(`/api/mobile-devices/store/${storeId}/users`);
   },
+  getAssignableUsers: (storeId) => {
+    return api.get(`/api/mobile-devices/store/${storeId}/assignable-users`);
+  },
   // Assign user to device
   assignUser: (deviceId, userId, permissions = {}, devicePin = null) => {
     return api.post(`/api/mobile-devices/devices/${deviceId}/assign-user`, { 
@@ -979,6 +982,9 @@ export const mobileDevicesAPI = {
   getDevices: (storeId, includeInactive = false) => {
     return api.get(`/api/mobile-devices/store/${storeId}/devices?include_inactive=${includeInactive}`);
   },
+  getAssignableDevices: (storeId, includeInactive = false) => {
+    return api.get(`/api/mobile-devices/store/${storeId}/devices/assignments?include_inactive=${includeInactive}`);
+  },
   // Lock device
   lockDevice: (deviceId) => {
     return api.put(`/api/mobile-devices/devices/${deviceId}/lock`);
@@ -1004,6 +1010,11 @@ export const mobileDevicesAPI = {
     return api.put(`/api/mobile-devices/device/${deviceId}`, data);
   },
 };
+ // Admin-scoped device assignment helpers
+mobileDevicesAPI.assignEmployee = (storeId, deviceId, data) =>
+  api.post(`/api/mobile-devices/store/${storeId}/devices/${deviceId}/assign-employee`, data);
+mobileDevicesAPI.unassignEmployee = (storeId, deviceId) =>
+  api.post(`/api/mobile-devices/store/${storeId}/devices/${deviceId}/unassign-employee`);
 
 export default api;
 

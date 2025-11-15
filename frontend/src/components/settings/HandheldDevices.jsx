@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../../contexts/StoreContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { mobileDevicesAPI } from '../../services/api';
 
 const HandheldDevices = () => {
   const { selectedStore } = useStore();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'super_admin';
+  const canManageAssignments = user?.role === 'admin' || isSuperAdmin;
   const [codes, setCodes] = useState([]);
   const [devices, setDevices] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [codesLoading, setCodesLoading] = useState(true);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [includeUsed, setIncludeUsed] = useState(false);
   const [includeInactive, setIncludeInactive] = useState(false);
@@ -40,30 +44,39 @@ const HandheldDevices = () => {
   });
 
   useEffect(() => {
-    if (selectedStore) {
+    if (!selectedStore) return;
+    if (isSuperAdmin) {
       loadCodes();
-      loadDevices();
+    } else {
+      setCodes([]);
+      setCodesLoading(false);
     }
-  }, [selectedStore, includeUsed, includeInactive]);
+    loadDevices();
+  }, [selectedStore, includeUsed, includeInactive, isSuperAdmin]);
 
   const loadCodes = async () => {
-    if (!selectedStore) return;
+    if (!selectedStore || !isSuperAdmin) {
+      setCodesLoading(false);
+      return;
+    }
     try {
-      setLoading(true);
+      setCodesLoading(true);
       const response = await mobileDevicesAPI.getCodes(selectedStore.id, includeUsed);
       setCodes(response.data.codes || []);
     } catch (error) {
       console.error('Error loading codes:', error);
       alert('Failed to load registration codes');
     } finally {
-      setLoading(false);
+      setCodesLoading(false);
     }
   };
 
   const loadDevices = async () => {
     if (!selectedStore) return;
     try {
-      const response = await mobileDevicesAPI.getDevices(selectedStore.id, includeInactive);
+      const response = isSuperAdmin
+        ? await mobileDevicesAPI.getDevices(selectedStore.id, includeInactive)
+        : await mobileDevicesAPI.getAssignableDevices(selectedStore.id, includeInactive);
       setDevices(response.data.devices || []);
     } catch (error) {
       console.error('Error loading devices:', error);
@@ -73,7 +86,9 @@ const HandheldDevices = () => {
   const loadUsers = async () => {
     if (!selectedStore) return;
     try {
-      const response = await mobileDevicesAPI.getUsers(selectedStore.id);
+      const response = isSuperAdmin
+        ? await mobileDevicesAPI.getUsers(selectedStore.id)
+        : await mobileDevicesAPI.getAssignableUsers(selectedStore.id);
       setUsers(response.data.users || []);
     } catch (error) {
       console.error('Error loading users:', error);
@@ -81,7 +96,7 @@ const HandheldDevices = () => {
   };
 
   const handleGenerateCode = async () => {
-    if (!selectedStore) return;
+    if (!selectedStore || !isSuperAdmin) return;
     try {
       const response = await mobileDevicesAPI.generateCode(selectedStore.id, {
         expires_at: newCode.expires_at || null,
@@ -119,12 +134,20 @@ const HandheldDevices = () => {
     }
     
     try {
-      await mobileDevicesAPI.assignUser(
-        selectedDevice.device_id, 
-        assignForm.user_id, 
-        assignForm.permissions,
-        assignForm.device_pin || null
-      );
+      if (isSuperAdmin) {
+        await mobileDevicesAPI.assignUser(
+          selectedDevice.device_id,
+          assignForm.user_id,
+          assignForm.permissions,
+          assignForm.device_pin || null
+        );
+      } else {
+        await mobileDevicesAPI.assignEmployee(selectedStore.id, selectedDevice.device_id, {
+          user_id: assignForm.user_id,
+          device_pin: assignForm.device_pin || null,
+          permissions: assignForm.permissions,
+        });
+      }
       alert('User assigned successfully');
       setShowAssignModal(false);
       setSelectedDevice(null);
@@ -154,7 +177,11 @@ const HandheldDevices = () => {
   const handleUnassignUser = async (deviceId) => {
     if (!confirm('Are you sure you want to unassign the user from this device?')) return;
     try {
-      await mobileDevicesAPI.unassignUser(deviceId);
+      if (isSuperAdmin) {
+        await mobileDevicesAPI.unassignUser(deviceId);
+      } else {
+        await mobileDevicesAPI.unassignEmployee(selectedStore.id, deviceId);
+      }
       loadDevices();
     } catch (error) {
       console.error('Error unassigning user:', error);
@@ -297,144 +324,155 @@ const HandheldDevices = () => {
     <div className="p-6">
       <div className="mb-6">
         <h2 className="text-xl font-bold text-gray-900 mb-2">Handheld Device Management</h2>
-        <p className="text-sm text-gray-600">
-          Generate registration codes to link Android devices to this store. Each code can be used to register one device with specific access permissions.
-        </p>
-      </div>
-
-      {/* Generate Code Button */}
-      <div className="mb-6">
-        <button
-          onClick={() => setShowGenerateModal(true)}
-          className="px-4 py-2 bg-[#2d8659] text-white rounded-lg hover:bg-[#256b49]"
-        >
-          + Generate Registration Code
-        </button>
-      </div>
-
-      {/* Registration Codes Section */}
-      <div className="mb-8">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Registration Codes</h3>
-          <label className="flex items-center text-sm">
-            <input
-              type="checkbox"
-              checked={includeUsed}
-              onChange={(e) => setIncludeUsed(e.target.checked)}
-              className="mr-2"
-            />
-            Show used codes
-          </label>
-        </div>
-
-        {loading ? (
-          <div className="text-center py-8 text-gray-500">Loading...</div>
-        ) : codes.length === 0 ? (
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center text-gray-500">
-            No registration codes found. Generate one to get started.
-          </div>
+        {isSuperAdmin ? (
+          <p className="text-sm text-gray-600">
+            Generate registration codes to link Android devices to this store. Each code can be used to register one device with specific access permissions.
+          </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full bg-white border border-gray-200 rounded-lg">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Uses</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expires</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created By</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {codes.map((code) => (
-                  <tr key={code.id} className={!code.is_active ? 'bg-gray-50' : ''}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-lg">{code.code}</span>
-                        <button
-                          onClick={() => copyToClipboard(code.code)}
-                          className="text-blue-600 hover:text-blue-800 text-sm"
-                          title="Copy code"
-                        >
-                          📋
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {code.is_used && code.current_uses >= code.max_uses ? (
-                        <span className="px-2 py-1 text-xs rounded-full bg-gray-200 text-gray-700">Used</span>
-                      ) : !code.is_active ? (
-                        <span className="px-2 py-1 text-xs rounded-full bg-yellow-200 text-yellow-700">Inactive</span>
-                      ) : (
-                        <span className="px-2 py-1 text-xs rounded-full bg-green-200 text-green-700">Active</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      {code.current_uses} / {code.max_uses}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      {code.expires_at ? formatDate(code.expires_at) : 'Never'}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      {code.created_by_name || 'N/A'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        {code.is_active ? (
-                          <button
-                            onClick={() => handleDeactivateCode(code.id)}
-                            className="text-yellow-600 hover:text-yellow-800 text-sm"
-                            title="Deactivate"
-                          >
-                            Deactivate
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleReactivateCode(code.id)}
-                            className="text-green-600 hover:text-green-800 text-sm"
-                            title="Reactivate"
-                          >
-                            Reactivate
-                          </button>
-                        )}
-                        {!code.is_used && code.current_uses === 0 && (
-                          <button
-                            onClick={() => handleDeleteCode(code.id)}
-                            className="text-red-600 hover:text-red-800 text-sm"
-                            title="Delete"
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <p className="text-sm text-gray-600">
+            Devices are provisioned by Super Admins. Once a device is registered for your store you can assign employees and manage their PIN access below.
+          </p>
         )}
       </div>
 
-      {/* Registered Devices Section */}
+      {isSuperAdmin && (
+        <>
+          <div className="mb-6">
+            <button
+              onClick={() => setShowGenerateModal(true)}
+              className="px-4 py-2 bg-[#2d8659] text-white rounded-lg hover:bg-[#256b49]"
+            >
+              + Generate Registration Code
+            </button>
+          </div>
+
+          <div className="mb-8">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Registration Codes</h3>
+              <label className="flex items-center text-sm">
+                <input
+                  type="checkbox"
+                  checked={includeUsed}
+                  onChange={(e) => setIncludeUsed(e.target.checked)}
+                  className="mr-2"
+                />
+                Show used codes
+              </label>
+            </div>
+
+            {codesLoading ? (
+              <div className="text-center py-8 text-gray-500">Loading...</div>
+            ) : codes.length === 0 ? (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center text-gray-500">
+                No registration codes found. Generate one to get started.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Uses</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expires</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created By</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {codes.map((code) => (
+                      <tr key={code.id} className={!code.is_active ? 'bg-gray-50' : ''}>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-lg">{code.code}</span>
+                            <button
+                              onClick={() => copyToClipboard(code.code)}
+                              className="text-blue-600 hover:text-blue-800 text-sm"
+                              title="Copy code"
+                            >
+                              📋
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {code.is_used && code.current_uses >= code.max_uses ? (
+                            <span className="px-2 py-1 text-xs rounded-full bg-gray-200 text-gray-700">Used</span>
+                          ) : !code.is_active ? (
+                            <span className="px-2 py-1 text-xs rounded-full bg-yellow-200 text-yellow-700">Inactive</span>
+                          ) : (
+                            <span className="px-2 py-1 text-xs rounded-full bg-green-200 text-green-700">Active</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          {code.current_uses} / {code.max_uses}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          {code.expires_at ? formatDate(code.expires_at) : 'Never'}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          {code.created_by_name || 'N/A'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            {code.is_active ? (
+                              <button
+                                onClick={() => handleDeactivateCode(code.id)}
+                                className="text-yellow-600 hover:text-yellow-800 text-sm"
+                                title="Deactivate"
+                              >
+                                Deactivate
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleReactivateCode(code.id)}
+                                className="text-green-600 hover:text-green-800 text-sm"
+                                title="Reactivate"
+                              >
+                                Reactivate
+                              </button>
+                            )}
+                            {(!code.is_used || code.current_uses === 0) && (
+                              <button
+                                onClick={() => handleDeleteCode(code.id)}
+                                className="text-red-600 hover:text-red-800 text-sm"
+                                title="Delete"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       <div>
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold text-gray-900">Registered Devices</h3>
-          <label className="flex items-center text-sm">
-            <input
-              type="checkbox"
-              checked={includeInactive}
-              onChange={(e) => setIncludeInactive(e.target.checked)}
-              className="mr-2"
-            />
-            Show inactive devices
-          </label>
+          {isSuperAdmin && (
+            <label className="flex items-center text-sm">
+              <input
+                type="checkbox"
+                checked={includeInactive}
+                onChange={(e) => setIncludeInactive(e.target.checked)}
+                className="mr-2"
+              />
+              Show inactive devices
+            </label>
+          )}
         </div>
 
         {devices.length === 0 ? (
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center text-gray-500">
-            No devices registered yet. Generate a code and have users register their devices.
+            {isSuperAdmin
+              ? 'No devices registered yet. Generate a code and have users register their devices.'
+              : 'No handheld devices are currently assigned to this store. Ask a Super Admin to register one for you.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -459,11 +497,15 @@ const HandheldDevices = () => {
                           <div className="font-medium">{device.user_name}</div>
                           <div className="text-xs text-gray-500">{device.user_email}</div>
                           <div className="text-xs">
-                            <span className={`px-1 py-0.5 rounded ${
-                              device.user_role === 'admin' ? 'bg-red-100 text-red-800' :
-                              device.user_role === 'manager' ? 'bg-blue-100 text-blue-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
+                            <span
+                              className={`px-1 py-0.5 rounded ${
+                                device.user_role === 'admin'
+                                  ? 'bg-red-100 text-red-800'
+                                  : device.user_role === 'manager'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : 'bg-gray-100 text-gray-800'
+                              }`}
+                            >
                               {device.user_role}
                             </span>
                           </div>
@@ -484,19 +526,19 @@ const HandheldDevices = () => {
                     <td className="px-4 py-3 text-sm">
                       {device.last_seen_at ? formatDate(device.last_seen_at) : 'Never'}
                     </td>
-                    <td className="px-4 py-3 text-sm">
-                      {formatDate(device.created_at)}
-                    </td>
+                    <td className="px-4 py-3 text-sm">{formatDate(device.created_at)}</td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2 flex-wrap">
-                        <button
-                          onClick={() => openAssignModal(device)}
-                          className="text-blue-600 hover:text-blue-800 text-sm"
-                          title={device.user_id ? "Change User/Permissions" : "Assign User"}
-                        >
-                          {device.user_id ? 'Edit User' : 'Assign User'}
-                        </button>
-                        {device.user_id && (
+                        {canManageAssignments && (
+                          <button
+                            onClick={() => openAssignModal(device)}
+                            className="text-blue-600 hover:text-blue-800 text-sm"
+                            title={device.user_id ? 'Change User/Permissions' : 'Assign User'}
+                          >
+                            {device.user_id ? 'Edit User' : 'Assign User'}
+                          </button>
+                        )}
+                        {canManageAssignments && device.user_id && (
                           <button
                             onClick={() => handleUnassignUser(device.device_id)}
                             className="text-orange-600 hover:text-orange-800 text-sm"
@@ -505,39 +547,43 @@ const HandheldDevices = () => {
                             Unassign
                           </button>
                         )}
-                        {device.is_locked ? (
-                          <button
-                            onClick={() => handleUnlockDevice(device.device_id)}
-                            className="text-green-600 hover:text-green-800 text-sm"
-                            title="Unlock"
-                          >
-                            Unlock
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleLockDevice(device.device_id)}
-                            className="text-yellow-600 hover:text-yellow-800 text-sm"
-                            title="Lock"
-                          >
-                            Lock
-                          </button>
+                        {isSuperAdmin && (
+                          <>
+                            {device.is_locked ? (
+                              <button
+                                onClick={() => handleUnlockDevice(device.device_id)}
+                                className="text-green-600 hover:text-green-800 text-sm"
+                                title="Unlock"
+                              >
+                                Unlock
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleLockDevice(device.device_id)}
+                                className="text-yellow-600 hover:text-yellow-800 text-sm"
+                                title="Lock"
+                              >
+                                Lock
+                              </button>
+                            )}
+                            {device.is_active && (
+                              <button
+                                onClick={() => handleDeactivateDevice(device.device_id)}
+                                className="text-red-600 hover:text-red-800 text-sm"
+                                title="Deactivate"
+                              >
+                                Deactivate
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteDevice(device.device_id)}
+                              className="text-red-700 hover:text-red-900 text-sm font-semibold"
+                              title="Unregister Device (allows re-registration)"
+                            >
+                              Unregister
+                            </button>
+                          </>
                         )}
-                        {device.is_active && (
-                          <button
-                            onClick={() => handleDeactivateDevice(device.device_id)}
-                            className="text-red-600 hover:text-red-800 text-sm"
-                            title="Deactivate"
-                          >
-                            Deactivate
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDeleteDevice(device.device_id)}
-                          className="text-red-700 hover:text-red-900 text-sm font-semibold"
-                          title="Unregister Device (allows re-registration)"
-                        >
-                          Unregister
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -549,7 +595,7 @@ const HandheldDevices = () => {
       </div>
 
       {/* Generate Code Modal */}
-      {showGenerateModal && (
+      {isSuperAdmin && showGenerateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
             <div className="p-6">

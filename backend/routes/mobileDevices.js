@@ -41,7 +41,7 @@ router.post('/register', async (req, res) => {
 });
 
 // Generate registration code (admin only) - generic code, no role
-router.post('/store/:storeId/codes', authenticate, canAccessStore, authorize('admin', 'super_admin'), async (req, res) => {
+router.post('/store/:storeId/codes', authenticate, canAccessStore, authorize('super_admin'), async (req, res) => {
     try {
         const { expires_at, max_uses, notes } = req.body;
         
@@ -63,7 +63,7 @@ router.post('/store/:storeId/codes', authenticate, canAccessStore, authorize('ad
 });
 
 // Get all registration codes for a store
-router.get('/store/:storeId/codes', authenticate, canAccessStore, authorize('admin', 'super_admin'), async (req, res) => {
+router.get('/store/:storeId/codes', authenticate, canAccessStore, authorize('super_admin'), async (req, res) => {
     try {
         const includeUsed = req.query.include_used === 'true';
         const codes = await DeviceRegistrationCode.findByStore(
@@ -78,7 +78,7 @@ router.get('/store/:storeId/codes', authenticate, canAccessStore, authorize('adm
 });
 
 // Deactivate a code
-router.put('/codes/:codeId/deactivate', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
+router.put('/codes/:codeId/deactivate', authenticate, authorize('super_admin'), async (req, res) => {
     try {
         const code = await DeviceRegistrationCode.deactivate(
             req.params.codeId,
@@ -95,7 +95,7 @@ router.put('/codes/:codeId/deactivate', authenticate, authorize('admin', 'super_
 });
 
 // Reactivate a code
-router.put('/codes/:codeId/reactivate', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
+router.put('/codes/:codeId/reactivate', authenticate, authorize('super_admin'), async (req, res) => {
     try {
         const code = await DeviceRegistrationCode.reactivate(
             req.params.codeId,
@@ -112,7 +112,7 @@ router.put('/codes/:codeId/reactivate', authenticate, authorize('admin', 'super_
 });
 
 // Delete a code (only if unused)
-router.delete('/codes/:codeId', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
+router.delete('/codes/:codeId', authenticate, authorize('super_admin'), async (req, res) => {
     try {
         await DeviceRegistrationCode.delete(req.params.codeId);
         res.json({ message: 'Code deleted successfully' });
@@ -123,7 +123,7 @@ router.delete('/codes/:codeId', authenticate, authorize('admin', 'super_admin'),
 });
 
 // Get all devices for a store
-router.get('/store/:storeId/devices', authenticate, canAccessStore, authorize('admin', 'super_admin'), async (req, res) => {
+router.get('/store/:storeId/devices', authenticate, canAccessStore, authorize('super_admin'), async (req, res) => {
     try {
         const includeInactive = req.query.include_inactive === 'true';
         const devices = await MobileDevice.findByStore(
@@ -138,7 +138,7 @@ router.get('/store/:storeId/devices', authenticate, canAccessStore, authorize('a
 });
 
 // Lock a device
-router.put('/devices/:deviceId/lock', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
+router.put('/devices/:deviceId/lock', authenticate, authorize('super_admin'), async (req, res) => {
     try {
         const device = await MobileDevice.lock(req.params.deviceId, req.user.id);
         if (!device) {
@@ -152,7 +152,7 @@ router.put('/devices/:deviceId/lock', authenticate, authorize('admin', 'super_ad
 });
 
 // Unlock a device
-router.put('/devices/:deviceId/unlock', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
+router.put('/devices/:deviceId/unlock', authenticate, authorize('super_admin'), async (req, res) => {
     try {
         const device = await MobileDevice.unlock(req.params.deviceId);
         if (!device) {
@@ -166,7 +166,7 @@ router.put('/devices/:deviceId/unlock', authenticate, authorize('admin', 'super_
 });
 
 // Deactivate a device
-router.put('/devices/:deviceId/deactivate', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
+router.put('/devices/:deviceId/deactivate', authenticate, authorize('super_admin'), async (req, res) => {
     try {
         const device = await MobileDevice.deactivate(req.params.deviceId);
         if (!device) {
@@ -261,7 +261,7 @@ router.put('/device/:deviceId', authenticate, async (req, res) => {
 });
 
 // Get available users for assignment (admin only)
-router.get('/store/:storeId/users', authenticate, canAccessStore, authorize('admin', 'super_admin'), async (req, res) => {
+router.get('/store/:storeId/users', authenticate, canAccessStore, authorize('super_admin'), async (req, res) => {
     try {
         // Get all users that can be assigned to devices (admins, managers, employees)
         const users = await User.findByStore(req.params.storeId);
@@ -275,7 +275,7 @@ router.get('/store/:storeId/users', authenticate, canAccessStore, authorize('adm
 });
 
 // Get device permissions (admin only)
-router.get('/devices/:deviceId/permissions', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
+router.get('/devices/:deviceId/permissions', authenticate, authorize('super_admin'), async (req, res) => {
     try {
         const permissions = await MobileDevice.getPermissions(req.params.deviceId);
         res.json({ permissions: permissions || null });
@@ -286,7 +286,7 @@ router.get('/devices/:deviceId/permissions', authenticate, authorize('admin', 's
 });
 
 // Assign user to device (admin only)
-router.post('/devices/:deviceId/assign-user', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
+router.post('/devices/:deviceId/assign-user', authenticate, authorize('super_admin'), async (req, res) => {
     try {
         const { user_id, permissions, device_pin } = req.body;
         
@@ -322,7 +322,7 @@ router.post('/devices/:deviceId/assign-user', authenticate, authorize('admin', '
 });
 
 // Unassign user from device (admin only)
-router.post('/devices/:deviceId/unassign-user', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
+router.post('/devices/:deviceId/unassign-user', authenticate, authorize('super_admin'), async (req, res) => {
     try {
         await MobileDevice.unassignUser(req.params.deviceId);
         res.json({ message: 'User unassigned successfully' });
@@ -333,7 +333,7 @@ router.post('/devices/:deviceId/unassign-user', authenticate, authorize('admin',
 });
 
 // Update user device permissions (admin only)
-router.put('/devices/:deviceId/permissions', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
+router.put('/devices/:deviceId/permissions', authenticate, authorize('super_admin'), async (req, res) => {
     try {
         const device = await MobileDevice.findByDeviceId(req.params.deviceId);
         if (!device || !device.user_id) {
@@ -357,7 +357,7 @@ router.put('/devices/:deviceId/permissions', authenticate, authorize('admin', 's
 });
 
 // Delete/unregister device (admin only) - allows device to be re-registered
-router.delete('/devices/:deviceId', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
+router.delete('/devices/:deviceId', authenticate, authorize('super_admin'), async (req, res) => {
     try {
         const device = await MobileDevice.findByDeviceId(req.params.deviceId);
         if (!device) {
@@ -381,6 +381,98 @@ router.delete('/devices/:deviceId', authenticate, authorize('admin', 'super_admi
     } catch (error) {
         console.error('Delete device error:', error);
         res.status(500).json({ error: error.message || 'Failed to delete device' });
+    }
+});
+
+// Store admin access: view devices for assignment
+router.get('/store/:storeId/devices/assignments', authenticate, canAccessStore, authorize('admin', 'super_admin'), async (req, res) => {
+    try {
+        const includeInactive = req.query.include_inactive === 'true';
+        const devices = await MobileDevice.findByStore(req.params.storeId, includeInactive);
+        res.json({ devices });
+    } catch (error) {
+        console.error('Get assignable devices error:', error);
+        res.status(500).json({ error: 'Failed to fetch devices' });
+    }
+});
+
+// Store admin access: list assignable users (employees/managers)
+router.get('/store/:storeId/assignable-users', authenticate, canAccessStore, authorize('admin', 'super_admin'), async (req, res) => {
+    try {
+        const users = await User.findByStore(req.params.storeId);
+        const filtered = (users || []).filter((user) => user.is_active !== false && user.role !== 'super_admin');
+        res.json({ users: filtered });
+    } catch (error) {
+        console.error('Get assignable users error:', error);
+        res.status(500).json({ error: 'Failed to fetch users' });
+    }
+});
+
+// Store admin access: assign employee with PIN
+router.post('/store/:storeId/devices/:deviceId/assign-employee', authenticate, canAccessStore, authorize('admin', 'super_admin'), async (req, res) => {
+    try {
+        const { user_id, permissions = {}, device_pin } = req.body;
+        if (!user_id) {
+            return res.status(400).json({ error: 'User ID is required' });
+        }
+
+        const device = await MobileDevice.findByDeviceId(req.params.deviceId);
+        if (!device || device.store_id !== req.params.storeId) {
+            return res.status(404).json({ error: 'Device not found for this store' });
+        }
+
+        const targetUser = await User.findById(user_id);
+        if (!targetUser || targetUser.is_active === false) {
+            return res.status(404).json({ error: 'User not found or inactive' });
+        }
+
+        // Ensure user belongs to store
+        const storeUsers = await User.findByStore(req.params.storeId);
+        if (!storeUsers.some((u) => u.id === user_id)) {
+            return res.status(400).json({ error: 'User does not belong to this store' });
+        }
+
+        // Admins can only assign employees
+        if (req.user.role === 'admin' && targetUser.role !== 'employee') {
+            return res.status(403).json({ error: 'Store admins can only assign employee users' });
+        }
+
+        if (targetUser.role === 'employee') {
+            if (!device_pin) {
+                return res.status(400).json({ error: 'Device PIN is required for employees' });
+            }
+            if (!/^\d{4,6}$/.test(device_pin)) {
+                return res.status(400).json({ error: 'PIN must be 4-6 digits' });
+            }
+        }
+
+        await MobileDevice.assignUser(
+            req.params.deviceId,
+            user_id,
+            req.user.id,
+            permissions,
+            device_pin || null
+        );
+
+        res.json({ message: 'User assigned to device' });
+    } catch (error) {
+        console.error('Assign employee error:', error);
+        res.status(500).json({ error: error.message || 'Failed to assign employee' });
+    }
+});
+
+router.post('/store/:storeId/devices/:deviceId/unassign-employee', authenticate, canAccessStore, authorize('admin', 'super_admin'), async (req, res) => {
+    try {
+        const device = await MobileDevice.findByDeviceId(req.params.deviceId);
+        if (!device || device.store_id !== req.params.storeId) {
+            return res.status(404).json({ error: 'Device not found for this store' });
+        }
+
+        await MobileDevice.unassignUser(req.params.deviceId);
+        res.json({ message: 'User unassigned successfully' });
+    } catch (error) {
+        console.error('Unassign employee error:', error);
+        res.status(500).json({ error: error.message || 'Failed to unassign employee' });
     }
 });
 

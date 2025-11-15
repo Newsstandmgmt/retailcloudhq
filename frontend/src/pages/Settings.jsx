@@ -57,7 +57,7 @@ const Settings = () => {
     { id: 'manage-credit-cards', label: 'Manage Credit Cards' },
     { id: 'chart-of-accounts', label: 'Chart of Accounts' },
     { id: 'manage-taxes', label: 'Local Taxes' },
-    { id: 'handheld-devices', label: 'Handheld Devices' },
+    ...(user?.role === 'super_admin' ? [{ id: 'handheld-devices', label: 'Handheld Devices' }] : []),
   ];
 
   const renderContent = () => {
