@@ -5384,6 +5384,27 @@ useEffect(() => {
                                       }}
                                       className="w-20 border border-gray-300 rounded-md px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
                                     />
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={invoiceItem.unit_cost || product.cost_price || 0}
+                                      onChange={(e) => {
+                                        handleUpdateProductUnitCost(product.id, e.target.value);
+                                        setTimeout(() => calculateExpectedRevenue(), 150);
+                                      }}
+                                      className="w-24 border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
+                                      placeholder="Cost"
+                                    />
+                                    {vendorCost !== null && vendorCost !== undefined && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleApplyVendorCostToInvoiceItem(product.id)}
+                                        className="text-xs text-[#2d8659] border border-[#2d8659]/40 rounded px-2 py-1 hover:bg-[#2d8659]/10"
+                                      >
+                                        Use vendor price (${parseFloat(vendorCost).toFixed(2)})
+                                      </button>
+                                    )}
                                     <span className="text-sm font-medium text-[#2d8659] min-w-[80px] text-right">
                                       ${itemRevenue}
                                     </span>
