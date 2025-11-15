@@ -307,6 +307,37 @@ router.post(
     }
 });
 
+router.post(
+    '/items/:itemId/revert-delivery',
+    authorize('admin', 'super_admin', 'manager'),
+    auditLogger({
+        actionType: 'update',
+        entityType: 'inventory_order_item',
+        getEntityId: (req) => req.params.itemId,
+        getDescription: (req) => {
+            const qty = req.body?.quantity;
+            return `Reverted delivered quantity for order item ${req.params.itemId}${qty ? ` (qty: ${qty})` : ''}`;
+        },
+        logRequestBody: true
+    }),
+    async (req, res) => {
+    try {
+        const { quantity } = req.body || {};
+        const result = await InventoryOrder.revertItemDelivery(
+            req.params.itemId,
+            quantity !== undefined ? quantity : null
+        );
+
+        res.json({
+            ...result,
+            message: 'Item delivery reverted successfully'
+        });
+    } catch (error) {
+        console.error('Revert delivery error:', error);
+        res.status(500).json({ error: error.message || 'Failed to revert delivery' });
+    }
+});
+
 // Cancel order (admin/manager only)
 router.post('/:orderId/cancel', authorize('admin', 'super_admin', 'manager'), async (req, res) => {
     try {

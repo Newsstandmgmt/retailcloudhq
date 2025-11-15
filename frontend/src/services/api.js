@@ -881,6 +881,19 @@ export const inventoryOrdersAPI = {
     }
     return api.post(`/api/inventory-orders/items/${itemId}/delivered`, payload);
   },
+  revertItemDelivery: (itemId, data = null) => {
+    let payload = {};
+    if (data === null || data === undefined) {
+      payload = {};
+    } else if (typeof data === 'number') {
+      payload = { quantity: data };
+    } else if (typeof data === 'object') {
+      payload = { ...data };
+    } else {
+      payload = { quantity: data };
+    }
+    return api.post(`/api/inventory-orders/items/${itemId}/revert-delivery`, payload);
+  },
   cancelOrder: (orderId) => {
     return api.post(`/api/inventory-orders/${orderId}/cancel`);
   },

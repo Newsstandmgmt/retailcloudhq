@@ -4,6 +4,27 @@ import { useStore } from '../contexts/StoreContext';
 import { useAuth } from '../contexts/AuthContext';
 import { purchaseInvoicesAPI, banksAPI, creditCardsAPI, productsAPI, inventoryOrdersAPI } from '../services/api';
 
+const normalizeDeliveryQuantity = (value) => {
+  const qty = parseFloat(value);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    return 0;
+  }
+  return qty;
+};
+
+const mergeDeliveryCounts = (base = {}, addition = {}) => {
+  const merged = { ...base };
+  Object.entries(addition || {}).forEach(([itemId, value]) => {
+    const qty = normalizeDeliveryQuantity(value);
+    if (!qty) return;
+    const current = normalizeDeliveryQuantity(merged[itemId]);
+    merged[itemId] = current + qty;
+  });
+  return merged;
+};
+
+const cloneInvoiceFormState = (form) => JSON.parse(JSON.stringify(form || {}));
+
 const PurchasePayments = () => {
   const { selectedStore, stores } = useStore();
   const { user } = useAuth();
@@ -108,6 +129,9 @@ const PurchasePayments = () => {
   const [showRevenueCalculationModal, setShowRevenueCalculationModal] = useState(false);
   const [calculatedInvoiceAmount, setCalculatedInvoiceAmount] = useState(null); // Track if amount was calculated or manually entered
   const [revenueModalContext, setRevenueModalContext] = useState('create');
+  const [sessionDeliveries, setSessionDeliveries] = useState({});
+  const modalDeliveriesRef = useRef({});
+  const invoiceFormSnapshotRef = useRef(null);
   const resetInvoiceFormState = (overrides = {}) => {
     setInvoiceForm({
       ...createEmptyInvoiceForm(),
@@ -134,6 +158,79 @@ const PurchasePayments = () => {
     }
     return 'manual';
   };
+
+  const revertDeliveriesMap = useCallback(
+    async (deliveriesMap = {}, { silent = false } = {}) => {
+      const entries = Object.entries(deliveriesMap || {});
+      if (!entries.length) {
+        return true;
+      }
+      const errors = [];
+      for (const [itemId, value] of entries) {
+        const quantity = normalizeDeliveryQuantity(value);
+        if (!quantity) continue;
+        try {
+          await inventoryOrdersAPI.revertItemDelivery(itemId, { quantity });
+        } catch (error) {
+          console.error('Failed to revert delivered inventory item', itemId, error);
+          errors.push(error);
+        }
+      }
+      if (errors.length) {
+        if (!silent) {
+          alert('Unable to revert some delivered items. Please refresh the pending list and try again.');
+        }
+        return false;
+      }
+      return true;
+    },
+    []
+  );
+
+  const revertCommittedDeliveries = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!Object.keys(sessionDeliveries || {}).length) {
+        return true;
+      }
+      const success = await revertDeliveriesMap(sessionDeliveries, { silent });
+      if (success) {
+        setSessionDeliveries({});
+      }
+      return success;
+    },
+    [revertDeliveriesMap, sessionDeliveries]
+  );
+
+  const revertModalDeliveries = useCallback(
+    async ({ silent = false } = {}) => {
+      const modalMap = modalDeliveriesRef.current || {};
+      if (!Object.keys(modalMap).length) {
+        return true;
+      }
+      const success = await revertDeliveriesMap(modalMap, { silent });
+      if (success) {
+        modalDeliveriesRef.current = {};
+      }
+      return success;
+    },
+    [revertDeliveriesMap]
+  );
+
+  const commitModalDeliveries = useCallback(() => {
+    const modalMap = modalDeliveriesRef.current || {};
+    if (!Object.keys(modalMap).length) {
+      return;
+    }
+    setSessionDeliveries((prev) => mergeDeliveryCounts(prev, modalMap));
+    modalDeliveriesRef.current = {};
+  }, []);
+
+  const registerModalDelivery = useCallback((itemId, quantity) => {
+    const qty = normalizeDeliveryQuantity(quantity);
+    if (!itemId || !qty) return;
+    modalDeliveriesRef.current[itemId] =
+      (modalDeliveriesRef.current[itemId] || 0) + qty;
+  }, []);
 
   useEffect(() => {
     if (selectedStore) {
@@ -207,6 +304,20 @@ const PurchasePayments = () => {
       loadInvoices();
     }
   }, [filters, entriesPerPage, currentPage]);
+
+  useEffect(() => {
+    if (showAddInvoiceModal) {
+      setSessionDeliveries({});
+      modalDeliveriesRef.current = {};
+    }
+  }, [showAddInvoiceModal]);
+
+  useEffect(() => {
+    if (showEditModal) {
+      setSessionDeliveries({});
+      modalDeliveriesRef.current = {};
+    }
+  }, [showEditModal]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -879,6 +990,9 @@ const PurchasePayments = () => {
       alert('Invoice updated successfully!');
       setShowEditModal(false);
       setEditingInvoice(null);
+      setSessionDeliveries({});
+      modalDeliveriesRef.current = {};
+      invoiceFormSnapshotRef.current = null;
       loadInvoices();
     } catch (error) {
       alert('Error updating invoice: ' + (error.response?.data?.error || error.message));
@@ -1171,6 +1285,11 @@ const PurchasePayments = () => {
         return updated;
       });
 
+      const trackedQuantity = normalizeDeliveryQuantity(delivered_quantity ?? quantity);
+      if (trackedQuantity) {
+        registerModalDelivery(pendingItem.order_item_id, trackedQuantity);
+      }
+
       alert('Order item delivered and added to cost calculation.');
     } catch (error) {
       console.error('Error delivering pending item:', error);
@@ -1178,7 +1297,24 @@ const PurchasePayments = () => {
     }
   };
 
-  const handleCloseRevenueModal = ({ saveChanges = true } = {}) => {
+  const handleCloseRevenueModal = async ({ saveChanges = true } = {}) => {
+    if (!saveChanges) {
+      const modalReverted = await revertModalDeliveries({ silent: false });
+      if (!modalReverted) {
+        return;
+      }
+      if (revenueModalContext === 'create' && invoiceFormSnapshotRef.current?.form) {
+        const snapshot = invoiceFormSnapshotRef.current;
+        setInvoiceForm(snapshot.form);
+        setCalculatedInvoiceAmount(snapshot.calculatedAmount ?? null);
+      }
+    } else {
+      commitModalDeliveries();
+    }
+
+    modalDeliveriesRef.current = {};
+    invoiceFormSnapshotRef.current = null;
+
     if (revenueModalContext === 'edit') {
       if (saveChanges) {
         setEditForm(prev => ({
@@ -1280,6 +1416,15 @@ const PurchasePayments = () => {
   };
 
   const openRevenueCalculationModal = (context = 'create', sourceFormOverride = null) => {
+    modalDeliveriesRef.current = {};
+    if (context === 'create') {
+      invoiceFormSnapshotRef.current = {
+        form: cloneInvoiceFormState(invoiceForm),
+        calculatedAmount: calculatedInvoiceAmount,
+      };
+    } else {
+      invoiceFormSnapshotRef.current = null;
+    }
     const sourceForm = sourceFormOverride || (context === 'edit' ? editForm : invoiceForm);
     if (context === 'edit') {
       const clonedItems = Array.isArray(sourceForm.invoice_items)
@@ -1638,6 +1783,26 @@ useEffect(() => {
 
 
 
+  const handleCancelAddInvoice = async () => {
+    const modalReverted = await revertModalDeliveries({ silent: false });
+    if (!modalReverted) return;
+    const committedReverted = await revertCommittedDeliveries({ silent: false });
+    if (!committedReverted) return;
+    invoiceFormSnapshotRef.current = null;
+    setShowAddInvoiceModal(false);
+    resetInvoiceFormState({ payment_option: 'pay_later' });
+  };
+
+  const handleCancelEditModal = async () => {
+    const modalReverted = await revertModalDeliveries({ silent: false });
+    if (!modalReverted) return;
+    const committedReverted = await revertCommittedDeliveries({ silent: false });
+    if (!committedReverted) return;
+    invoiceFormSnapshotRef.current = null;
+    setShowEditModal(false);
+    setEditingInvoice(null);
+  };
+
   const handleCreateInvoice = async (e) => {
     e.preventDefault();
     if (!selectedStore) {
@@ -1729,6 +1894,9 @@ useEffect(() => {
       alert('Invoice created successfully!');
       setShowAddInvoiceModal(false);
       resetInvoiceFormState({ payment_option: 'pay_later' });
+      setSessionDeliveries({});
+      modalDeliveriesRef.current = {};
+      invoiceFormSnapshotRef.current = null;
       loadInvoices();
     } catch (error) {
       alert('Error creating invoice: ' + (error.response?.data?.error || error.message));
@@ -2194,10 +2362,7 @@ useEffect(() => {
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-gray-900">Add Invoice</h2>
               <button
-                onClick={() => {
-                  setShowAddInvoiceModal(false);
-                  resetInvoiceFormState({ payment_option: 'pay_later' });
-                }}
+                onClick={handleCancelAddInvoice}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2659,10 +2824,7 @@ useEffect(() => {
               <div className="flex justify-end mt-6">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowAddInvoiceModal(false);
-                    resetInvoiceFormState({ payment_option: 'pay_later' });
-                  }}
+                  onClick={handleCancelAddInvoice}
                   className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 mr-3"
                 >
                   Cancel
@@ -3483,10 +3645,7 @@ useEffect(() => {
                 <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowEditModal(false);
-                      setEditingInvoice(null);
-                    }}
+                    onClick={handleCancelEditModal}
                     className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
                   >
                     Cancel
@@ -3772,7 +3931,7 @@ useEffect(() => {
       )}
 
   {showPricingModal && pricingModalProduct && (
-    <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 px-4">
+    <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-[60] px-4">
       <div className="bg-white w-full max-w-lg rounded-lg shadow-xl p-6">
         <div className="flex items-center justify-between mb-4">
           <div>

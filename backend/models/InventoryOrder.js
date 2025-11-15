@@ -483,36 +483,107 @@ class InventoryOrder {
             [newDeliveredQty, status, itemId]
         );
 
-        // Check if all items in order are delivered
-        const orderItems = await query(
-            `SELECT COUNT(*) as total, 
-                   SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered_count
-            FROM inventory_order_items
-            WHERE order_id = (SELECT order_id FROM inventory_order_items WHERE id = $1)
-            GROUP BY order_id`,
-            [itemId]
-        );
-
-        if (orderItems.rows.length > 0) {
-            const { total, delivered_count } = orderItems.rows[0];
-            if (parseInt(delivered_count) === parseInt(total)) {
-                // All items delivered, mark order as delivered
-                await query(
-                    `UPDATE inventory_orders 
-                    SET status = 'delivered', 
-                        delivered_at = CURRENT_TIMESTAMP,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = (SELECT order_id FROM inventory_order_items WHERE id = $1)`,
-                    [itemId]
-                );
-            }
-        }
+        await InventoryOrder.updateOrderStatusFromItems(itemId);
 
         return {
             item: result.rows[0],
             deliveredQuantity: deliveredQty,
             remainingQuantity: Math.max(totalQuantity - newDeliveredQty, 0)
         };
+    }
+
+    static async revertItemDelivery(itemId, quantityToRevert = null) {
+        const item = await query(
+            'SELECT * FROM inventory_order_items WHERE id = $1',
+            [itemId]
+        );
+
+        if (item.rows.length === 0) {
+            throw new Error('Order item not found');
+        }
+
+        const currentItem = item.rows[0];
+        const deliveredQty = parseInt(currentItem.quantity_delivered || 0);
+
+        if (!deliveredQty || deliveredQty <= 0) {
+            throw new Error('This order item has no delivered quantity to revert');
+        }
+
+        let revertQty = quantityToRevert !== null ? parseInt(quantityToRevert) : deliveredQty;
+
+        if (isNaN(revertQty) || revertQty <= 0) {
+            throw new Error('Revert quantity must be greater than 0');
+        }
+
+        if (revertQty > deliveredQty) {
+            revertQty = deliveredQty;
+        }
+
+        const newDeliveredQty = deliveredQty - revertQty;
+        let status = 'pending';
+        const totalQuantity = parseInt(currentItem.quantity || 0);
+
+        if (newDeliveredQty > 0 && newDeliveredQty < totalQuantity) {
+            status = 'partially_delivered';
+        } else if (newDeliveredQty >= totalQuantity) {
+            status = 'delivered';
+        }
+
+        const result = await query(
+            `UPDATE inventory_order_items 
+            SET quantity_delivered = $1, 
+                status = $2,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $3
+            RETURNING *`,
+            [newDeliveredQty, status, itemId]
+        );
+
+        await InventoryOrder.updateOrderStatusFromItems(itemId);
+
+        return {
+            item: result.rows[0],
+            revertedQuantity: revertQty,
+            remainingDelivered: newDeliveredQty,
+            remainingQuantity: Math.max(totalQuantity - newDeliveredQty, 0)
+        };
+    }
+
+    static async updateOrderStatusFromItems(itemId) {
+        const orderItems = await query(
+            `SELECT COUNT(*) as total, 
+                    SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered_count,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count
+             FROM inventory_order_items
+             WHERE order_id = (SELECT order_id FROM inventory_order_items WHERE id = $1)
+             GROUP BY order_id`,
+            [itemId]
+        );
+
+        if (!orderItems.rows.length) {
+            return;
+        }
+
+        const { total, delivered_count, pending_count } = orderItems.rows[0];
+        let orderStatus = 'partially_delivered';
+
+        if (parseInt(delivered_count) === parseInt(total)) {
+            orderStatus = 'delivered';
+        } else if (parseInt(pending_count) === parseInt(total)) {
+            orderStatus = 'pending';
+        }
+
+        await query(
+            `UPDATE inventory_orders 
+             SET status = $1, 
+                 delivered_at = CASE 
+                     WHEN $1 = 'delivered' THEN COALESCE(delivered_at, CURRENT_TIMESTAMP) 
+                     ELSE NULL 
+                 END,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = (SELECT order_id FROM inventory_order_items WHERE id = $2)`,
+            [orderStatus, itemId]
+        );
     }
 
     static async getPendingItemsForInvoice(storeId, { vendorName = null, includeAll = false } = {}) {
