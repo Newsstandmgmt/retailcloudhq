@@ -548,6 +548,7 @@ export const payrollAPI = {
   getCustomPayrollNotifications: (storeId) => api.get(`/api/payroll/store/${storeId}/custom-payroll-notifications`),
   createEmployee: (storeId, data) => api.post(`/api/payroll/store/${storeId}/employees`, data),
   addEmployee: (storeId, data) => api.post(`/api/payroll/store/${storeId}/employees`, data),
+  updateEmployeePin: (storeId, userId, data) => api.post(`/api/payroll/store/${storeId}/employees/${userId}/employee-pin`, data),
   updateEmployee: (configId, data) => api.put(`/api/payroll/config/${configId}`, data),
   deleteEmployee: (configId) => api.delete(`/api/payroll/config/${configId}`),
   restoreEmployee: (configId) => api.post(`/api/payroll/config/${configId}/restore`),

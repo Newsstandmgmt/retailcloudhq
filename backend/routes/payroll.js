@@ -116,7 +116,7 @@ router.get('/store/:storeId/employees', canAccessStore, canManagePayroll, async 
 // Add employee to payroll (create payroll config)
 router.post('/store/:storeId/employees', canAccessStore, canManagePayroll, async (req, res) => {
     try {
-        const { user_id, first_name, last_name, phone, email, hire_date, pay_rate, pay_schedule, pay_type, default_hours_per_week } = req.body;
+        const { user_id, first_name, last_name, phone, email, hire_date, pay_rate, pay_schedule, pay_type, default_hours_per_week, employee_pin } = req.body;
         
         let userId = user_id;
         
@@ -138,6 +138,10 @@ router.post('/store/:storeId/employees', canAccessStore, canManagePayroll, async
         
         if (!userId || !pay_rate || !pay_schedule || !pay_type) {
             return res.status(400).json({ error: 'Employee information, pay rate, pay schedule, and pay type are required' });
+        }
+
+        if (employee_pin) {
+            await User.setEmployeePin(userId, employee_pin);
         }
 
         const { pay_schedule_start_day, pay_schedule_end_day, pay_day, payroll_type } = req.body;
@@ -524,7 +528,8 @@ router.get('/store/:storeId/available-employees', canAccessStore, canManagePayro
     try {
         const { query } = require('../config/database');
         const result = await query(
-            `SELECT u.id, u.first_name, u.last_name, u.email, u.phone
+            `SELECT u.id, u.first_name, u.last_name, u.email, u.phone,
+                    (u.employee_pin_hash IS NOT NULL) AS has_employee_pin
              FROM users u
              JOIN user_store_assignments usa ON usa.user_id = u.id
              WHERE usa.store_id = $1
@@ -540,6 +545,30 @@ router.get('/store/:storeId/available-employees', canAccessStore, canManagePayro
     } catch (error) {
         console.error('Get available employees error:', error);
         res.status(500).json({ error: 'Failed to fetch available employees' });
+    }
+});
+
+// Update or clear employee handheld PIN
+router.post('/store/:storeId/employees/:userId/employee-pin', canAccessStore, canManagePayroll, async (req, res) => {
+    try {
+        const { employee_pin } = req.body;
+        const { storeId, userId } = req.params;
+
+        const employeeConfig = await EmployeePayroll.findByEmployeeAndStore(userId, storeId);
+        if (!employeeConfig) {
+            return res.status(404).json({ error: 'Employee not found for this store' });
+        }
+
+        if (employee_pin === undefined || employee_pin === null || employee_pin === '') {
+            await User.clearEmployeePin(userId);
+            return res.json({ message: 'Employee PIN cleared', has_employee_pin: false });
+        }
+
+        await User.setEmployeePin(userId, employee_pin);
+        res.json({ message: 'Employee PIN updated', has_employee_pin: true });
+    } catch (error) {
+        console.error('Update employee PIN error:', error);
+        res.status(400).json({ error: error.message || 'Failed to update employee PIN' });
     }
 });
 

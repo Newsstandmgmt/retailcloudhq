@@ -189,8 +189,9 @@ const HandheldDevices = ({
     
     // Check if user is employee and PIN is required
     const selectedUser = users.find(u => u.id === assignForm.user_id);
-    if (selectedUser && selectedUser.role === 'employee' && !assignForm.device_pin) {
-      alert('Device PIN is required for employee users');
+    const needsPin = selectedUser?.role === 'employee' && !selectedUser?.has_employee_pin && !assignForm.device_pin;
+    if (needsPin) {
+      alert('Device PIN is required for employee users without a handheld PIN on file');
       return;
     }
     
@@ -797,11 +798,13 @@ const HandheldDevices = ({
                   const selectedUser = users.find(u => u.id === assignForm.user_id);
                   const isEmployee = selectedUser?.role === 'employee';
                   const isAdminOrManager = selectedUser?.role === 'admin' || selectedUser?.role === 'super_admin' || selectedUser?.role === 'manager';
+                  const hasStoredPin = selectedUser?.has_employee_pin;
+                  const pinRequired = isEmployee && !hasStoredPin;
                   
                   return (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Device PIN {isEmployee && <span className="text-red-500">*</span>}
+                        Device PIN {pinRequired && <span className="text-red-500">*</span>}
                         {isAdminOrManager && <span className="text-gray-500 text-xs ml-2">(Optional - can use master PIN instead)</span>}
                       </label>
                       <input
@@ -820,7 +823,9 @@ const HandheldDevices = ({
                       />
                       {isEmployee && (
                         <p className="text-xs text-gray-500 mt-1">
-                          Required for employee login on this device
+                          {hasStoredPin
+                            ? 'Optional. Leave blank to reuse this employee’s handheld PIN on file.'
+                            : 'Required for employee login on this device.'}
                         </p>
                       )}
                       {isAdminOrManager && (

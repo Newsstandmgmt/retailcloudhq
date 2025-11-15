@@ -164,7 +164,8 @@ class EmployeePayroll {
     // Get payroll config for an employee at a store
     static async findByEmployeeAndStore(userId, storeId) {
         const result = await query(
-            `SELECT epc.*, u.first_name, u.last_name, u.email, u.phone
+            `SELECT epc.*, u.first_name, u.last_name, u.email, u.phone,
+                    (u.employee_pin_hash IS NOT NULL) AS has_employee_pin
              FROM employee_payroll_config epc
              JOIN users u ON u.id = epc.user_id
              WHERE epc.user_id = $1 AND epc.store_id = $2`,
@@ -175,7 +176,8 @@ class EmployeePayroll {
 
     // Get all payroll configs for a store
     static async findByStore(storeId, includeFired = false) {
-        let sql = `SELECT epc.*, u.first_name, u.last_name, u.email, u.phone
+        let sql = `SELECT epc.*, u.first_name, u.last_name, u.email, u.phone,
+                          (u.employee_pin_hash IS NOT NULL) AS has_employee_pin
                           FROM employee_payroll_config epc
                           JOIN users u ON u.id = epc.user_id
                           WHERE epc.store_id = $1 
@@ -237,7 +239,8 @@ class EmployeePayroll {
     // Get deleted employees (for super admin - within 14 days)
     static async findDeletedByStore(storeId) {
         const result = await query(
-            `SELECT epc.*, u.first_name, u.last_name, u.email, u.phone
+            `SELECT epc.*, u.first_name, u.last_name, u.email, u.phone,
+                    (u.employee_pin_hash IS NOT NULL) AS has_employee_pin
              FROM employee_payroll_config epc
              JOIN users u ON u.id = epc.user_id
              WHERE epc.store_id = $1 

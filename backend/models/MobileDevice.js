@@ -165,11 +165,18 @@ class MobileDevice {
         const User = require('./User');
         const user = await User.findById(userId);
         const userRole = user?.role || 'employee';
+        const storedPinHash = await User.getEmployeePinHash(userId);
         
-        // Hash device PIN if provided (for employees) or if user is admin/manager but PIN is set
+        // Hash device PIN if provided, otherwise reuse stored employee PIN hash
         let devicePinHash = null;
         if (devicePin) {
             devicePinHash = await bcrypt.hash(devicePin, 10);
+        } else if (userRole === 'employee' && storedPinHash) {
+            devicePinHash = storedPinHash;
+        }
+
+        if (userRole === 'employee' && !devicePinHash) {
+            throw new Error('Device PIN is required for employee users');
         }
         
         // Create or update user device permissions

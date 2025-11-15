@@ -294,16 +294,18 @@ router.post('/devices/:deviceId/assign-user', authenticate, authorize('super_adm
             return res.status(400).json({ error: 'User ID is required' });
         }
         
-        // Get user to check role
         const User = require('../models/User');
         const user = await User.findById(user_id);
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
         
-        // For employees, PIN is required. For admin/manager, PIN is optional (they can use master PIN)
-        if (user.role === 'employee' && !device_pin) {
-            return res.status(400).json({ error: 'Device PIN is required for employee users' });
+        // For employees, PIN is required unless they already have a stored handheld PIN
+        if (user.role === 'employee' && !device_pin && !user.has_employee_pin) {
+            return res.status(400).json({ error: 'Device PIN is required for employee users. Set a handheld PIN under Payroll first.' });
+        }
+        if (device_pin && !/^\d{4,6}$/.test(device_pin)) {
+            return res.status(400).json({ error: 'Device PIN must be a 4-6 digit number' });
         }
         
         const device = await MobileDevice.assignUser(
@@ -438,10 +440,10 @@ router.post('/store/:storeId/devices/:deviceId/assign-employee', authenticate, c
         }
 
         if (targetUser.role === 'employee') {
-            if (!device_pin) {
-                return res.status(400).json({ error: 'Device PIN is required for employees' });
+            if (!device_pin && !targetUser.has_employee_pin) {
+                return res.status(400).json({ error: 'Device PIN is required for employees. Set a handheld PIN under Payroll first.' });
             }
-            if (!/^\d{4,6}$/.test(device_pin)) {
+            if (device_pin && !/^\d{4,6}$/.test(device_pin)) {
                 return res.status(400).json({ error: 'PIN must be 4-6 digits' });
             }
         }

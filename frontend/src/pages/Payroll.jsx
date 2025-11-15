@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { payrollAPI, usersAPI } from '../services/api';
 
 const Payroll = () => {
-  const { selectedStore } = useStore();
+  const { selectedStore, isFeatureEnabled } = useStore();
   const { user } = useAuth();
   const [employees, setEmployees] = useState([]);
   const [availableEmployees, setAvailableEmployees] = useState([]);
@@ -45,7 +45,8 @@ const Payroll = () => {
     default_hours_per_week: 40,
     pay_schedule_start_day: '',
     pay_schedule_end_day: '',
-    pay_day: ''
+    pay_day: '',
+    employee_pin: ''
   });
 
   const [showManageEmployeeModal, setShowManageEmployeeModal] = useState(false);
@@ -74,6 +75,13 @@ const Payroll = () => {
     new_pay_rate: '',
     reason: ''
   });
+  const [pinForm, setPinForm] = useState({ employee_pin: '' });
+  const [pinSaving, setPinSaving] = useState(false);
+  const canManagePins = user?.role === 'super_admin' ||
+    user?.role === 'admin' ||
+    (user?.role === 'manager' && typeof isFeatureEnabled === 'function' && isFeatureEnabled('manager_access'));
+
+  const employeeTableColumnCount = canManagePins ? 8 : 7;
 
   const [timeOffForm, setTimeOffForm] = useState({
     date: '',
@@ -108,6 +116,47 @@ const Payroll = () => {
       console.error('Error loading employees:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveEmployeePin = async () => {
+    if (!selectedStore || !selectedEmployee) return;
+    if (!pinForm.employee_pin || !/^\d{4,6}$/.test(pinForm.employee_pin)) {
+      alert('Handheld PIN must be a 4-6 digit number');
+      return;
+    }
+
+    try {
+      setPinSaving(true);
+      await payrollAPI.updateEmployeePin(selectedStore.id, selectedEmployee.user_id, { employee_pin: pinForm.employee_pin });
+      alert('Handheld PIN updated successfully');
+      setPinForm({ employee_pin: '' });
+      setSelectedEmployee((prev) => (prev ? { ...prev, has_employee_pin: true } : prev));
+      await loadEmployees();
+    } catch (error) {
+      alert('Error updating handheld PIN: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setPinSaving(false);
+    }
+  };
+
+  const handleClearEmployeePin = async () => {
+    if (!selectedStore || !selectedEmployee) return;
+    if (!window.confirm('Remove the handheld PIN for this employee? They will not be able to access devices until a new PIN is set.')) {
+      return;
+    }
+
+    try {
+      setPinSaving(true);
+      await payrollAPI.updateEmployeePin(selectedStore.id, selectedEmployee.user_id, { employee_pin: '' });
+      alert('Handheld PIN removed');
+      setSelectedEmployee((prev) => (prev ? { ...prev, has_employee_pin: false } : prev));
+      await loadEmployees();
+    } catch (error) {
+      alert('Error removing handheld PIN: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setPinSaving(false);
+      setPinForm({ employee_pin: '' });
     }
   };
 
@@ -201,6 +250,11 @@ const Payroll = () => {
       return;
     }
     
+    if (employeeForm.employee_pin && !/^\d{4,6}$/.test(employeeForm.employee_pin)) {
+      alert('Employee PIN must be a 4-6 digit number');
+      return;
+    }
+    
     try {
       await payrollAPI.addEmployee(selectedStore.id, employeeForm);
       alert('Employee added to payroll successfully!');
@@ -219,7 +273,8 @@ const Payroll = () => {
         default_hours_per_week: 40,
         pay_schedule_start_day: '',
         pay_schedule_end_day: '',
-        pay_day: ''
+        pay_day: '',
+        employee_pin: ''
       });
       loadEmployees();
       loadAvailableEmployees();
@@ -230,6 +285,7 @@ const Payroll = () => {
 
   const handleManageEmployee = (employee) => {
     setSelectedEmployee(employee);
+    setPinForm({ employee_pin: '' });
     setShowManageEmployeeModal(true);
   };
 
@@ -671,6 +727,11 @@ const Payroll = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Email
                   </th>
+                  {canManagePins && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Handheld PIN
+                    </th>
+                  )}
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Pay Rate
                   </th>
@@ -688,13 +749,13 @@ const Payroll = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={employeeTableColumnCount} className="px-6 py-8 text-center text-gray-500">
                       Loading...
                     </td>
                   </tr>
                 ) : paginatedEmployees.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={employeeTableColumnCount} className="px-6 py-8 text-center text-gray-500">
                       No employees found. Add an employee to get started.
                     </td>
                   </tr>
@@ -710,6 +771,15 @@ const Payroll = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {employee.email || '-'}
                       </td>
+                      {canManagePins && (
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
+                            employee.has_employee_pin ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {employee.has_employee_pin ? 'Set' : 'Not Set'}
+                          </span>
+                        </td>
+                      )}
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         ${parseFloat(employee.pay_rate).toFixed(2)}/{employee.pay_type === 'hourly' ? 'hr' : employee.pay_schedule}
                       </td>
@@ -1066,6 +1136,32 @@ const Payroll = () => {
                     className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
                   />
                 </div>
+
+                {canManagePins && (
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Handheld PIN (optional)
+                    </label>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      pattern="\d*"
+                      maxLength={6}
+                      value={employeeForm.employee_pin}
+                      onChange={(e) =>
+                        setEmployeeForm({
+                          ...employeeForm,
+                          employee_pin: e.target.value.replace(/\D/g, '').slice(0, 6)
+                        })
+                      }
+                      placeholder="4-6 digit PIN"
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Employees use this PIN to unlock handheld devices. Leave blank to set it later.
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1519,11 +1615,70 @@ const Payroll = () => {
               </button>
             </div>
 
+            {canManagePins && (
+              <div className="mt-6 border-t border-gray-200 pt-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Handheld Device PIN</h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  Status:{' '}
+                  <span className="font-semibold">
+                    {selectedEmployee.has_employee_pin ? 'PIN on file' : 'Not set'}
+                  </span>
+                  . Employees use this PIN when logging into handheld devices.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    pattern="\d*"
+                    maxLength={6}
+                    value={pinForm.employee_pin}
+                    onChange={(e) =>
+                      setPinForm({
+                        employee_pin: e.target.value.replace(/\D/g, '').slice(0, 6)
+                      })
+                    }
+                    placeholder="Enter 4-6 digit PIN"
+                    className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveEmployeePin}
+                      disabled={pinSaving}
+                      className={`px-4 py-2 rounded-md text-white ${
+                        pinSaving ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#2d8659] hover:bg-[#256b49]'
+                      }`}
+                    >
+                      Save PIN
+                    </button>
+                    {selectedEmployee.has_employee_pin && (
+                      <button
+                        type="button"
+                        onClick={handleClearEmployeePin}
+                        disabled={pinSaving}
+                        className={`px-4 py-2 rounded-md ${
+                          pinSaving
+                            ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                            : 'bg-red-100 text-red-700 hover:bg-red-200'
+                        }`}
+                      >
+                        Clear PIN
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Leave blank and click Clear PIN to remove handheld access for this employee.
+                </p>
+              </div>
+            )}
+
             <div className="flex justify-end mt-6">
               <button
                 onClick={() => {
                   setShowManageEmployeeModal(false);
                   setSelectedEmployee(null);
+                  setPinForm({ employee_pin: '' });
                 }}
                 className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
               >
