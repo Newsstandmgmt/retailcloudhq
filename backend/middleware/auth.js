@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { query } = require('../config/database');
+const MobileDevice = require('../models/MobileDevice');
 
 // Middleware to verify JWT token
 const authenticate = async (req, res, next) => {
@@ -26,6 +27,20 @@ const authenticate = async (req, res, next) => {
             return res.status(403).json({ error: 'User account is inactive.' });
         }
         
+        // If this token belongs to a handheld device session, ensure the device is still valid
+        if (decoded.deviceId) {
+            const device = await MobileDevice.findByDeviceId(decoded.deviceId);
+            if (!device) {
+                return res.status(401).json({ error: 'Device registration not found. Please re-register the device.' });
+            }
+            if (!device.is_active || device.is_locked) {
+                return res.status(403).json({ error: 'Device access revoked. Please contact an administrator.' });
+            }
+            if (!device.user_id || device.user_id !== result.rows[0].id) {
+                return res.status(403).json({ error: 'Device assignment changed. Please re-register the device.' });
+            }
+        }
+
         req.user = result.rows[0];
         next();
     } catch (error) {
