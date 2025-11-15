@@ -55,7 +55,17 @@ const Layout = ({ children }) => {
       { name: 'Dashboard', href: '/dashboard', icon: DashboardIcon },
       { name: 'Daily Analytics', href: '/business-analytics', icon: ChartIcon, feature: 'revenue' },
       { name: 'Daily Report', href: '/revenue', icon: DocumentIcon, hasSubmenu: true, feature: 'revenue' },
-      { name: 'Expense', href: '/expenses', icon: ClipboardIcon, feature: 'expenses' },
+      {
+        name: 'Expenses',
+        href: '/expenses',
+        icon: ClipboardIcon,
+        hasSubmenu: true,
+        submenu: [
+          { name: 'All Expenses', href: '/expenses', feature: 'expenses' },
+          { name: 'Recurring Expenses', href: '/recurring-expenses', feature: 'recurring_expenses' },
+        ],
+        feature: 'expenses',
+      },
       { 
         name: 'Inventory Management', 
         href: '/inventory', 
@@ -69,7 +79,6 @@ const Layout = ({ children }) => {
         feature: 'purchase_payments'
       },
       { name: 'Payroll', href: '/payroll', icon: CashIcon, feature: 'payroll' },
-      { name: 'Recurring Expenses', href: '/recurring-expenses', icon: ClipboardIcon, feature: 'recurring_expenses' },
       { name: 'Lottery', href: '/lottery', icon: TicketIcon, feature: 'lottery' },
       { name: 'General Ledger', href: '/general-ledger', icon: BookIcon, feature: 'general_ledger' },
       { name: 'License Management', href: '/licenses', icon: DocumentIcon, feature: 'license_management' },
