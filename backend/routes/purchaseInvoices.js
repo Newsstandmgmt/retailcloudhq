@@ -7,6 +7,7 @@ const Store = require('../models/Store');
 const AutoPostingService = require('../services/autoPostingService');
 const CashOnHandService = require('../services/cashOnHandService');
 const { query } = require('../config/database');
+const InvoiceAllocationService = require('../services/invoiceAllocationService');
 const { authenticate, canAccessStore } = require('../middleware/auth');
 
 const router = express.Router();
@@ -276,6 +277,77 @@ router.post('/store/:storeId', canAccessStore, async (req, res) => {
             return res.status(400).json({ error: 'Invoice number already exists for this store' });
         }
         res.status(500).json({ error: error.message || 'Failed to create invoice' });
+    }
+});
+
+router.get('/:invoiceId/allocations', async (req, res) => {
+    try {
+        const invoice = await PurchaseInvoice.findById(req.params.invoiceId);
+        if (!invoice) {
+            return res.status(404).json({ error: 'Invoice not found' });
+        }
+
+        const accessResult = await query(
+            'SELECT can_user_access_store($1, $2) as can_access',
+            [req.user.id, invoice.store_id]
+        );
+
+        if (!accessResult.rows[0]?.can_access) {
+            return res.status(403).json({ error: 'Access denied to this store.' });
+        }
+
+        const allocations = await InvoiceAllocationService.listAllocations(invoice.id);
+        res.json({ allocations });
+    } catch (error) {
+        console.error('List invoice allocations error:', error);
+        res.status(500).json({ error: 'Failed to fetch allocations' });
+    }
+});
+
+router.post('/:invoiceId/allocations', async (req, res) => {
+    try {
+        const invoice = await PurchaseInvoice.findById(req.params.invoiceId);
+        if (!invoice) {
+            return res.status(404).json({ error: 'Parent invoice not found' });
+        }
+
+        const accessResult = await query(
+            'SELECT can_user_access_store($1, $2) as can_access',
+            [req.user.id, invoice.store_id]
+        );
+
+        if (!accessResult.rows[0]?.can_access) {
+            return res.status(403).json({ error: 'Access denied to parent store.' });
+        }
+
+        const { target_store_id, allocation_items, allocation_amount, allocation_metadata, cross_store_payment_id } = req.body;
+        if (!target_store_id) {
+            return res.status(400).json({ error: 'Target store is required' });
+        }
+
+        const targetAccess = await query(
+            'SELECT can_user_access_store($1, $2) as can_access',
+            [req.user.id, target_store_id]
+        );
+
+        if (!targetAccess.rows[0]?.can_access) {
+            return res.status(403).json({ error: 'Access denied to target store.' });
+        }
+
+        const allocationResult = await InvoiceAllocationService.createChildInvoiceFromAllocation({
+            parentInvoiceId: invoice.id,
+            targetStoreId: target_store_id,
+            allocationItems: Array.isArray(allocation_items) ? allocation_items : [],
+            allocationAmount: allocation_amount || 0,
+            allocationMetadata: allocation_metadata || {},
+            crossStorePaymentId: cross_store_payment_id || null,
+            createdBy: req.user.id,
+        });
+
+        res.status(201).json(allocationResult);
+    } catch (error) {
+        console.error('Create invoice allocation error:', error);
+        res.status(500).json({ error: error.message || 'Failed to create allocation' });
     }
 });
 

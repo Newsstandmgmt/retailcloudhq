@@ -20,6 +20,18 @@ class PurchaseInvoice {
         } else {
             invoice.invoice_items = [];
         }
+        if (invoice.allocation_metadata) {
+            if (typeof invoice.allocation_metadata === 'string') {
+                try {
+                    invoice.allocation_metadata = JSON.parse(invoice.allocation_metadata) || {};
+                } catch (error) {
+                    console.warn('Failed to parse allocation_metadata JSON:', error.message);
+                    invoice.allocation_metadata = {};
+                }
+            }
+        } else {
+            invoice.allocation_metadata = {};
+        }
         return invoice;
     }
 
@@ -85,7 +97,11 @@ class PurchaseInvoice {
             invoice_items,
             is_cigarette_purchase = false,
             cigarette_cartons_purchased,
-            entered_by
+            entered_by,
+            parent_invoice_id = null,
+            allocation_source_store_id = null,
+            cross_store_payment_id = null,
+            allocation_metadata = {}
         } = invoiceData;
 
         // Get vendor and department names
@@ -157,9 +173,10 @@ class PurchaseInvoice {
                 reimbursement_payment_method, reimbursement_check_number,
                 expected_revenue, revenue_calculation_method, invoice_items,
                 is_cigarette_purchase, cigarette_cartons_purchased,
+                parent_invoice_id, allocation_source_store_id, cross_store_payment_id, allocation_metadata,
                 status, payment_date, payment_method, entered_by
             )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)
              RETURNING *`,
             [
                 storeId, finalInvoiceNumber || null, purchase_date, vendor_id, vendorName,
@@ -174,6 +191,10 @@ class PurchaseInvoice {
                 invoiceItemsJson,
                 is_cigarette_purchase === true || is_cigarette_purchase === 'true',
                 normalizedCartonsPurchased,
+                parent_invoice_id || null,
+                allocation_source_store_id || null,
+                cross_store_payment_id || null,
+                allocation_metadata || {},
                 finalStatus, paymentDate, paymentMethod, entered_by
             ]
         );
@@ -410,6 +431,19 @@ class PurchaseInvoice {
                 updateData.invoice_items = JSON.stringify(updateData.invoice_items);
             } else if (updateData.invoice_items === null) {
                 updateData.invoice_items = null;
+            }
+        }
+
+        if (updateData.hasOwnProperty('allocation_metadata')) {
+            if (updateData.allocation_metadata === null) {
+                updateData.allocation_metadata = {};
+            } else if (typeof updateData.allocation_metadata === 'string') {
+                try {
+                    updateData.allocation_metadata = JSON.parse(updateData.allocation_metadata);
+                } catch (error) {
+                    console.warn('Failed to parse allocation_metadata in update payload:', error.message);
+                    updateData.allocation_metadata = {};
+                }
             }
         }
 
