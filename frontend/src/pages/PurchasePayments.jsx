@@ -1725,6 +1725,21 @@ const [crossStoreReimbursementForm, setCrossStoreReimbursementForm] = useState({
     ensureVendorPricing(vendorId);
   };
 
+const handleApplyVendorCostToInvoiceItem = (productId) => {
+  const vendorCost = getVendorCostForProduct(productId);
+  if (vendorCost === null || vendorCost === undefined) {
+    alert('No vendor-specific cost found for this product under the selected vendor.');
+    return;
+  }
+  setInvoiceForm((prev) => ({
+    ...prev,
+    invoice_items: prev.invoice_items.map((item) =>
+      item.product_id === productId ? { ...item, unit_cost: vendorCost } : item
+    ),
+  }));
+  triggerInvoiceRecalc();
+};
+
 useEffect(() => {
   if (invoiceForm.vendor_id) {
     ensureVendorPricing(invoiceForm.vendor_id);
@@ -3165,6 +3180,15 @@ useEffect(() => {
                                               className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
                                               placeholder="Unit Cost"
                                             />
+                                            {vendorCost !== null && vendorCost !== undefined && (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleApplyVendorCostToInvoiceItem(product.id)}
+                                                className="text-xs text-[#2d8659] border border-[#2d8659]/30 px-2 py-1 rounded hover:bg-[#2d8659]/10"
+                                              >
+                                                Use vendor price (${parseFloat(vendorCost).toFixed(2)})
+                                              </button>
+                                            )}
                                             <button
                                               type="button"
                                               onClick={() => {
@@ -5314,6 +5338,7 @@ useEffect(() => {
                           const quantityPerPack = parseFloat(product.quantity_per_pack || 1);
                           const sellPricePerPiece = parseFloat(product.sell_price_per_piece || 0);
                           const itemRevenue = (sellPricePerPiece * quantityPerPack * parseFloat(quantity || 0)).toFixed(2);
+                          const vendorCost = getVendorCostForProduct(product.id);
                           
                           return (
                             <div key={product.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
