@@ -167,12 +167,22 @@ class InventoryOrder {
         return result.rows;
     }
 
-    // Get all order items as a flat list (for admin panel)
+    // Public helper used by the API – prefers aggregated view but falls back when unavailable
     static async getAllOrderItems(storeId, filters = {}) {
         if (filters.combineDuplicates) {
-            return this.getAggregatedOrderItems(storeId, filters);
+            try {
+                return await this.getAggregatedOrderItems(storeId, filters);
+            } catch (error) {
+                console.error('[InventoryOrder] Aggregated order items failed, falling back to flat list:', error.message);
+                // Continue with flat list so the UI still works even if the DB is missing new columns
+            }
         }
 
+        return this.getFlatOrderItems(storeId, filters);
+    }
+
+    // Get all order items without aggregation (legacy behaviour)
+    static async getFlatOrderItems(storeId, filters = {}) {
         let sql = `
             SELECT 
                 oi.*,

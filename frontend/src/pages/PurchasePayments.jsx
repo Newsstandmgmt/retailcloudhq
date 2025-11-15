@@ -3920,12 +3920,9 @@ useEffect(() => {
                 <button
                   type="button"
                   onClick={() => handleCloseRevenueModal({ saveChanges: true })}
-                  disabled={allocationSaving}
-                  className={`px-4 py-2 bg-[#2d8659] text-white rounded-lg hover:bg-[#256b49] ${
-                    allocationSaving ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
+                  className="px-4 py-2 bg-[#2d8659] text-white rounded-lg hover:bg-[#256b49]"
                 >
-                  {allocationSaving ? 'Saving...' : 'Save & Close'}
+                  Save & Close
                 </button>
               </div>
             </div>
