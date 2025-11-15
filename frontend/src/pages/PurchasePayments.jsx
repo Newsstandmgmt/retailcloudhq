@@ -4043,7 +4043,6 @@ useEffect(() => {
                   <p className="text-sm text-gray-600 mb-4">
                     Select the products delivered with this invoice to automatically calculate expected revenue.
                   </p>
-                  
                   {products.length === 0 ? (
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                       <p className="text-sm text-yellow-800">
@@ -4054,108 +4053,212 @@ useEffect(() => {
                     <div className="border border-gray-300 rounded-md p-4 max-h-96 overflow-y-auto">
                       <div className="space-y-3">
                         {products.map((product) => {
-                          const invoiceItem = invoiceForm.invoice_items.find(item => item.product_id === product.id);
-                          const isSelected = !!invoiceItem;
+                          const invoiceItem = invoiceForm.invoice_items.find((item) => item.product_id === product.id);
+                          const isSelected = Boolean(invoiceItem);
                           const quantity = invoiceItem ? invoiceItem.quantity : 0;
-                          // Revenue = sell_price_per_piece * quantity_per_pack * quantity (of packs)
+                          const numericQuantity = parseFloat(quantity || 0) || 0;
                           const quantityPerPack = parseFloat(product.quantity_per_pack || 1);
                           const sellPricePerPiece = parseFloat(product.sell_price_per_piece || 0);
-                          const itemRevenue = (sellPricePerPiece * quantityPerPack * parseFloat(quantity || 0)).toFixed(2);
+                          const itemRevenue = (sellPricePerPiece * quantityPerPack * numericQuantity).toFixed(2);
                           const vendorCost = getVendorCostForProduct(product.id);
-                          
+                          const vendorExpanded = !!vendorPricingExpanded[product.id];
+                          const vendorPrices = productVendorPricingCache[product.id] || [];
+                          const vendorLoading = !!productVendorPricingLoading[product.id];
+                          const vendorError = productVendorPricingError[product.id];
+                          const canApplyVendorPrice = Boolean(invoiceItem);
+
                           return (
-                            <div key={product.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                              <div className="flex-1">
-                                <div className="font-medium text-sm text-gray-900">{product.full_product_name}</div>
-                                <div className="text-xs text-gray-500 mt-1">
-                                  Cost: ${parseFloat(product.cost_per_unit || 0).toFixed(2)}/unit | 
-                                  Sell: ${parseFloat(product.sell_price_per_piece || 0).toFixed(2)}/piece | 
-                                  Margin: {parseFloat(product.profit_margin || 0).toFixed(1)}%
+                            <div key={product.id} className="flex flex-col gap-2 p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
+                              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                                <div className="flex-1">
+                                  <div className="font-medium text-sm text-gray-900">{product.full_product_name}</div>
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    Cost: ${parseFloat(product.cost_per_unit || product.cost_price || 0).toFixed(2)}/unit | Sell: ${
+                                      parseFloat(product.sell_price_per_piece || 0).toFixed(2)
+                                    }/piece | Margin: {parseFloat(product.profit_margin || 0).toFixed(1)}%
+                                  </div>
                                 </div>
-                              </div>
-                              <div className="flex items-center gap-3">
-                                {isSelected ? (
-                                  <>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      step="1"
-                                      value={quantity}
-                                      onChange={(e) => {
-                                        const newQuantity = parseFloat(e.target.value) || 0;
-                                        if (newQuantity > 0) {
-                                          const updatedItems = invoiceForm.invoice_items.map(item =>
-                                            item.product_id === product.id
-                                              ? { ...item, quantity: newQuantity }
-                                              : item
-                                          );
-                                          setInvoiceForm({ ...invoiceForm, invoice_items: updatedItems });
-                                          // Recalculate revenue and invoice amount after state update
-                                          setTimeout(() => {
-                                            calculateInvoiceAmount(true); // Force calculation when quantity changes
-                                            calculateExpectedRevenue();
-                                          }, 200);
-                                        } else {
-                                          const updatedItems = invoiceForm.invoice_items.filter(item => item.product_id !== product.id);
-                                          setInvoiceForm({ ...invoiceForm, invoice_items: updatedItems });
-                                          // Recalculate revenue and invoice amount after removal
-                                          setTimeout(() => {
-                                            calculateInvoiceAmount(true); // Force calculation when removing products
-                                            calculateExpectedRevenue();
-                                          }, 200);
-                                        }
-                                      }}
-                                      className="w-20 border border-gray-300 rounded-md px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
-                                    />
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      step="0.01"
-                                      value={invoiceItem.unit_cost || product.cost_price || 0}
-                                      onChange={(e) => {
-                                        handleUpdateProductUnitCost(product.id, e.target.value);
-                                        setTimeout(() => calculateExpectedRevenue(), 150);
-                                      }}
-                                      className="w-24 border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
-                                      placeholder="Cost"
-                                    />
-                                    {vendorCost !== null && vendorCost !== undefined && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {isSelected ? (
+                                    <>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        value={quantity}
+                                        onChange={(e) => {
+                                          const newQuantity = parseFloat(e.target.value) || 0;
+                                          if (newQuantity > 0) {
+                                            const updatedItems = invoiceForm.invoice_items.map((item) =>
+                                              item.product_id === product.id
+                                                ? { ...item, quantity: newQuantity }
+                                                : item
+                                            );
+                                            setInvoiceForm({ ...invoiceForm, invoice_items: updatedItems });
+                                            setTimeout(() => {
+                                              calculateInvoiceAmount(true);
+                                              calculateExpectedRevenue();
+                                            }, 200);
+                                          } else {
+                                            const updatedItems = invoiceForm.invoice_items.filter((item) => item.product_id !== product.id);
+                                            setInvoiceForm({ ...invoiceForm, invoice_items: updatedItems });
+                                            setTimeout(() => {
+                                              calculateInvoiceAmount(true);
+                                              calculateExpectedRevenue();
+                                            }, 200);
+                                          }
+                                        }}
+                                        className="w-20 border border-gray-300 rounded-md px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
+                                      />
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={invoiceItem ? invoiceItem.unit_cost : product.cost_price || 0}
+                                        onChange={(e) => {
+                                          handleUpdateProductUnitCost(product.id, e.target.value);
+                                          setTimeout(() => calculateExpectedRevenue(), 150);
+                                        }}
+                                        className="w-24 border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#2d8659]"
+                                        placeholder="Cost"
+                                      />
+                                      {vendorCost !== null && vendorCost !== undefined && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleApplyVendorCostToInvoiceItem(product.id)}
+                                          className="text-xs text-[#2d8659] border border-[#2d8659]/40 rounded px-2 py-1 hover:bg-[#2d8659]/10"
+                                        >
+                                          Use vendor price (${parseFloat(vendorCost).toFixed(2)})
+                                        </button>
+                                      )}
                                       <button
                                         type="button"
-                                        onClick={() => handleApplyVendorCostToInvoiceItem(product.id)}
-                                        className="text-xs text-[#2d8659] border border-[#2d8659]/40 rounded px-2 py-1 hover:bg-[#2d8659]/10"
+                                        onClick={() => handleToggleVendorPricing(product.id)}
+                                        className="text-xs text-blue-600 border border-blue-200 rounded px-2 py-1 hover:bg-blue-50"
                                       >
-                                        Use vendor price (${parseFloat(vendorCost).toFixed(2)})
+                                        {vendorExpanded ? 'Hide vendor prices' : 'View vendor prices'}
                                       </button>
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleVendorPricing(product.id)}
-                                      className="text-xs text-blue-600 border border-blue-200 rounded px-2 py-1 hover:bg-blue-50"
-                                    >
-                                      {vendorPricingExpanded[product.id] ? 'Hide vendor prices' : 'Other vendor prices'}
-                                    </button>
-                                    <span className="text-sm font-medium text-[#2d8659] min-w-[80px] text-right">
-                                      ${itemRevenue}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveProductFromInvoice(product.id)}
-                                      className="text-red-600 hover:text-red-800 text-sm font-medium"
-                                    >
-                                      Remove
-                                    </button>
-                                  </>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAddProductToInvoice(product)}
-                                    className="px-3 py-1 bg-[#2d8659] text-white text-sm rounded-md hover:bg-[#256348] transition-colors"
-                                  >
-                                    Add
-                                  </button>
-                                )}
+                                      <span className="text-sm font-medium text-[#2d8659] min-w-[80px] text-right">
+                                        ${itemRevenue}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveProductFromInvoice(product.id)}
+                                        className="text-red-600 hover:text-red-800 text-sm font-medium"
+                                      >
+                                        Remove
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          let newItem = {
+                                            product_id: product.id,
+                                            quantity: 1,
+                                            unit_cost: product.cost_price || 0,
+                                            vape_tax_paid: product.vape_tax || false,
+                                          };
+                                          newItem = applyVendorCostToItem(newItem, product, invoiceForm.vendor_id);
+                                          setInvoiceForm({
+                                            ...invoiceForm,
+                                            invoice_items: [...invoiceForm.invoice_items, newItem],
+                                          });
+                                          setTimeout(() => calculateExpectedRevenue(), 100);
+                                        }}
+                                        className="px-3 py-1 bg-[#2d8659] text-white text-sm rounded-md hover:bg-[#256348] transition-colors"
+                                      >
+                                        Add
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleToggleVendorPricing(product.id)}
+                                        className="text-xs text-blue-600 border border-blue-200 rounded px-2 py-1 hover:bg-blue-50"
+                                      >
+                                        {vendorExpanded ? 'Hide vendor prices' : 'View vendor prices'}
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
                               </div>
+                              {vendorExpanded && (
+                                <div className="mt-2 border border-dashed border-gray-300 rounded-md p-3 bg-white">
+                                  {vendorLoading ? (
+                                    <p className="text-xs text-gray-500">Loading vendor pricing...</p>
+                                  ) : vendorError ? (
+                                    <p className="text-xs text-red-600">{vendorError}</p>
+                                  ) : (
+                                    <>
+                                      {!canApplyVendorPrice && (
+                                        <p className="text-xs text-gray-500 mb-2">
+                                          Add this product to your invoice to apply a vendor price automatically.
+                                        </p>
+                                      )}
+                                      {vendorPrices.length === 0 ? (
+                                        <p className="text-xs text-gray-500">No vendor pricing records found for this product.</p>
+                                      ) : (
+                                        <div className="space-y-2">
+                                          {vendorPrices.map((entry) => (
+                                            <div
+                                              key={`${entry.id || `${entry.vendor_id}-${entry.effective_from || 'current'}`}`}
+                                              className="flex flex-wrap items-center justify-between gap-2 text-xs border border-gray-100 rounded-md p-2"
+                                            >
+                                              <div>
+                                                <div className="font-semibold text-gray-800">
+                                                  {entry.vendor_name || 'Vendor'}
+                                                </div>
+                                                <div className="text-gray-600">
+                                                  Cost: ${parseFloat(entry.cost_price || 0).toFixed(2)}
+                                                  {entry.effective_from && (
+                                                    <span className="ml-1 text-gray-400">• Effective {entry.effective_from}</span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              <div className="flex items-center gap-2">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    if (!canApplyVendorPrice) return;
+                                                    handleApplyVendorPricingOption(product.id, entry);
+                                                  }}
+                                                  disabled={!canApplyVendorPrice}
+                                                  className={`px-2 py-1 text-[#2d8659] border border-[#2d8659]/40 rounded ${
+                                                    canApplyVendorPrice ? 'hover:bg-[#2d8659]/10' : 'opacity-50 cursor-not-allowed'
+                                                  }`}
+                                                  title={
+                                                    canApplyVendorPrice
+                                                      ? 'Apply this vendor price to the invoice item'
+                                                      : 'Add the product to apply pricing'
+                                                  }
+                                                >
+                                                  Apply to invoice
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => openPricingModal(product.id, entry)}
+                                                  className="px-2 py-1 text-blue-700 border border-blue-200 rounded hover:bg-blue-50"
+                                                >
+                                                  Update Cost/Sell Price
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                      <div className="mt-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => openPricingModal(product.id)}
+                                          className="text-xs text-gray-600 hover:text-gray-900"
+                                        >
+                                          Update base product pricing
+                                        </button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -4197,71 +4300,6 @@ useEffect(() => {
                 </button>
                               </div>
                             </div>
-                            {vendorPricingExpanded[product.id] && (
-                              <div className="mt-3 border border-dashed border-gray-300 rounded-md p-3 bg-white w-full">
-                                {productVendorPricingLoading[product.id] ? (
-                                  <p className="text-xs text-gray-500">Loading vendor pricing...</p>
-                                ) : productVendorPricingError[product.id] ? (
-                                  <p className="text-xs text-red-600">{productVendorPricingError[product.id]}</p>
-                                ) : (
-                                  <>
-                                    {(productVendorPricingCache[product.id] || []).length === 0 ? (
-                                      <p className="text-xs text-gray-500">
-                                        No vendor pricing records found for this product.
-                                      </p>
-                                    ) : (
-                                      <div className="space-y-2">
-                                        {(productVendorPricingCache[product.id] || []).map((entry) => (
-                                          <div
-                                            key={`${entry.vendor_id}-${entry.id || entry.effective_from || ''}`}
-                                            className="flex flex-wrap items-center justify-between gap-2 text-xs border border-gray-100 rounded-md p-2"
-                                          >
-                                            <div>
-                                              <div className="font-semibold text-gray-800">
-                                                {entry.vendor_name || 'Vendor'}
-                                              </div>
-                                              <div className="text-gray-600">
-                                                Cost: ${parseFloat(entry.cost_price || 0).toFixed(2)}
-                                                {entry.effective_from && (
-                                                  <span className="ml-1 text-gray-400">
-                                                    • Effective {entry.effective_from}
-                                                  </span>
-                                                )}
-                                              </div>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                              <button
-                                                type="button"
-                                                onClick={() => handleApplyVendorPricingOption(product.id, entry)}
-                                                className="px-2 py-1 text-[#2d8659] border border-[#2d8659]/40 rounded hover:bg-[#2d8659]/10"
-                                              >
-                                                Apply
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={() => openPricingModal(product.id, entry)}
-                                                className="px-2 py-1 text-blue-700 border border-blue-200 rounded hover:bg-blue-50"
-                                              >
-                                                Update Cost/Sell Price
-                                              </button>
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                    <div className="mt-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => openPricingModal(product.id)}
-                                        className="text-xs text-gray-600 hover:text-gray-900"
-                                      >
-                                        Update base product pricing
-                                      </button>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            )}
                           </div>
         </div>
       )}
