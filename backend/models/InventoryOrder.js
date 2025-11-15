@@ -573,16 +573,18 @@ class InventoryOrder {
             orderStatus = 'pending';
         }
 
+        const isDeliveredStatus = orderStatus === 'delivered';
+
         await query(
             `UPDATE inventory_orders 
              SET status = $1, 
                  delivered_at = CASE 
-                     WHEN $1 = 'delivered' THEN COALESCE(delivered_at, CURRENT_TIMESTAMP) 
+                     WHEN $2 THEN COALESCE(delivered_at, CURRENT_TIMESTAMP) 
                      ELSE NULL 
                  END,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE id = (SELECT order_id FROM inventory_order_items WHERE id = $2)`,
-            [orderStatus, itemId]
+             WHERE id = (SELECT order_id FROM inventory_order_items WHERE id = $3)`,
+            [orderStatus, isDeliveredStatus, itemId]
         );
     }
 
