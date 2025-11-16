@@ -65,12 +65,26 @@ const deviceAuthAPI = {
   login: async (pin: string) => {
     try {
       const deviceId = await getDeviceId();
-      const response = await axios.post(`${getApiBaseUrl()}/api/device-auth/login`, {
-        device_id: deviceId,
-        pin,
-      }, {
-        timeout: 10000, // 10 second timeout for login
-      });
+      const exec = async () => {
+        return await axios.post(`${getApiBaseUrl()}/api/device-auth/login`, {
+          device_id: deviceId,
+          pin,
+        }, {
+          timeout: 15000, // give more time on cold start
+        });
+      };
+      let response;
+      try {
+        response = await exec();
+      } catch (err: any) {
+        // Retry once on transient network failure
+        if (!err.response) {
+          await new Promise(r => setTimeout(r, 700));
+          response = await exec();
+        } else {
+          throw err;
+        }
+      }
 
       const { token, user, device, permissions } = response.data;
 

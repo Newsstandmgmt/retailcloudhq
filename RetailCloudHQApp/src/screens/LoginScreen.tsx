@@ -186,19 +186,13 @@ export default function LoginScreen({ onLoginSuccess }: any) {
       const result = await deviceAuthAPI.login(pin.trim());
       console.log('[Login] Login successful, user:', result.user);
 
-      // Refresh device info after successful login
-      await checkDevice();
-
-      Alert.alert('Success', `Welcome, ${result.user.first_name}!`, [
-        {
-          text: 'OK',
-          onPress: () => {
-            if (onLoginSuccess) {
-              onLoginSuccess();
-            }
-          },
-        },
-      ]);
+      // Immediately proceed to app; refresh device info in background
+      setNetworkError(false);
+      if (onLoginSuccess) {
+        onLoginSuccess();
+      }
+      // Fire and forget
+      checkDevice().catch(() => {});
     } catch (error: any) {
       console.error('[Login] Login failed:', error);
       
