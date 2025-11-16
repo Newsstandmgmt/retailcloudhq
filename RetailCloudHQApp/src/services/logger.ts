@@ -1,5 +1,3 @@
-import { EventEmitter } from 'events';
-
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 
 export type LogEntry = {
@@ -10,8 +8,24 @@ export type LogEntry = {
   context?: Record<string, any>;
 };
 
+// Lightweight event emitter compatible with React Native (no 'events' dependency)
+class TinyEmitter {
+  private listeners: Array<(entry: LogEntry) => void> = [];
+  on(_event: 'log', cb: (entry: LogEntry) => void) {
+    this.listeners.push(cb);
+  }
+  off(_event: 'log', cb: (entry: LogEntry) => void) {
+    this.listeners = this.listeners.filter(l => l !== cb);
+  }
+  emit(_event: 'log', entry: LogEntry) {
+    for (const l of this.listeners) {
+      try { l(entry); } catch {}
+    }
+  }
+}
+
 class InAppLogger {
-  private emitter = new EventEmitter();
+  private emitter = new TinyEmitter();
   private buffer: LogEntry[] = [];
   private max = 500;
 
