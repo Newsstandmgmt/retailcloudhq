@@ -22,6 +22,7 @@ const Settings = () => {
   const { user } = useAuth();
   const { isFeatureEnabled } = useStore();
   const [activeTab, setActiveTab] = useState('store-profile');
+  const SuperAdminSecurity = require('../components/settings/SuperAdminSecurity').default;
 
   // Listen for custom event to set active tab (e.g., from dashboard)
   useEffect(() => {
@@ -49,6 +50,7 @@ const Settings = () => {
     { id: 'store-profile', label: 'Store Profile' },
     { id: 'cash-drawer-settings', label: 'Cash Drawer Settings' },
     ...(user?.role === 'super_admin' ? [{ id: 'cash-drawer-calculation', label: 'Cash Drawer Calculations' }] : []),
+    ...(user?.role === 'super_admin' ? [{ id: 'super-admin-security', label: 'Super Admin' }] : []),
     { id: 'integrations', label: 'Integrations' },
     { id: 'subscription-details', label: 'My Subscription' },
     { id: 'feature-addons', label: 'Feature Addons' },
@@ -72,6 +74,8 @@ const Settings = () => {
         return <CashDrawerSettings />;
       case 'cash-drawer-calculation':
         return <CashDrawerCalculationConfig />;
+      case 'super-admin-security':
+        return <SuperAdminSecurity />;
       case 'manage-user':
         return <ManageStoreManagers />;
       case 'manage-departments':
