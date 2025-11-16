@@ -105,7 +105,12 @@ const deviceAuthAPI = {
       await AsyncStorage.setItem('user_role', user.role);
       await AsyncStorage.setItem('device_id', device.device_id);
       await AsyncStorage.setItem('store_id', device.store_id);
-      await AsyncStorage.setItem('permissions', JSON.stringify(permissions));
+      if (permissions !== undefined && permissions !== null) {
+        await AsyncStorage.setItem('permissions', JSON.stringify(permissions));
+      } else {
+        // Ensure we don't store "null"/"undefined" – clear any previous value
+        await AsyncStorage.removeItem('permissions');
+      }
 
       return { token, user, device, permissions };
     } catch (error: any) {
