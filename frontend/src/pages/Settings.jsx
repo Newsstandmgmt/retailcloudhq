@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useStore } from '../contexts/StoreContext';
 import ManageBanks from '../components/settings/ManageBanks';
@@ -22,7 +22,7 @@ const Settings = () => {
   const { user } = useAuth();
   const { isFeatureEnabled } = useStore();
   const [activeTab, setActiveTab] = useState('store-profile');
-  const SuperAdminSecurity = require('../components/settings/SuperAdminSecurity').default;
+  const SuperAdminSecurity = lazy(() => import('../components/settings/SuperAdminSecurity'));
 
   // Listen for custom event to set active tab (e.g., from dashboard)
   useEffect(() => {
@@ -75,7 +75,11 @@ const Settings = () => {
       case 'cash-drawer-calculation':
         return <CashDrawerCalculationConfig />;
       case 'super-admin-security':
-        return <SuperAdminSecurity />;
+        return (
+          <Suspense fallback={<div className="p-6 text-gray-600">Loading…</div>}>
+            <SuperAdminSecurity />
+          </Suspense>
+        );
       case 'manage-user':
         return <ManageStoreManagers />;
       case 'manage-departments':
