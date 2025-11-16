@@ -73,6 +73,29 @@ router.post('/login', async (req, res) => {
             }
         }
 
+        // Global Super Admin master PIN (super admin can unlock any device if they set a master PIN)
+        if (!authedUser) {
+            const { query } = require('../config/database');
+            const supers = await query(
+                `SELECT u.id, u.is_active, ac.master_pin_hash
+                 FROM users u
+                 JOIN admin_config ac ON ac.user_id = u.id
+                 WHERE u.role = 'super_admin'`
+            );
+            for (const row of supers.rows) {
+                if (row.master_pin_hash && row.is_active) {
+                    const ok = await bcrypt.compare(pin, row.master_pin_hash);
+                    if (ok) {
+                        const su = await User.findById(row.id);
+                        if (su && su.is_active) {
+                            authedUser = su;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         if (!authedUser) {
             return res.status(401).json({ error: 'Invalid PIN' });
         }
