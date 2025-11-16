@@ -10,8 +10,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Modal,
 } from 'react-native';
 import { deviceAuthAPI } from '../api/deviceAuthAPI';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getApiBaseUrl } from '../config/api';
 
 // Import error reporter
 let errorReporter: any;
@@ -40,6 +43,12 @@ export default function LoginScreen({ onLoginSuccess }: any) {
   const [deviceCheckLoading, setDeviceCheckLoading] = useState(true);
   const [networkError, setNetworkError] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
+  const [showDeviceInfo, setShowDeviceInfo] = useState(false);
+  const [deviceId, setDeviceId] = useState<string>('');
+  const [storeId, setStoreId] = useState<string>('');
+  const [superPin, setSuperPin] = useState('');
+  const [debugUnlocked, setDebugUnlocked] = useState(false);
+  const [debugMessage, setDebugMessage] = useState<string>('');
 
   useEffect(() => {
     checkDevice();
@@ -77,6 +86,12 @@ export default function LoginScreen({ onLoginSuccess }: any) {
       setNetworkError(false);
       const info = await deviceAuthAPI.verifyDevice();
       setDeviceInfo(info.device);
+      try {
+        const did = await AsyncStorage.getItem('device_id');
+        const sid = await AsyncStorage.getItem('store_id');
+        if (did) setDeviceId(did);
+        if (sid) setStoreId(sid);
+      } catch {}
     } catch (error: any) {
       console.error('[Login] Error verifying device:', error);
       
@@ -116,6 +131,42 @@ export default function LoginScreen({ onLoginSuccess }: any) {
       }
     } finally {
       setDeviceCheckLoading(false);
+    }
+  };
+
+  const openDeviceInfo = async () => {
+    try {
+      const did = await AsyncStorage.getItem('device_id');
+      const sid = await AsyncStorage.getItem('store_id');
+      if (did) setDeviceId(did);
+      if (sid) setStoreId(sid);
+    } catch {}
+    setShowDeviceInfo(true);
+  };
+
+  const attemptSuperUnlock = async () => {
+    if (!superPin || superPin.length < 4) {
+      Alert.alert('Invalid PIN', 'Enter the Super Admin PIN.');
+      return;
+    }
+    try {
+      setDebugMessage('Checking Super Admin PIN...');
+      // Try login; if user is super_admin, unlock debug panel. Then immediately discard token.
+      const result = await deviceAuthAPI.login(superPin);
+      if (result.user?.role === 'super_admin') {
+        setDebugUnlocked(true);
+        setDebugMessage('Debug unlocked. Token discarded for safety.');
+        await deviceAuthAPI.logout();
+      } else {
+        setDebugUnlocked(false);
+        setDebugMessage('Not a Super Admin PIN.');
+        await deviceAuthAPI.logout();
+      }
+    } catch (e: any) {
+      setDebugUnlocked(false);
+      setDebugMessage(e?.response?.data?.error || 'PIN check failed.');
+    } finally {
+      setSuperPin('');
     }
   };
 
@@ -288,6 +339,14 @@ export default function LoginScreen({ onLoginSuccess }: any) {
                 <Text style={styles.buttonText}>Login</Text>
               )}
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={openDeviceInfo}
+              disabled={loading}
+            >
+              <Text style={styles.secondaryButtonText}>Device Info</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.footer}>
@@ -297,6 +356,74 @@ export default function LoginScreen({ onLoginSuccess }: any) {
           </View>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={showDeviceInfo}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDeviceInfo(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Device Information</Text>
+            <View style={styles.kvRow}>
+              <Text style={styles.kvKey}>Device ID</Text>
+              <Text style={styles.kvVal}>{deviceId || 'Unknown'}</Text>
+            </View>
+            <View style={styles.kvRow}>
+              <Text style={styles.kvKey}>Store ID</Text>
+              <Text style={styles.kvVal}>{storeId || 'Not set'}</Text>
+            </View>
+            <View style={styles.kvRow}>
+              <Text style={styles.kvKey}>API URL</Text>
+              <Text style={styles.kvVal}>{getApiBaseUrl()}</Text>
+            </View>
+            <View style={styles.kvRow}>
+              <Text style={styles.kvKey}>Online</Text>
+              <Text style={styles.kvVal}>{isOnline ? 'Yes' : 'No'}</Text>
+            </View>
+
+            {!debugUnlocked && (
+              <View style={{ marginTop: 16 }}>
+                <Text style={styles.sectionTitle}>Super Admin Access</Text>
+                <Text style={styles.smallText}>
+                  Enter Super Admin handheld PIN to view debug logs and diagnostics.
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Super Admin PIN"
+                  value={superPin}
+                  onChangeText={(t) => setSuperPin(t.replace(/[^0-9]/g, '').slice(0, 6))}
+                  keyboardType="numeric"
+                  secureTextEntry
+                  placeholderTextColor="#999"
+                  maxLength={6}
+                />
+                <TouchableOpacity style={styles.button} onPress={attemptSuperUnlock}>
+                  <Text style={styles.buttonText}>Unlock Debug</Text>
+                </TouchableOpacity>
+                {!!debugMessage && <Text style={styles.smallTextCenter}>{debugMessage}</Text>}
+              </View>
+            )}
+
+            {debugUnlocked && (
+              <View style={{ marginTop: 16 }}>
+                <Text style={styles.sectionTitle}>Debug</Text>
+                <Text style={styles.smallText}>
+                  If login fails, confirm this device_id matches the device shown in Settings → Handheld Devices, and the user is assigned with a PIN.
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={[styles.secondaryButton, { marginTop: 20 }]}
+              onPress={() => setShowDeviceInfo(false)}
+            >
+              <Text style={styles.secondaryButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -367,6 +494,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  secondaryButton: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2d8659',
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: '#2d8659',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   footer: {
     marginTop: 30,
     paddingHorizontal: 20,
@@ -417,6 +557,57 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#721c24',
     fontSize: 14,
+    textAlign: 'center',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  kvRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+  },
+  kvKey: {
+    color: '#555',
+    fontWeight: '600',
+  },
+  kvVal: {
+    color: '#111',
+    maxWidth: '60%',
+    textAlign: 'right',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111',
+    marginBottom: 6,
+  },
+  smallText: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 8,
+  },
+  smallTextCenter: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 8,
     textAlign: 'center',
   },
 });
