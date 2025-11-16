@@ -5,6 +5,7 @@ import { deviceAuthAPI } from './src/api/deviceAuthAPI';
 import SyncService from './src/services/syncService';
 import { errorReporter } from './src/services/errorReporter';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { PermissionsProvider, RequirePermission } from './src/contexts/PermissionsContext';
 
 import RegistrationScreen from './src/screens/RegistrationScreen';
 import LoginScreen from './src/screens/LoginScreen';
@@ -175,17 +176,23 @@ export default function App() {
       ) : !isLoggedIn ? (
         <LoginScreen onLoginSuccess={handleLoginSuccess} />
       ) : (
-        <>
-          {currentScreen === 'inventory-ordering' && (
-            <InventoryOrderingScreen navigation={navigation} route={undefined} />
-          )}
-          {currentScreen === 'product-management' && (
-            <ProductManagementScreen navigation={navigation} />
-          )}
-          {currentScreen === 'dashboard' && (
-            <DashboardScreen onLogout={handleLogout} navigation={navigation} />
-          )}
-        </>
+        <PermissionsProvider>
+          <>
+            {currentScreen === 'inventory-ordering' && (
+              <RequirePermission anyOf={['can_create_orders','can_receive_inventory']} roleIn={['admin','super_admin','manager']} fallback={null}>
+                <InventoryOrderingScreen navigation={navigation} route={undefined} />
+              </RequirePermission>
+            )}
+            {currentScreen === 'product-management' && (
+              <RequirePermission anyOf={['can_edit_products']} roleIn={['admin','super_admin']} fallback={null}>
+                <ProductManagementScreen navigation={navigation} />
+              </RequirePermission>
+            )}
+            {currentScreen === 'dashboard' && (
+              <DashboardScreen onLogout={handleLogout} navigation={navigation} />
+            )}
+          </>
+        </PermissionsProvider>
       )}
     </ErrorBoundary>
   );
