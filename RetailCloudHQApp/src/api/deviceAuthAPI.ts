@@ -2,6 +2,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DeviceInfo from 'react-native-device-info';
 import { getApiBaseUrl } from '../config/api';
+import logger from '../services/logger';
 
 // Get stored device ID - with better persistence
 const getDeviceId = async (): Promise<string> => {
@@ -38,20 +39,25 @@ const getDeviceId = async (): Promise<string> => {
 const deviceAuthAPI = {
   // Check latest app info (APK URL and version)
   getLatestApp: async () => {
+    logger.info('[API] GET /api/mobile/latest-app');
     const response = await axios.get(`${getApiBaseUrl()}/api/mobile/latest-app`, {
       timeout: 8000,
     });
+    logger.info('[API] latest-app ok', { status: response.status });
     return response.data as { platform: string; version: string; apkUrl: string; releaseNotes: string; updatedAt: string };
   },
   // Verify device is registered
   verifyDevice: async () => {
     try {
       const deviceId = await getDeviceId();
+      logger.info('[API] GET /api/device-auth/verify/:id', { deviceId });
       const response = await axios.get(`${getApiBaseUrl()}/api/device-auth/verify/${deviceId}`, {
         timeout: 5000, // 5 second timeout
       });
+      logger.info('[API] verify ok', { status: response.status });
       return response.data;
     } catch (error: any) {
+      logger.error('[API] verify failed', { hasResponse: !!error?.response, status: error?.response?.status, message: error?.message });
       // Re-throw with more context
       if (!error.response) {
         // Network error
@@ -65,6 +71,7 @@ const deviceAuthAPI = {
   login: async (pin: string) => {
     try {
       const deviceId = await getDeviceId();
+      logger.info('[API] POST /api/device-auth/login', { deviceId });
       const exec = async () => {
         return await axios.post(`${getApiBaseUrl()}/api/device-auth/login`, {
           device_id: deviceId,
@@ -79,12 +86,15 @@ const deviceAuthAPI = {
       } catch (err: any) {
         // Retry once on transient network failure
         if (!err.response) {
+          logger.warn('[API] login transient failure, retrying', { message: err?.message });
           await new Promise(r => setTimeout(r, 700));
           response = await exec();
         } else {
+          logger.error('[API] login failed (no retry)', { status: err?.response?.status, data: err?.response?.data });
           throw err;
         }
       }
+      logger.info('[API] login ok', { status: response.status });
 
       const { token, user, device, permissions } = response.data;
 
@@ -99,6 +109,7 @@ const deviceAuthAPI = {
 
       return { token, user, device, permissions };
     } catch (error: any) {
+      logger.error('[API] login exception', { hasResponse: !!error?.response, status: error?.response?.status, message: error?.message, data: error?.response?.data });
       // Handle network errors
       if (!error.response) {
         error.isNetworkError = true;

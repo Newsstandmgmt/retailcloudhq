@@ -16,6 +16,7 @@ import { deviceAuthAPI } from '../api/deviceAuthAPI';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiBaseUrl } from '../config/api';
 import { Linking } from 'react-native';
+import logger, { LogEntry } from '../services/logger';
 
 // Import error reporter
 let errorReporter: any;
@@ -52,6 +53,9 @@ export default function LoginScreen({ onLoginSuccess }: any) {
   const [debugMessage, setDebugMessage] = useState<string>('');
   const [updateInfo, setUpdateInfo] = useState<any>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [secretTapCount, setSecretTapCount] = useState(0);
+  const [lastTapAt, setLastTapAt] = useState<number>(0);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
 
   useEffect(() => {
     checkDevice();
@@ -68,6 +72,21 @@ export default function LoginScreen({ onLoginSuccess }: any) {
       if (unsubscribe) unsubscribe();
     };
   }, []);
+
+  // Subscribe to live logs when debug is unlocked
+  useEffect(() => {
+    if (!debugUnlocked) return;
+    // Seed with current buffer
+    setLogs(logger.getBuffer());
+    const unsub = logger.subscribe((entry) => {
+      setLogs((prev) => {
+        const next = [...prev, entry];
+        if (next.length > 500) next.splice(0, next.length - 500);
+        return next;
+      });
+    });
+    return () => { unsub && unsub(); };
+  }, [debugUnlocked]);
 
   const checkNetworkStatus = async () => {
     try {
@@ -366,7 +385,28 @@ export default function LoginScreen({ onLoginSuccess }: any) {
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Device Information</Text>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => {
+                const now = Date.now();
+                // Reset window if more than 5s since last tap
+                if (now - lastTapAt > 5000) {
+                  setSecretTapCount(0);
+                }
+                setLastTapAt(now);
+                setSecretTapCount((c) => {
+                  const next = c + 1;
+                  if (next >= 7) {
+                    setDebugUnlocked(true);
+                    setSecretTapCount(0);
+                    setDebugMessage('Debug unlocked via secret tap.');
+                  }
+                  return next;
+                });
+              }}
+            >
+              <Text style={styles.modalTitle}>Device Information</Text>
+            </TouchableOpacity>
             <View style={styles.kvRow}>
               <Text style={styles.kvKey}>Device ID</Text>
               <Text style={styles.kvVal}>{deviceId || 'Unknown'}</Text>
@@ -413,6 +453,20 @@ export default function LoginScreen({ onLoginSuccess }: any) {
                 <Text style={styles.smallText}>
                   If login fails, confirm this device_id matches the device shown in Settings → Handheld Devices, and the user is assigned with a PIN.
                 </Text>
+                <View style={{ marginTop: 10, maxHeight: 220, borderWidth: 1, borderColor: '#ddd', borderRadius: 8 }}>
+                  <ScrollView
+                    contentContainerStyle={{ padding: 10 }}
+                  >
+                    {logs.slice(-200).map((l) => (
+                      <Text key={l.id} style={{ fontSize: 11, color: l.level === 'error' ? '#b00020' : l.level === 'warn' ? '#8a6d3b' : '#1b5e20' }}>
+                        {new Date(l.timestamp).toLocaleTimeString()} [{l.level.toUpperCase()}] {l.message}
+                      </Text>
+                    ))}
+                    {logs.length === 0 && (
+                      <Text style={{ fontSize: 12, color: '#666' }}>No logs yet. Interact with the app to see live logs.</Text>
+                    )}
+                  </ScrollView>
+                </View>
                 <View style={{ marginTop: 12 }}>
                   <Text style={styles.sectionTitle}>App Update</Text>
                   <Text style={styles.smallText}>
