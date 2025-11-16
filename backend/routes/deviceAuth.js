@@ -8,7 +8,7 @@ const { query } = require('../config/database');
 
 const router = express.Router();
 
-// PIN-based login for mobile devices
+// PIN-based login for mobile devices (supports multi-user per device)
 router.post('/login', async (req, res) => {
     try {
         const { device_id, pin } = req.body;
@@ -32,77 +32,77 @@ router.post('/login', async (req, res) => {
         if (!device.is_active) {
             return res.status(403).json({ error: 'Device is inactive. Please contact administrator.' });
         }
-        
-        // Check if user is assigned to device
-        if (!device.user_id) {
-            return res.status(403).json({ error: 'No user assigned to this device. Please contact administrator.' });
-        }
-        
-        // Get user info
-        const user = await User.findById(device.user_id);
-        if (!user || !user.is_active) {
-            return res.status(403).json({ error: 'User account is inactive.' });
-        }
-        
-        // Check PIN based on user role
-        let pinValid = false;
-        
-        if (user.role === 'admin' || user.role === 'super_admin' || user.role === 'manager') {
-            // Admin/Manager: Check master PIN
-            const adminConfig = await AdminConfig.findByUserId(user.id);
-            if (adminConfig && adminConfig.master_pin_hash) {
-                pinValid = await bcrypt.compare(pin, adminConfig.master_pin_hash);
-            } else {
-                // No master PIN set, check device-specific PIN
-                const permissions = await MobileDevice.getPermissions(device_id);
-                if (permissions && permissions.device_pin_hash) {
-                    pinValid = await bcrypt.compare(pin, permissions.device_pin_hash);
+        // Try to match an employee/manager/admin by device-specific PIN first (multi-user per device)
+        const permResult = await query(
+            `SELECT udp.user_id, udp.device_pin_hash 
+             FROM user_device_permissions udp
+             WHERE udp.device_id = $1 AND udp.device_pin_hash IS NOT NULL`,
+            [device.id]
+        );
+        let authedUser = null;
+        for (const row of permResult.rows) {
+            if (row.device_pin_hash && await bcrypt.compare(pin, row.device_pin_hash)) {
+                const u = await User.findById(row.user_id);
+                if (u && u.is_active) {
+                    authedUser = u;
+                    break;
                 }
             }
-        } else {
-            // Employee: Check device-specific PIN
-            const permissions = await MobileDevice.getPermissions(device_id);
-            if (permissions && permissions.device_pin_hash) {
-                pinValid = await bcrypt.compare(pin, permissions.device_pin_hash);
+        }
+
+        // If no device-specific PIN matched, allow master PIN for store admin/super admin
+        if (!authedUser) {
+            // Candidate admins: store.created_by and (if present) store.admin_id
+            const storeMeta = await query(`SELECT created_by, admin_id FROM stores WHERE id = $1`, [device.store_id]);
+            const adminIds = [];
+            if (storeMeta.rows.length > 0) {
+                if (storeMeta.rows[0].created_by) adminIds.push(storeMeta.rows[0].created_by);
+                if (storeMeta.rows[0].admin_id) adminIds.push(storeMeta.rows[0].admin_id);
+            }
+            // Deduplicate
+            const uniqueAdminIds = [...new Set(adminIds)];
+            for (const adminId of uniqueAdminIds) {
+                const ac = await AdminConfig.findByUserId(adminId);
+                if (ac && ac.master_pin_hash && await bcrypt.compare(pin, ac.master_pin_hash)) {
+                    const u = await User.findById(adminId);
+                    if (u && u.is_active) {
+                        authedUser = u;
+                        break;
+                    }
+                }
             }
         }
-        
-        if (!pinValid) {
+
+        if (!authedUser) {
             return res.status(401).json({ error: 'Invalid PIN' });
         }
-        
-        // Generate JWT token
+
+        // Generate JWT token for the authenticated user
         const token = jwt.sign(
-            { userId: user.id, email: user.email, role: user.role, deviceId: device_id },
+            { userId: authedUser.id, email: authedUser.email, role: authedUser.role, deviceId: device_id },
             process.env.JWT_SECRET || 'your-secret-key',
             { expiresIn: process.env.JWT_EXPIRE || '7d' }
         );
-        
-        // Get permissions
-        const permissions = await MobileDevice.getPermissions(device_id);
-        
+
         // Update device last seen
-        await MobileDevice.update(device_id, {
-            last_seen_at: new Date()
-        });
-        
+        await MobileDevice.update(device_id, { last_seen_at: new Date() });
+
         res.json({
             success: true,
             token,
             user: {
-                id: user.id,
-                email: user.email,
-                first_name: user.first_name,
-                last_name: user.last_name,
-                role: user.role
+                id: authedUser.id,
+                email: authedUser.email,
+                first_name: authedUser.first_name,
+                last_name: authedUser.last_name,
+                role: authedUser.role
             },
             device: {
                 id: device.id,
                 device_id: device.device_id,
                 device_name: device.device_name,
                 store_id: device.store_id
-            },
-            permissions: permissions || {}
+            }
         });
     } catch (error) {
         console.error('Device login error:', error);

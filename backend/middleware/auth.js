@@ -36,8 +36,16 @@ const authenticate = async (req, res, next) => {
             if (!device.is_active || device.is_locked) {
                 return res.status(403).json({ error: 'Device access revoked. Please contact an administrator.' });
             }
-            if (!device.user_id || device.user_id !== result.rows[0].id) {
-                return res.status(403).json({ error: 'Device assignment changed. Please re-register the device.' });
+            // Multi-user support: allow if device is unassigned OR assigned to this user OR permissions exist for (user, device)
+            if (device.user_id && device.user_id !== result.rows[0].id) {
+                const permCheck = await query(
+                    `SELECT 1 FROM user_device_permissions udp 
+                     WHERE udp.device_id = $1 AND udp.user_id = $2 LIMIT 1`,
+                    [device.id, result.rows[0].id]
+                );
+                if (permCheck.rows.length === 0) {
+                    return res.status(403).json({ error: 'Device assignment changed. Please re-register the device.' });
+                }
             }
         }
 
