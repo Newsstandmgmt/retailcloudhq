@@ -181,6 +181,8 @@ export default function LoginScreen({ onLoginSuccess }: any) {
 
     setLoading(true);
     try {
+      // Clear any prior session to avoid auto-login with stale token
+      await deviceAuthAPI.logout();
       console.log('[Login] Attempting PIN login...');
       
       const result = await deviceAuthAPI.login(pin.trim());
@@ -195,6 +197,8 @@ export default function LoginScreen({ onLoginSuccess }: any) {
       checkDevice().catch(() => {});
     } catch (error: any) {
       console.error('[Login] Login failed:', error);
+      // Ensure no leftover session after a failed attempt
+      try { await deviceAuthAPI.logout(); } catch {}
       
       // Report error
       if (errorReporter) {
