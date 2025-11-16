@@ -69,6 +69,7 @@ app.get('/health', (req, res) => {
 // API Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/device-auth', require('./routes/deviceAuth'));
+app.use('/api/mobile', require('./routes/mobileApp'));
 app.use('/api/stores', require('./routes/stores'));
 app.use('/api/store-templates', require('./routes/storeTemplates'));
 app.use('/api/feature-pricing', require('./routes/featurePricing'));

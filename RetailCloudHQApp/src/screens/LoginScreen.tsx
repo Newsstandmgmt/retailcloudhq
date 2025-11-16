@@ -15,6 +15,7 @@ import {
 import { deviceAuthAPI } from '../api/deviceAuthAPI';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiBaseUrl } from '../config/api';
+import { Linking } from 'react-native';
 
 // Import error reporter
 let errorReporter: any;
@@ -49,6 +50,8 @@ export default function LoginScreen({ onLoginSuccess }: any) {
   const [superPin, setSuperPin] = useState('');
   const [debugUnlocked, setDebugUnlocked] = useState(false);
   const [debugMessage, setDebugMessage] = useState<string>('');
+  const [updateInfo, setUpdateInfo] = useState<any>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   useEffect(() => {
     checkDevice();
@@ -412,6 +415,43 @@ export default function LoginScreen({ onLoginSuccess }: any) {
                 <Text style={styles.smallText}>
                   If login fails, confirm this device_id matches the device shown in Settings → Handheld Devices, and the user is assigned with a PIN.
                 </Text>
+                <View style={{ marginTop: 12 }}>
+                  <Text style={styles.sectionTitle}>App Update</Text>
+                  <Text style={styles.smallText}>
+                    Check for a new APK and download it directly on this device.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.button}
+                    disabled={checkingUpdate}
+                    onPress={async () => {
+                      try {
+                        setCheckingUpdate(true);
+                        const latest = await deviceAuthAPI.getLatestApp();
+                        setUpdateInfo(latest);
+                      } catch (e: any) {
+                        Alert.alert('Update', e?.response?.data?.error || 'Failed to check for updates');
+                      } finally {
+                        setCheckingUpdate(false);
+                      }
+                    }}
+                  >
+                    <Text style={styles.buttonText}>{checkingUpdate ? 'Checking…' : 'Check for Update'}</Text>
+                  </TouchableOpacity>
+                  {updateInfo?.apkUrl && (
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={styles.smallText}>Latest: v{updateInfo.version}</Text>
+                      <TouchableOpacity
+                        style={styles.secondaryButton}
+                        onPress={() => Linking.openURL(updateInfo.apkUrl)}
+                      >
+                        <Text style={styles.secondaryButtonText}>Download APK</Text>
+                      </TouchableOpacity>
+                      {!!updateInfo.releaseNotes && (
+                        <Text style={[styles.smallText, { marginTop: 6 }]}>{updateInfo.releaseNotes}</Text>
+                      )}
+                    </View>
+                  )}
+                </View>
               </View>
             )}
 

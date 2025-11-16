@@ -36,6 +36,13 @@ const getDeviceId = async (): Promise<string> => {
 };
 
 const deviceAuthAPI = {
+  // Check latest app info (APK URL and version)
+  getLatestApp: async () => {
+    const response = await axios.get(`${getApiBaseUrl()}/api/mobile/latest-app`, {
+      timeout: 8000,
+    });
+    return response.data as { platform: string; version: string; apkUrl: string; releaseNotes: string; updatedAt: string };
+  },
   // Verify device is registered
   verifyDevice: async () => {
     try {
