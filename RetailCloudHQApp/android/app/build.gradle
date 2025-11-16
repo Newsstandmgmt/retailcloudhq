@@ -4,10 +4,7 @@ apply plugin: "com.facebook.react"
 
 apply from: file("../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesAppBuildGradle(project)
 
-react {
-    /* Autolinking */
-    // autolinkLibrariesWithApp() - Using default autolinking
-}
+react { /* autolinking */ }
 
 def enableProguardInReleaseBuilds = false
 def jscFlavor = 'org.webkit:android-jsc:+'
@@ -24,10 +21,12 @@ android {
         versionCode 1
         versionName "1.0"
     }
-    
+
     buildFeatures {
         buildConfig true
     }
+
+    // keep debug keystore if you want
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -35,14 +34,23 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // ADD release signing HERE
+        release {
+            storeFile file(MYAPP_UPLOAD_STORE_FILE)
+            storePassword MYAPP_UPLOAD_STORE_PASSWORD
+            keyAlias      MYAPP_UPLOAD_KEY_ALIAS
+            keyPassword   MYAPP_UPLOAD_KEY_PASSWORD
+        }
     }
+
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources false
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
@@ -58,7 +66,6 @@ configurations.all {
 dependencies {
     implementation("com.facebook.react:react-android")
     implementation("com.facebook.react:flipper-integration")
-
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {
@@ -66,3 +73,6 @@ dependencies {
     }
 }
 
+// DELETE these top-level blocks if they exist outside android { … }:
+// signingConfigs { release { … } }
+// buildTypes { release { … } }
