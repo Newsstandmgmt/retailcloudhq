@@ -12,6 +12,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import InventoryOrderingScreen from './src/screens/InventoryOrderingScreen';
 import ProductManagementScreen from './src/screens/ProductManagementScreen';
+import AgeCheckScreen from './src/screens/AgeCheckScreen';
 
 // Debug: Verify components are imported correctly
 if (__DEV__) {
@@ -24,7 +25,7 @@ if (__DEV__) {
   });
 }
 
-type Screen = 'dashboard' | 'inventory-ordering' | 'product-management';
+type Screen = 'dashboard' | 'inventory-ordering' | 'product-management' | 'age-check';
 
 interface Navigation {
   navigate: (screen: Screen) => void;
@@ -85,13 +86,29 @@ export default function App() {
       
       // Check if device is registered (device stays registered once registered)
       const registered = await AsyncStorage.getItem('registered');
-      const isReg = registered === 'true';
+      let isReg = registered === 'true';
       console.log('[App] Device registered:', isReg);
       setIsRegistered(isReg);
 
+      // If local flag says not registered, try server verify to auto-restore provisioning after reinstall
       if (!isReg) {
-        setIsLoggedIn(false);
-        return;
+        try {
+          const verify = await deviceAuthAPI.verifyDevice();
+          if (verify?.device?.store_id && verify?.device?.is_active) {
+            console.log('[App] Auto-restored provisioning from server for store:', verify.device.store_id);
+            await AsyncStorage.setItem('registered', 'true');
+            await AsyncStorage.setItem('store_id', verify.device.store_id);
+            isReg = true;
+            setIsRegistered(true);
+          }
+        } catch (e) {
+          // If verify fails here, we will fall back to registration screen below
+          console.log('[App] Server verify failed while attempting auto-restore:', (e as any)?.message);
+        }
+        if (!isReg) {
+          setIsLoggedIn(false);
+          return;
+        }
       }
 
       // Verify device is still registered
@@ -190,6 +207,9 @@ export default function App() {
             )}
             {currentScreen === 'dashboard' && (
               <DashboardScreen onLogout={handleLogout} navigation={navigation} />
+            )}
+            {currentScreen === 'age-check' && (
+              <AgeCheckScreen />
             )}
           </>
         </PermissionsProvider>

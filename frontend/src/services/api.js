@@ -1030,6 +1030,11 @@ export const mobileDevicesAPI = {
   updateDevice: (deviceId, data) => {
     return api.put(`/api/mobile-devices/device/${deviceId}`, data);
   },
+  // Mark device to wipe
+  markWipe: (deviceId) => api.post(`/api/mobile-devices/devices/${deviceId}/mark-wipe`),
+  // Reassign device to another store
+  reassign: (deviceId, targetStoreId, deviceName = null) =>
+    api.post(`/api/mobile-devices/devices/${deviceId}/reassign`, { target_store_id: targetStoreId, device_name: deviceName }),
 };
  // Admin-scoped device assignment helpers
 mobileDevicesAPI.assignEmployee = (storeId, deviceId, data) =>
@@ -1037,6 +1042,40 @@ mobileDevicesAPI.assignEmployee = (storeId, deviceId, data) =>
 mobileDevicesAPI.unassignEmployee = (storeId, deviceId) =>
   api.post(`/api/mobile-devices/store/${storeId}/devices/${deviceId}/unassign-employee`);
 
+// Mobile Logs API (super admin)
+export const mobileLogsAPI = {
+  listByDevice: (deviceId, params = {}) => {
+    const sp = new URLSearchParams();
+    if (params.start) sp.append('start', params.start);
+    if (params.end) sp.append('end', params.end);
+    if (params.level) sp.append('level', params.level);
+    if (params.limit) sp.append('limit', params.limit);
+    const q = sp.toString();
+    return api.get(`/api/mobile-logs/device/${deviceId}${q ? `?${q}` : ''}`);
+  }
+};
+
+// Age Checks API
+export const ageChecksAPI = {
+  listByStore: (storeId, params = {}) => {
+    const sp = new URLSearchParams();
+    if (params.start) sp.append('start', params.start);
+    if (params.end) sp.append('end', params.end);
+    if (params.result) sp.append('result', params.result);
+    if (params.limit) sp.append('limit', params.limit);
+    const q = sp.toString();
+    return api.get(`/api/age-checks/store/${storeId}${q ? `?${q}` : ''}`);
+  },
+  listByDevice: (deviceId, params = {}) => {
+    const sp = new URLSearchParams();
+    if (params.start) sp.append('start', params.start);
+    if (params.end) sp.append('end', params.end);
+    if (params.result) sp.append('result', params.result);
+    if (params.limit) sp.append('limit', params.limit);
+    const q = sp.toString();
+    return api.get(`/api/age-checks/device/${deviceId}${q ? `?${q}` : ''}`);
+  }
+};
 export default api;
 
 // Also export as named export for convenience

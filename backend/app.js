@@ -117,6 +117,8 @@ app.use('/api/reports', require('./routes/reports'));
 app.use('/api/cash-on-hand', require('./routes/cashOnHand'));
 app.use('/api/cash-drawer-calculation', require('./routes/cashDrawerCalculation'));
 app.use('/api/mobile-devices', require('./routes/mobileDevices'));
+app.use('/api/mobile-logs', require('./routes/mobileLogs'));
+app.use('/api/age-checks', require('./routes/ageChecks'));
 app.use('/api/customer-tabs', require('./routes/customerTabs'));
 app.use('/api/errors', require('./routes/errors'));
 app.use('/api/square', require('./routes/square'));

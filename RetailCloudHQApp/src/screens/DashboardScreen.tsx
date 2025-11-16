@@ -246,10 +246,16 @@ export default function DashboardScreen({ onLogout, navigation }: DashboardScree
                 </TouchableOpacity>
               )}
 
-          {/* Age Checker */}
+          {/* Age Checker - available to all roles */}
           <TouchableOpacity
             style={styles.featureCard}
-            onPress={() => handleFeaturePress('Age Checker')}
+            onPress={() => {
+              if (navigation && navigation.navigate) {
+                navigation.navigate('age-check');
+              } else {
+                handleFeaturePress('Age Checker');
+              }
+            }}
             activeOpacity={0.7}
           >
             <View style={[styles.iconContainer, styles.ageIcon]}>

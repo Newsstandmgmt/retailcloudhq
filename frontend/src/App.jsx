@@ -31,6 +31,8 @@ import DataConfiguration from './pages/DataConfiguration';
 import LicenseManagement from './pages/LicenseManagement';
 import Products from './pages/Products';
 import Orders from './pages/Orders';
+import DeviceDetails from './pages/DeviceDetails';
+import AgeChecks from './pages/AgeChecks';
 
 // Lottery Management
 import Lottery from './pages/Lottery';
@@ -170,6 +172,26 @@ function App() {
               <ProtectedRoute>
                 <Layout>
                   <Orders />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/devices/:deviceId"
+            element={
+              <ProtectedRoute requiredRole={['super_admin']}>
+                <Layout>
+                  <DeviceDetails />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/age-checks"
+            element={
+              <ProtectedRoute requiredRole={['admin', 'manager', 'super_admin']}>
+                <Layout>
+                  <AgeChecks />
                 </Layout>
               </ProtectedRoute>
             }
