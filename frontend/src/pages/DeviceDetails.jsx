@@ -83,6 +83,16 @@ export default function DeviceDetails() {
     setLogs(logsRes.data?.logs || []);
   };
 
+  // Auto-refresh logs every 5 seconds
+  useEffect(() => {
+    if (!deviceId || !isSuperAdmin) return;
+    const interval = setInterval(() => {
+      refreshLogs();
+    }, 5000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId, isSuperAdmin, limit, logLevel]);
+
   if (!isSuperAdmin) return null;
 
   return (

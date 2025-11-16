@@ -1,8 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { getApiBaseUrl } from '../config/api';
+
+interface AgeCheckScreenProps {
+  navigation?: {
+    goBack: () => void;
+  };
+}
 
 // Basic AAMVA PDF417 parser for DOB (DA B), Expiry ( D B), fallback patterns
 function parsePDF417(raw: string) {
@@ -36,33 +42,15 @@ function calcAge(dob: Date | null) {
   return age;
 }
 
-export default function AgeCheckScreen() {
+export default function AgeCheckScreen({ navigation }: AgeCheckScreenProps) {
   const [raw, setRaw] = useState('');
   const [dob, setDob] = useState<Date | null>(null);
   const [expiry, setExpiry] = useState<Date | null>(null);
   const [age, setAge] = useState<number | null>(null);
   const [result, setResult] = useState<'pass' | 'fail' | null>(null);
-  const [last4, setLast4] = useState('');
-
-  const computed = useMemo(() => {
-    const a = calcAge(dob);
-    const isExpired = expiry ? expiry.getTime() < Date.now() : false;
-    const ok = (a ?? 0) >= 21 && !isExpired;
-    return { a, isExpired, ok };
-  }, [dob, expiry]);
-
-
-  const handleParse = () => {
-    const { dob: d, expiry: e } = parsePDF417(raw);
-    setDob(d);
-    setExpiry(e);
-    const a = calcAge(d);
-    setAge(a);
-    const pass = (a ?? 0) >= 21 && !(e && e.getTime() < Date.now());
-    setResult(pass ? 'pass' : 'fail');
-  };
 
   const handleLog = async () => {
+    if (!result || !dob) return; // Don't log if no result or DOB
     try {
       const storeId = await AsyncStorage.getItem('store_id');
       const deviceId = await AsyncStorage.getItem('device_id');
@@ -74,25 +62,47 @@ export default function AgeCheckScreen() {
         expiry: expiry ? expiry.toISOString().slice(0, 10) : null,
         age,
         result,
-        id_fragment: last4 || null,
+        id_fragment: null, // No longer collecting last4
       }, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         timeout: 5000,
       });
-      Alert.alert('Logged', 'Age check recorded.');
+      // Silent success - no alert for auto-log
     } catch (e: any) {
-      Alert.alert('Error', e?.response?.data?.error || 'Failed to log age check');
+      console.error('Failed to log age check:', e?.response?.data?.error || e.message);
+      // Silent fail for auto-log
     }
+  };
+
+  const handleClear = () => {
+    setRaw('');
+    setDob(null);
+    setExpiry(null);
+    setAge(null);
+    setResult(null);
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Age Checker (21+)</Text>
-      <Text style={styles.subtitle}>Scan ID barcode with external scanner or paste PDF417 data</Text>
+      {/* Header with Back Button */}
+      <View style={styles.header}>
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => {
+            if (navigation?.goBack) {
+              navigation.goBack();
+            }
+          }}
+        >
+          <Text style={styles.backButtonText}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>Age Checker</Text>
+        <View style={styles.headerSpacer} />
+      </View>
 
+      {/* Scan Input - Hidden but auto-focused for scanner */}
       <TextInput
-        style={[styles.input, { height: 120, textAlignVertical: 'top' }]}
-        placeholder="Scan barcode or paste PDF417 raw data here..."
+        style={styles.hiddenInput}
         value={raw}
         onChangeText={(text) => {
           setRaw(text);
@@ -106,70 +116,159 @@ export default function AgeCheckScreen() {
               setAge(a);
               const pass = (a ?? 0) >= 21 && !(e && e.getTime() < Date.now());
               setResult(pass ? 'pass' : 'fail');
+              // Auto-log after successful scan
+              if (pass || !pass) {
+                handleLog().catch(() => {});
+              }
             }, 100);
           }
         }}
-        placeholderTextColor="#999"
-        multiline
         autoFocus
+        autoCorrect={false}
+        autoCapitalize="none"
       />
-      <TouchableOpacity style={styles.button} onPress={handleParse}>
-        <Text style={styles.buttonText}>Check Age</Text>
-      </TouchableOpacity>
 
-      <View style={styles.resultBox}>
-        <Text style={styles.row}>
-          <Text style={styles.key}>DOB: </Text>
-          <Text style={styles.val}>{dob ? dob.toISOString().slice(0, 10) : '—'}</Text>
-        </Text>
-        <Text style={styles.row}>
-          <Text style={styles.key}>Age: </Text>
-          <Text style={styles.val}>{age ?? '—'}</Text>
-        </Text>
-        <Text style={styles.row}>
-          <Text style={styles.key}>Expiry: </Text>
-          <Text style={styles.val}>{expiry ? expiry.toISOString().slice(0, 10) : '—'}</Text>
-        </Text>
-        <Text style={styles.row}>
-          <Text style={styles.key}>Result: </Text>
-          <Text style={[styles.badge, result === 'pass' ? styles.pass : result === 'fail' ? styles.fail : styles.neutral]}>
-            {result ? (result === 'pass' ? 'Allowed' : 'Not Allowed') : '—'}
-          </Text>
-        </Text>
-      </View>
-
-      <TextInput
-        style={styles.input}
-        placeholder="Optional: last 4 of ID to hash for audit (never stored raw)"
-        value={last4}
-        onChangeText={(t) => setLast4(t.replace(/[^0-9]/g, '').slice(0, 4))}
-        placeholderTextColor="#999"
-        keyboardType="numeric"
-      />
-      <TouchableOpacity style={[styles.button, { backgroundColor: '#374151' }]} onPress={handleLog} disabled={!result}>
-        <Text style={styles.buttonText}>Log Check</Text>
-      </TouchableOpacity>
+      {/* Main Display */}
+      {!result ? (
+        <View style={styles.scanPromptContainer}>
+          <Text style={styles.scanPromptEmoji}>🆔</Text>
+          <Text style={styles.scanPromptText}>Scan ID to verify age</Text>
+          <Text style={styles.scanPromptSubtext}>21+ required</Text>
+        </View>
+      ) : (
+        <View style={styles.resultContainer}>
+          <View style={[styles.resultBadge, result === 'pass' ? styles.resultPass : styles.resultFail]}>
+            <Text style={styles.resultBadgeText}>
+              {result === 'pass' ? '✓ ALLOWED' : '✗ NOT ALLOWED'}
+            </Text>
+          </View>
+          {result === 'pass' && (
+            <Text style={styles.resultSubtext}>Customer is 21 or older</Text>
+          )}
+          {result === 'fail' && (
+            <Text style={styles.resultSubtext}>
+              {age !== null && age < 21 ? `Age: ${age} (Under 21)` : 'ID expired or invalid'}
+            </Text>
+          )}
+          <TouchableOpacity 
+            style={[styles.button, styles.clearButton]} 
+            onPress={handleClear}
+          >
+            <Text style={styles.buttonText}>Scan Another</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', padding: 20 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#111', marginBottom: 6, textAlign: 'center' },
-  subtitle: { fontSize: 12, color: '#666', marginBottom: 16, textAlign: 'center' },
-  input: {
-    borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 14, color: '#000', backgroundColor: '#fff', marginBottom: 12
+  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#2d8659',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e6b47',
   },
-  button: { backgroundColor: '#2d8659', padding: 12, borderRadius: 8, alignItems: 'center', marginBottom: 12 },
-  buttonText: { color: '#fff', fontWeight: 'bold' },
-  resultBox: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, padding: 12, marginTop: 4, marginBottom: 12 },
-  row: { marginBottom: 6, fontSize: 14, color: '#111' },
-  key: { fontWeight: '600', color: '#374151' },
-  val: { color: '#111' },
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, color: '#fff', overflow: 'hidden' },
-  pass: { backgroundColor: '#059669' },
-  fail: { backgroundColor: '#b91c1c' },
-  neutral: { backgroundColor: '#6b7280' },
+  backButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  backButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerSpacer: {
+    width: 60, // Balance the back button width
+  },
+  hiddenInput: {
+    position: 'absolute',
+    opacity: 0,
+    height: 0,
+    width: 0,
+  },
+  scanPromptContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  scanPromptEmoji: {
+    fontSize: 80,
+    marginBottom: 20,
+  },
+  scanPromptText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#111',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  scanPromptSubtext: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+  },
+  resultContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  resultBadge: {
+    paddingVertical: 24,
+    paddingHorizontal: 48,
+    borderRadius: 16,
+    marginBottom: 16,
+    minWidth: 280,
+    alignItems: 'center',
+  },
+  resultPass: {
+    backgroundColor: '#059669',
+  },
+  resultFail: {
+    backgroundColor: '#b91c1c',
+  },
+  resultBadgeText: {
+    color: '#fff',
+    fontSize: 32,
+    fontWeight: 'bold',
+    letterSpacing: 2,
+  },
+  resultSubtext: {
+    fontSize: 18,
+    color: '#666',
+    marginBottom: 32,
+    textAlign: 'center',
+  },
+  button: {
+    backgroundColor: '#2d8659',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 8,
+    minWidth: 200,
+    alignItems: 'center',
+  },
+  clearButton: {
+    backgroundColor: '#6b7280',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
 });
 
 

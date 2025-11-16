@@ -186,6 +186,18 @@ router.get('/store/:storeId/devices', authenticate, canAccessStore, authorize('s
     }
 });
 
+// Get all devices across all stores (super admin only)
+router.get('/devices', authenticate, authorize('super_admin'), async (req, res) => {
+    try {
+        const includeInactive = req.query.include_inactive === 'true';
+        const devices = await MobileDevice.findAll(includeInactive);
+        res.json({ devices });
+    } catch (error) {
+        console.error('Get all devices error:', error);
+        res.status(500).json({ error: 'Failed to fetch devices' });
+    }
+});
+
 // Lock a device
 router.put('/devices/:deviceId/lock', authenticate, authorize('super_admin'), async (req, res) => {
     try {

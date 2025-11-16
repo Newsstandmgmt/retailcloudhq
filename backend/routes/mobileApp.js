@@ -6,11 +6,12 @@ const router = express.Router();
 router.get('/latest-app', async (req, res) => {
     try {
         const version = (process.env.MOBILE_APP_VERSION || '1.0.0').replace(/^"+|"+$/g, '');
-        const apkUrl = (process.env.MOBILE_APP_APK_URL || '').replace(/^"+|"+$/g, '');
+        let apkUrl = (process.env.MOBILE_APP_APK_URL || '').replace(/^"+|"+$/g, '');
         const releaseNotes = (process.env.MOBILE_APP_RELEASE_NOTES || 'Stability improvements and bug fixes').replace(/^"+|"+$/g, '');
 
+        // Default to Netlify URL if not configured
         if (!apkUrl) {
-            return res.status(404).json({ error: 'APK URL is not configured' });
+            apkUrl = 'https://retailcloudhq.netlify.app/downloads/RetailCloudHQApp-latest.apk';
         }
 
         res.json({

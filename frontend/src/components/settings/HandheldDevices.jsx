@@ -99,26 +99,32 @@ const HandheldDevices = ({
   }, [activeStoreId, isSuperAdmin]);
 
   useEffect(() => {
-    if (!activeStoreId) {
-      setDevices([]);
-      setCodes([]);
-      setCodesLoading(false);
-      return;
-    }
-
     if (!isSuperAdmin && !featureUnlocked) {
       setDevices([]);
       setCodes([]);
       return;
     }
 
+    // Super admin can view all devices even without store selected
     if (isSuperAdmin) {
-      loadCodes(activeStoreId);
+      if (activeStoreId) {
+        loadCodes(activeStoreId);
+      } else {
+        setCodes([]);
+        setCodesLoading(false);
+      }
+      loadDevices(activeStoreId); // Can be null for "all devices"
     } else {
+      if (!activeStoreId) {
+        setDevices([]);
+        setCodes([]);
+        setCodesLoading(false);
+        return;
+      }
       setCodes([]);
       setCodesLoading(false);
+      loadDevices(activeStoreId);
     }
-    loadDevices(activeStoreId);
   }, [activeStoreId, includeUsed, includeInactive, isSuperAdmin, featureUnlocked]);
 
   const loadCodes = async (storeId = activeStoreId) => {
@@ -139,11 +145,21 @@ const HandheldDevices = ({
   };
 
   const loadDevices = async (storeId = activeStoreId) => {
-    if (!storeId) return;
     try {
-      const response = isSuperAdmin
-        ? await mobileDevicesAPI.getDevices(storeId, includeInactive)
-        : await mobileDevicesAPI.getAssignableDevices(storeId, includeInactive);
+      let response;
+      if (isSuperAdmin && !storeId) {
+        // Super admin viewing all devices (no store selected)
+        response = await mobileDevicesAPI.getAllDevices(includeInactive);
+      } else if (isSuperAdmin && storeId) {
+        // Super admin viewing devices for specific store
+        response = await mobileDevicesAPI.getDevices(storeId, includeInactive);
+      } else if (storeId) {
+        // Regular admin viewing assignable devices
+        response = await mobileDevicesAPI.getAssignableDevices(storeId, includeInactive);
+      } else {
+        setDevices([]);
+        return;
+      }
       setDevices(response.data.devices || []);
     } catch (error) {
       console.error('Error loading devices:', error);
@@ -380,7 +396,8 @@ const HandheldDevices = ({
     return new Date(dateString).toLocaleString();
   };
 
-  if (!activeStoreId) {
+  // Super admin can view all devices even without store selected
+  if (!activeStoreId && !isSuperAdmin) {
     return (
       <div className={`${embedded ? '' : 'p-6'} text-center text-gray-500`}>
         {embedded
@@ -422,7 +439,9 @@ const HandheldDevices = ({
           <h2 className="text-xl font-bold text-gray-900 mb-2">Handheld Device Management</h2>
           {isSuperAdmin ? (
             <p className="text-sm text-gray-600">
-              Generate registration codes to link Android devices to this store. Each code can be used to register one device with specific access permissions.
+              {activeStoreId 
+                ? 'Generate registration codes to link Android devices to this store. Each code can be used to register one device with specific access permissions.'
+                : 'Viewing all devices across all stores. Select a store to generate registration codes or manage devices for that store.'}
             </p>
           ) : (
             <p className="text-sm text-gray-600">
@@ -573,10 +592,13 @@ const HandheldDevices = ({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+              <table className="min-w-full bg-white border border-gray-200 rounded-lg">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Device Name</th>
+                  {isSuperAdmin && !activeStoreId && (
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Store</th>
+                  )}
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned User</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Seen</th>
@@ -588,6 +610,16 @@ const HandheldDevices = ({
                 {devices.map((device) => (
                   <tr key={device.id} className={!device.is_active ? 'bg-gray-50' : ''}>
                     <td className="px-4 py-3 font-medium">{device.device_name || 'Unknown Device'}</td>
+                    {isSuperAdmin && !activeStoreId && (
+                      <td className="px-4 py-3">
+                        <a 
+                          href={`/stores/${device.store_id}`}
+                          className="text-blue-600 hover:text-blue-800 underline"
+                        >
+                          {device.store_name || device.store_id || 'N/A'}
+                        </a>
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       {device.user_name ? (
                         <div>
@@ -646,6 +678,13 @@ const HandheldDevices = ({
                         )}
                         {isSuperAdmin && (
                           <>
+                            <a
+                              href={`/devices/${device.device_id}`}
+                              className="text-purple-600 hover:text-purple-800 text-sm"
+                              title="View Details & Logs"
+                            >
+                              View Details
+                            </a>
                             {device.is_locked ? (
                               <button
                                 onClick={() => handleUnlockDevice(device.device_id)}

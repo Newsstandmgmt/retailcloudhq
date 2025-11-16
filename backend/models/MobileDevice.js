@@ -46,6 +46,32 @@ class MobileDevice {
         return result.rows;
     }
 
+    // Get all devices across all stores (super admin only)
+    static async findAll(includeInactive = false) {
+        let queryStr = `
+            SELECT md.*, 
+                   s.name as store_name,
+                   u.first_name || ' ' || u.last_name as user_name,
+                   u.email as user_email,
+                   u.role as user_role,
+                   drc.code as registration_code
+            FROM mobile_devices md
+            LEFT JOIN stores s ON md.store_id = s.id
+            LEFT JOIN users u ON md.user_id = u.id
+            LEFT JOIN device_registration_codes drc ON md.registration_code_id = drc.id
+            WHERE 1=1
+        `;
+        
+        if (!includeInactive) {
+            queryStr += ' AND md.is_active = true';
+        }
+        
+        queryStr += ' ORDER BY md.created_at DESC';
+        
+        const result = await query(queryStr);
+        return result.rows;
+    }
+
     // Update device info
     static async update(deviceId, updateData) {
         const { fcm_token, last_sync_at, last_seen_at, metadata, device_name } = updateData;

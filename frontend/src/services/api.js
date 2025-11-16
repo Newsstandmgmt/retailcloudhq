@@ -1003,6 +1003,9 @@ export const mobileDevicesAPI = {
   getDevices: (storeId, includeInactive = false) => {
     return api.get(`/api/mobile-devices/store/${storeId}/devices?include_inactive=${includeInactive}`);
   },
+  getAllDevices: (includeInactive = false) => {
+    return api.get(`/api/mobile-devices/devices?include_inactive=${includeInactive}`);
+  },
   getAssignableDevices: (storeId, includeInactive = false) => {
     return api.get(`/api/mobile-devices/store/${storeId}/devices/assignments?include_inactive=${includeInactive}`);
   },

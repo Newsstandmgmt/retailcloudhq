@@ -209,7 +209,7 @@ export default function App() {
               <DashboardScreen onLogout={handleLogout} navigation={navigation} />
             )}
             {currentScreen === 'age-check' && (
-              <AgeCheckScreen />
+              <AgeCheckScreen navigation={navigation} />
             )}
           </>
         </PermissionsProvider>
