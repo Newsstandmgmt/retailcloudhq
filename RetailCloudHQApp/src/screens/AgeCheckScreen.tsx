@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -51,6 +51,7 @@ export default function AgeCheckScreen() {
     return { a, isExpired, ok };
   }, [dob, expiry]);
 
+
   const handleParse = () => {
     const { dob: d, expiry: e } = parsePDF417(raw);
     setDob(d);
@@ -87,14 +88,30 @@ export default function AgeCheckScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Age Checker (21+)</Text>
-      <Text style={styles.subtitle}>Paste PDF417 data or scan and paste the raw value.</Text>
+      <Text style={styles.subtitle}>Scan ID barcode with external scanner or paste PDF417 data</Text>
+
       <TextInput
         style={[styles.input, { height: 120, textAlignVertical: 'top' }]}
-        placeholder="Paste PDF417 raw barcode data"
+        placeholder="Scan barcode or paste PDF417 raw data here..."
         value={raw}
-        onChangeText={setRaw}
+        onChangeText={(text) => {
+          setRaw(text);
+          // Auto-parse when scanner finishes (typically ends with newline or Enter)
+          if (text.length > 50 && (text.endsWith('\n') || text.endsWith('\r'))) {
+            setTimeout(() => {
+              const { dob: d, expiry: e } = parsePDF417(text.trim());
+              setDob(d);
+              setExpiry(e);
+              const a = calcAge(d);
+              setAge(a);
+              const pass = (a ?? 0) >= 21 && !(e && e.getTime() < Date.now());
+              setResult(pass ? 'pass' : 'fail');
+            }, 100);
+          }
+        }}
         placeholderTextColor="#999"
         multiline
+        autoFocus
       />
       <TouchableOpacity style={styles.button} onPress={handleParse}>
         <Text style={styles.buttonText}>Check Age</Text>

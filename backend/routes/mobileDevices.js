@@ -6,6 +6,55 @@ const { authenticate, canAccessStore, authorize } = require('../middleware/auth'
 
 const router = express.Router();
 
+// Reassign device to another store and mark for wipe (super admin)
+router.post('/devices/:deviceId/reassign', authenticate, authorize('super_admin'), async (req, res) => {
+    try {
+        const { target_store_id, device_name } = req.body;
+        if (!target_store_id) {
+            return res.status(400).json({ error: 'target_store_id is required' });
+        }
+        const device = await MobileDevice.findByDeviceId(req.params.deviceId);
+        if (!device) {
+            return res.status(404).json({ error: 'Device not found' });
+        }
+        // Update store and set wipe flag
+        const { query } = require('../config/database');
+        await query(
+            `UPDATE mobile_devices 
+               SET store_id = $1, require_wipe = true, reassigned_at = CURRENT_TIMESTAMP, device_name = COALESCE($3, device_name)
+             WHERE device_id = $2`,
+            [target_store_id, req.params.deviceId, device_name || null]
+        );
+        const updated = await MobileDevice.findByDeviceId(req.params.deviceId);
+        res.json({ device: updated, message: 'Device reassigned and marked to wipe local session' });
+    } catch (error) {
+        console.error('Reassign device error:', error);
+        res.status(500).json({ error: 'Failed to reassign device' });
+    }
+});
+
+// Mark device to wipe on next verify (super admin)
+router.post('/devices/:deviceId/mark-wipe', authenticate, authorize('super_admin'), async (req, res) => {
+    try {
+        const device = await MobileDevice.findByDeviceId(req.params.deviceId);
+        if (!device) {
+            return res.status(404).json({ error: 'Device not found' });
+        }
+        const { query } = require('../config/database');
+        await query(
+            `UPDATE mobile_devices 
+               SET require_wipe = true 
+             WHERE device_id = $1`,
+            [req.params.deviceId]
+        );
+        const updated = await MobileDevice.findByDeviceId(req.params.deviceId);
+        res.json({ device: updated, message: 'Device marked to wipe local session' });
+    } catch (error) {
+        console.error('Mark wipe error:', error);
+        res.status(500).json({ error: 'Failed to mark device for wipe' });
+    }
+});
+
 // Public endpoint for code validation (no auth required, code is the auth)
 router.post('/register', async (req, res) => {
     try {

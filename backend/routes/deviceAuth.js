@@ -32,21 +32,26 @@ router.post('/login', async (req, res) => {
         if (!device.is_active) {
             return res.status(403).json({ error: 'Device is inactive. Please contact administrator.' });
         }
-        // Try to match an employee/manager/admin by device-specific PIN first (multi-user per device)
+        // Try to match by device-specific PIN first; if none set, allow employee's global handheld PIN
         const permResult = await query(
-            `SELECT udp.user_id, udp.device_pin_hash 
+            `SELECT udp.user_id, udp.device_pin_hash, u.employee_pin_hash, u.is_active
              FROM user_device_permissions udp
-             WHERE udp.device_id = $1 AND udp.device_pin_hash IS NOT NULL`,
+             JOIN users u ON u.id = udp.user_id
+             WHERE udp.device_id = $1`,
             [device.id]
         );
         let authedUser = null;
         for (const row of permResult.rows) {
-            if (row.device_pin_hash && await bcrypt.compare(pin, row.device_pin_hash)) {
+            let ok = false;
+            if (row.device_pin_hash) {
+                ok = await bcrypt.compare(pin, row.device_pin_hash);
+            } else if (row.employee_pin_hash) {
+                ok = await bcrypt.compare(pin, row.employee_pin_hash);
+            }
+            if (ok) {
                 const u = await User.findById(row.user_id);
-                if (u && u.is_active) {
-                    authedUser = u;
-                    break;
-                }
+                if (u && u.is_active) authedUser = u;
+                break;
             }
         }
 
@@ -150,7 +155,8 @@ router.get('/verify/:deviceId', async (req, res) => {
                 store_id: device.store_id,
                 is_active: device.is_active,
                 is_locked: device.is_locked,
-                user_assigned: !!device.user_id
+                user_assigned: !!device.user_id,
+                require_wipe: !!device.require_wipe
             }
         });
     } catch (error) {

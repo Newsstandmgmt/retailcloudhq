@@ -108,6 +108,14 @@ export default function LoginScreen({ onLoginSuccess }: any) {
       setNetworkError(false);
       const info = await deviceAuthAPI.verifyDevice();
       setDeviceInfo(info.device);
+      // If server signaled wipe (e.g., reassignment), clear session and unregister
+      if (info?.device?.require_wipe) {
+        await deviceAuthAPI.logout();
+        await AsyncStorage.removeItem('registered');
+        setDeviceInfo(info.device);
+        Alert.alert('Device Updated', 'This device was reassigned. Please register and log in again.');
+        return;
+      }
       try {
         const did = await AsyncStorage.getItem('device_id');
         const sid = await AsyncStorage.getItem('store_id');
