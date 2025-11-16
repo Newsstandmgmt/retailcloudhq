@@ -782,7 +782,48 @@ const HandheldDevices = ({
                   </label>
                   <select
                     value={assignForm.user_id}
-                    onChange={(e) => setAssignForm({ ...assignForm, user_id: e.target.value })}
+                    onChange={(e) => {
+                      const nextUserId = e.target.value;
+                      const selectedUser = users.find(u => u.id === nextUserId);
+                      const role = selectedUser?.role || '';
+                      // Set role-based default permissions
+                      let roleDefaults = {
+                        can_scan_barcode: true,
+                        can_adjust_inventory: false,
+                        can_create_orders: false,
+                        can_approve_orders: false,
+                        can_view_reports: false,
+                        can_edit_products: false,
+                        can_manage_devices: false,
+                        can_transfer_inventory: false,
+                        can_mark_damaged: true,
+                        can_receive_inventory: true
+                      };
+                      if (role === 'manager') {
+                        roleDefaults = {
+                          ...roleDefaults,
+                          can_adjust_inventory: true,
+                          can_create_orders: true,
+                          can_view_reports: true,
+                          can_transfer_inventory: true
+                        };
+                      }
+                      if (role === 'admin' || role === 'super_admin') {
+                        roleDefaults = {
+                          can_scan_barcode: true,
+                          can_adjust_inventory: true,
+                          can_create_orders: true,
+                          can_approve_orders: true,
+                          can_view_reports: true,
+                          can_edit_products: true,
+                          can_manage_devices: true,
+                          can_transfer_inventory: true,
+                          can_mark_damaged: true,
+                          can_receive_inventory: true
+                        };
+                      }
+                      setAssignForm({ ...assignForm, user_id: nextUserId, permissions: roleDefaults });
+                    }}
                     className="w-full border border-gray-300 rounded-md px-3 py-2"
                   >
                     <option value="">-- Select a user --</option>

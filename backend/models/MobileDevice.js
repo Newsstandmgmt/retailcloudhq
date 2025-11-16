@@ -179,20 +179,54 @@ class MobileDevice {
             throw new Error('Device PIN is required for employee users');
         }
         
-        // Create or update user device permissions
-        const defaultPermissions = {
-            can_scan_barcode: true,
-            can_adjust_inventory: true,
-            can_create_orders: false,
-            can_approve_orders: false,
-            can_view_reports: false,
-            can_edit_products: false,
-            can_manage_devices: false,
-            can_transfer_inventory: false,
-            can_mark_damaged: true,
-            can_receive_inventory: true,
-            ...permissions
-        };
+        // Create or update user device permissions with role-based defaults
+        let defaultPermissions;
+        if (userRole === 'super_admin' || userRole === 'admin') {
+            // Admins: full access
+            defaultPermissions = {
+                can_scan_barcode: true,
+                can_adjust_inventory: true,
+                can_create_orders: true,
+                can_approve_orders: true,
+                can_view_reports: true,
+                can_edit_products: true,
+                can_manage_devices: true,
+                can_transfer_inventory: true,
+                can_mark_damaged: true,
+                can_receive_inventory: true,
+                ...permissions
+            };
+        } else if (userRole === 'manager') {
+            // Managers: elevated but limited
+            defaultPermissions = {
+                can_scan_barcode: true,
+                can_adjust_inventory: true,
+                can_create_orders: true,
+                can_approve_orders: false,
+                can_view_reports: true,
+                can_edit_products: false,
+                can_manage_devices: false,
+                can_transfer_inventory: true,
+                can_mark_damaged: true,
+                can_receive_inventory: true,
+                ...permissions
+            };
+        } else {
+            // Employees: minimal
+            defaultPermissions = {
+                can_scan_barcode: true,
+                can_adjust_inventory: false,
+                can_create_orders: false,
+                can_approve_orders: false,
+                can_view_reports: false,
+                can_edit_products: false,
+                can_manage_devices: false,
+                can_transfer_inventory: false,
+                can_mark_damaged: true,
+                can_receive_inventory: true,
+                ...permissions
+            };
+        }
         
         await query(
             `INSERT INTO user_device_permissions 
