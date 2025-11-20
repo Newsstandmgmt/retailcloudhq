@@ -94,20 +94,9 @@ router.get('/', async (req, res) => {
     }
 });
 
-// Get users by store
-router.get('/store/:storeId', async (req, res) => {
-    try {
-        const users = await User.findByStore(req.params.storeId);
-        res.json({ users });
-    } catch (error) {
-        console.error('Get store users error:', error);
-        res.status(500).json({ error: 'Failed to fetch store users' });
-    }
-});
-
 // ============================================
 // DEVICE USER MANAGEMENT (Store-scoped)
-// Must be defined BEFORE /:userId routes to avoid route conflicts
+// Must be defined BEFORE /store/:storeId and /:userId routes to avoid route conflicts
 // ============================================
 
 // Get device users for a store (Admin, Super Admin, Manager can see)
@@ -337,6 +326,17 @@ router.delete('/device/:userId', authorize('super_admin', 'admin', 'manager'), a
     } catch (error) {
         console.error('Delete device user error:', error);
         res.status(500).json({ error: 'Failed to delete device user' });
+    }
+});
+
+// Get users by store (must come after device routes)
+router.get('/store/:storeId', async (req, res) => {
+    try {
+        const users = await User.findByStore(req.params.storeId);
+        res.json({ users });
+    } catch (error) {
+        console.error('Get store users error:', error);
+        res.status(500).json({ error: 'Failed to fetch store users' });
     }
 });
 
