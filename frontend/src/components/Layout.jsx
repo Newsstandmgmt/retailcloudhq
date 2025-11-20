@@ -84,6 +84,7 @@ const Layout = ({ children }) => {
       { name: 'License Management', href: '/licenses', icon: DocumentIcon, feature: 'license_management' },
       { name: 'Reports & Analytics', href: '/reports', icon: ChartIcon, feature: 'reports' },
       { name: 'Age Checks', href: '/age-checks', icon: DocumentIcon },
+      { name: 'Device Users', href: '/device-users', icon: UsersIcon },
       { name: 'Settings', href: '/settings', icon: CogIcon },
     ];
     

@@ -225,5 +225,239 @@ router.post('/:userId/change-password', authorize('super_admin'), async (req, re
     }
 });
 
+// ============================================
+// DEVICE USER MANAGEMENT (Store-scoped)
+// ============================================
+
+// Get device users for a store (Admin, Super Admin, Manager can see)
+router.get('/device/store/:storeId', async (req, res) => {
+    try {
+        const { storeId } = req.params;
+        const { query } = require('../config/database');
+        
+        // Verify store access
+        const accessResult = await query(
+            'SELECT can_user_access_store($1, $2) as can_access',
+            [req.user.id, storeId]
+        );
+        
+        if (!accessResult.rows[0]?.can_access) {
+            return res.status(403).json({ error: 'Access denied to this store' });
+        }
+        
+        // Get users assigned to this store
+        const usersResult = await query(
+            `SELECT DISTINCT u.id, u.email, u.first_name, u.last_name, u.role, u.phone, 
+                    u.is_active, u.created_at, u.updated_at,
+                    (u.employee_pin_hash IS NOT NULL) AS has_employee_pin
+             FROM users u
+             LEFT JOIN store_employees se ON se.employee_id = u.id AND se.store_id = $1
+             LEFT JOIN store_managers sm ON sm.manager_id = u.id AND sm.store_id = $1
+             LEFT JOIN stores s ON (s.manager_id = u.id OR s.admin_id = u.id) AND s.id = $1
+             WHERE (se.employee_id IS NOT NULL OR sm.manager_id IS NOT NULL OR s.id IS NOT NULL)
+             ORDER BY u.role, u.first_name, u.last_name`,
+            [storeId]
+        );
+        
+        res.json({ users: usersResult.rows });
+    } catch (error) {
+        console.error('Get device users error:', error);
+        res.status(500).json({ error: 'Failed to fetch device users' });
+    }
+});
+
+// Create device user (Admin, Super Admin, Manager can create employees)
+router.post('/device/store/:storeId', authorize('super_admin', 'admin', 'manager'), auditLogger({
+    actionType: 'create',
+    entityType: 'user',
+    getEntityId: (req) => null,
+    getDescription: (req) => `Created device user: ${req.body?.email || 'N/A'}`,
+    logRequestBody: true
+}), async (req, res) => {
+    try {
+        const { storeId } = req.params;
+        const { email, password, first_name, last_name, role, phone, employee_pin } = req.body;
+        const { query } = require('../config/database');
+        
+        if (!email || !password || !first_name || !last_name || !role) {
+            return res.status(400).json({ error: 'All required fields must be provided' });
+        }
+        
+        // Verify store access
+        const accessResult = await query(
+            'SELECT can_user_access_store($1, $2) as can_access',
+            [req.user.id, storeId]
+        );
+        
+        if (!accessResult.rows[0]?.can_access) {
+            return res.status(403).json({ error: 'Access denied to this store' });
+        }
+        
+        // Role-based creation logic
+        if (req.user.role === 'admin') {
+            // Admin can create managers and employees
+            if (role !== 'manager' && role !== 'employee') {
+                return res.status(403).json({ error: 'Admins can only create managers and employees' });
+            }
+        } else if (req.user.role === 'manager') {
+            // Manager can only create employees
+            if (role !== 'employee') {
+                return res.status(403).json({ error: 'Managers can only create employees' });
+            }
+        }
+        
+        // Create user
+        const newUser = await User.create({
+            email,
+            password,
+            first_name,
+            last_name,
+            role,
+            phone,
+            created_by: req.user.id,
+            employee_pin: role === 'employee' ? employee_pin : undefined
+        });
+        
+        // Assign user to store
+        if (role === 'employee') {
+            await query(
+                `INSERT INTO store_employees (store_id, employee_id, assigned_by, assigned_at)
+                 VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                 ON CONFLICT (store_id, employee_id) DO NOTHING`,
+                [storeId, newUser.id, req.user.id]
+            );
+        } else if (role === 'manager') {
+            await query(
+                `INSERT INTO store_managers (store_id, manager_id, assigned_by, assigned_at, can_manage_employees)
+                 VALUES ($1, $2, $3, CURRENT_TIMESTAMP, true)
+                 ON CONFLICT (store_id, manager_id) DO NOTHING`,
+                [storeId, newUser.id, req.user.id]
+            );
+        }
+        
+        res.status(201).json({
+            message: 'Device user created successfully',
+            user: newUser
+        });
+    } catch (error) {
+        console.error('Create device user error:', error);
+        if (error.code === '23505') {
+            return res.status(409).json({ error: 'User with this email already exists' });
+        }
+        res.status(500).json({ error: error.message || 'Failed to create device user' });
+    }
+});
+
+// Update device user PIN
+router.put('/device/:userId/pin', authorize('super_admin', 'admin', 'manager'), auditLogger({
+    actionType: 'update',
+    entityType: 'user',
+    getEntityId: (req) => req.params.userId,
+    getDescription: (req) => `Updated device user PIN: ${req.params.userId}`,
+    logRequestBody: false
+}), async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { employee_pin } = req.body;
+        
+        const targetUser = await User.findById(userId);
+        if (!targetUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Only employees can have PINs
+        if (targetUser.role !== 'employee') {
+            return res.status(400).json({ error: 'PINs can only be set for employee users' });
+        }
+        
+        // Verify store access (check if user is assigned to any store the requester can access)
+        const { query } = require('../config/database');
+        const storeAccessResult = await query(
+            `SELECT se.store_id FROM store_employees se
+             WHERE se.employee_id = $1
+             AND can_user_access_store($2, se.store_id) = true
+             LIMIT 1`,
+            [userId, req.user.id]
+        );
+        
+        if (storeAccessResult.rows.length === 0 && req.user.role !== 'super_admin') {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        
+        if (employee_pin === null || employee_pin === '') {
+            await User.clearEmployeePin(userId);
+            res.json({ message: 'Employee PIN cleared', has_employee_pin: false });
+        } else {
+            await User.setEmployeePin(userId, employee_pin);
+            res.json({ message: 'Employee PIN updated', has_employee_pin: true });
+        }
+    } catch (error) {
+        console.error('Update device user PIN error:', error);
+        res.status(500).json({ error: error.message || 'Failed to update PIN' });
+    }
+});
+
+// Delete device user (with role-based restrictions)
+router.delete('/device/:userId', authorize('super_admin', 'admin', 'manager'), auditLogger({
+    actionType: 'delete',
+    entityType: 'user',
+    getEntityId: (req) => req.params.userId,
+    getDescription: (req) => `Deleted device user: ${req.params.userId}`,
+    logRequestBody: false
+}), async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const targetUser = await User.findById(userId);
+        
+        if (!targetUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Users cannot delete themselves
+        if (targetUser.id === req.user.id) {
+            return res.status(403).json({ error: 'You cannot delete yourself' });
+        }
+        
+        // Role-based deletion rules
+        if (req.user.role === 'admin') {
+            // Admin can remove managers and employees, but not other admins or super_admin
+            if (targetUser.role === 'admin' || targetUser.role === 'super_admin') {
+                return res.status(403).json({ error: 'Admins cannot delete other admins or super admins' });
+            }
+        } else if (req.user.role === 'manager') {
+            // Manager can only remove employees
+            if (targetUser.role !== 'employee') {
+                return res.status(403).json({ error: 'Managers can only delete employees' });
+            }
+        }
+        
+        // Verify store access (check if user is assigned to any store the requester can access)
+        const { query } = require('../config/database');
+        const storeAccessResult = await query(
+            `SELECT se.store_id FROM store_employees se
+             WHERE se.employee_id = $1
+             AND can_user_access_store($2, se.store_id) = true
+             UNION
+             SELECT sm.store_id FROM store_managers sm
+             WHERE sm.manager_id = $1
+             AND can_user_access_store($2, sm.store_id) = true
+             LIMIT 1`,
+            [userId, req.user.id]
+        );
+        
+        if (storeAccessResult.rows.length === 0 && req.user.role !== 'super_admin') {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        
+        // Soft delete user
+        await User.delete(userId);
+        
+        res.json({ message: 'Device user deleted successfully' });
+    } catch (error) {
+        console.error('Delete device user error:', error);
+        res.status(500).json({ error: 'Failed to delete device user' });
+    }
+});
+
 module.exports = router;
 

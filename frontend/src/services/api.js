@@ -79,6 +79,11 @@ export const usersAPI = {
   delete: (id) => api.delete(`/api/users/${id}`),
   resetPassword: (id) => api.post(`/api/users/${id}/reset-password`),
   changePassword: (id, newPassword) => api.post(`/api/users/${id}/change-password`, { new_password: newPassword }),
+  // Device user management (store-scoped)
+  getDeviceUsers: (storeId) => api.get(`/api/users/device/store/${storeId}`),
+  createDeviceUser: (storeId, userData) => api.post(`/api/users/device/store/${storeId}`, userData),
+  updateDeviceUserPin: (userId, employeePin) => api.put(`/api/users/device/${userId}/pin`, { employee_pin: employeePin }),
+  deleteDeviceUser: (userId) => api.delete(`/api/users/device/${userId}`),
 };
 
 // Revenue API

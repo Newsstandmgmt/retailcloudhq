@@ -33,6 +33,7 @@ import Products from './pages/Products';
 import Orders from './pages/Orders';
 import DeviceDetails from './pages/DeviceDetails';
 import AgeChecks from './pages/AgeChecks';
+import DeviceUsers from './pages/DeviceUsers';
 
 // Lottery Management
 import Lottery from './pages/Lottery';
@@ -192,6 +193,16 @@ function App() {
               <ProtectedRoute requiredRole={['admin', 'manager', 'super_admin']}>
                 <Layout>
                   <AgeChecks />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/device-users"
+            element={
+              <ProtectedRoute requiredRole={['admin', 'manager', 'super_admin']}>
+                <Layout>
+                  <DeviceUsers />
                 </Layout>
               </ProtectedRoute>
             }
