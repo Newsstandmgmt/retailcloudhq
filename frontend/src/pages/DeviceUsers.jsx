@@ -4,7 +4,7 @@ import { usersAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useStore } from '../contexts/StoreContext';
 
-const DeviceUsers = () => {
+const DeviceUsers = ({ embedded = false }) => {
   const { user } = useAuth();
   const { selectedStore } = useStore();
   const navigate = useNavigate();
@@ -173,19 +173,28 @@ const DeviceUsers = () => {
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">DEVICE USERS</h1>
-          <p className="text-sm text-gray-600 mt-1">{selectedStore.name}</p>
+    <div className={embedded ? '' : 'p-6'}>
+      {!embedded && (
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">DEVICE USERS</h1>
+            <p className="text-sm text-gray-600 mt-1">{selectedStore.name}</p>
+          </div>
+          <button
+            onClick={() => navigate(-1)}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+          >
+            Back
+          </button>
         </div>
-        <button
-          onClick={() => navigate(-1)}
-          className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-        >
-          Back
-        </button>
-      </div>
+      )}
+
+      {embedded && (
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Device Users</h3>
+          <p className="text-sm text-gray-600">Manage employees and managers for handheld device access</p>
+        </div>
+      )}
 
       {/* Search and Actions */}
       <div className="mb-4 flex items-center gap-4">

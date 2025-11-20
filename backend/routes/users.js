@@ -94,82 +94,6 @@ router.get('/', async (req, res) => {
     }
 });
 
-// Get single user
-router.get('/:userId', async (req, res) => {
-    try {
-        const user = await User.findById(req.params.userId);
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        
-        // Admins can only see managers and employees
-        if (req.user.role === 'admin' && (user.role === 'super_admin' || user.role === 'admin')) {
-            return res.status(403).json({ error: 'Insufficient permissions' });
-        }
-        
-        res.json({ user });
-    } catch (error) {
-        console.error('Get user error:', error);
-        res.status(500).json({ error: 'Failed to fetch user' });
-    }
-});
-
-// Update user (only super_admin and admin)
-router.put('/:userId', authorize('super_admin', 'admin'), auditLogger({
-    actionType: 'update',
-    entityType: 'user',
-    getEntityId: (req) => req.params.userId,
-    getDescription: (req) => `Updated user: ${req.params.userId}`,
-    logRequestBody: true
-}), async (req, res) => {
-    try {
-        const targetUser = await User.findById(req.params.userId);
-        if (!targetUser) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        
-        // Admins can't update super_admin or other admins
-        if (req.user.role === 'admin' && (targetUser.role === 'super_admin' || targetUser.role === 'admin')) {
-            return res.status(403).json({ error: 'Insufficient permissions' });
-        }
-        
-        // Admins can't change role to super_admin or admin
-        if (req.user.role === 'admin' && req.body.role && (req.body.role === 'super_admin' || req.body.role === 'admin')) {
-            return res.status(403).json({ error: 'Insufficient permissions to set this role' });
-        }
-        
-        const updatedUser = await User.update(req.params.userId, req.body);
-        res.json({
-            message: 'User updated successfully',
-            user: updatedUser
-        });
-    } catch (error) {
-        console.error('Update user error:', error);
-        res.status(500).json({ error: 'Failed to update user' });
-    }
-});
-
-// Delete user (soft delete - only super_admin)
-router.delete('/:userId', authorize('super_admin'), auditLogger({
-    actionType: 'delete',
-    entityType: 'user',
-    getEntityId: (req) => req.params.userId,
-    getDescription: (req) => `Deleted user: ${req.params.userId}`,
-    logRequestBody: false
-}), async (req, res) => {
-    try {
-        const user = await User.delete(req.params.userId);
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        
-        res.json({ message: 'User deleted successfully' });
-    } catch (error) {
-        console.error('Delete user error:', error);
-        res.status(500).json({ error: 'Failed to delete user' });
-    }
-});
-
 // Get users by store
 router.get('/store/:storeId', async (req, res) => {
     try {
@@ -181,52 +105,9 @@ router.get('/store/:storeId', async (req, res) => {
     }
 });
 
-// Reset password (super admin only) - resets to Retail$2025
-router.post('/:userId/reset-password', authorize('super_admin'), async (req, res) => {
-    try {
-        const targetUser = await User.findById(req.params.userId);
-        if (!targetUser) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        
-        const defaultPassword = 'Retail$2025';
-        await User.changePassword(req.params.userId, defaultPassword);
-        
-        res.json({ 
-            message: 'Password reset successfully',
-            new_password: defaultPassword
-        });
-    } catch (error) {
-        console.error('Reset password error:', error);
-        res.status(500).json({ error: 'Failed to reset password' });
-    }
-});
-
-// Change password (super admin only) - can set any password
-router.post('/:userId/change-password', authorize('super_admin'), async (req, res) => {
-    try {
-        const { new_password } = req.body;
-        
-        if (!new_password || new_password.length < 6) {
-            return res.status(400).json({ error: 'New password must be at least 6 characters' });
-        }
-        
-        const targetUser = await User.findById(req.params.userId);
-        if (!targetUser) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        
-        await User.changePassword(req.params.userId, new_password);
-        
-        res.json({ message: 'Password changed successfully' });
-    } catch (error) {
-        console.error('Change password error:', error);
-        res.status(500).json({ error: 'Failed to change password' });
-    }
-});
-
 // ============================================
 // DEVICE USER MANAGEMENT (Store-scoped)
+// Must be defined BEFORE /:userId routes to avoid route conflicts
 // ============================================
 
 // Get device users for a store (Admin, Super Admin, Manager can see)
@@ -456,6 +337,126 @@ router.delete('/device/:userId', authorize('super_admin', 'admin', 'manager'), a
     } catch (error) {
         console.error('Delete device user error:', error);
         res.status(500).json({ error: 'Failed to delete device user' });
+    }
+});
+
+// Get single user
+router.get('/:userId', async (req, res) => {
+    try {
+        const user = await User.findById(req.params.userId);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Admins can only see managers and employees
+        if (req.user.role === 'admin' && (user.role === 'super_admin' || user.role === 'admin')) {
+            return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+        
+        res.json({ user });
+    } catch (error) {
+        console.error('Get user error:', error);
+        res.status(500).json({ error: 'Failed to fetch user' });
+    }
+});
+
+// Update user (only super_admin and admin)
+router.put('/:userId', authorize('super_admin', 'admin'), auditLogger({
+    actionType: 'update',
+    entityType: 'user',
+    getEntityId: (req) => req.params.userId,
+    getDescription: (req) => `Updated user: ${req.params.userId}`,
+    logRequestBody: true
+}), async (req, res) => {
+    try {
+        const targetUser = await User.findById(req.params.userId);
+        if (!targetUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Admins can't update super_admin or other admins
+        if (req.user.role === 'admin' && (targetUser.role === 'super_admin' || targetUser.role === 'admin')) {
+            return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+        
+        // Admins can't change role to super_admin or admin
+        if (req.user.role === 'admin' && req.body.role && (req.body.role === 'super_admin' || req.body.role === 'admin')) {
+            return res.status(403).json({ error: 'Insufficient permissions to set this role' });
+        }
+        
+        const updatedUser = await User.update(req.params.userId, req.body);
+        res.json({
+            message: 'User updated successfully',
+            user: updatedUser
+        });
+    } catch (error) {
+        console.error('Update user error:', error);
+        res.status(500).json({ error: 'Failed to update user' });
+    }
+});
+
+// Delete user (soft delete - only super_admin)
+router.delete('/:userId', authorize('super_admin'), auditLogger({
+    actionType: 'delete',
+    entityType: 'user',
+    getEntityId: (req) => req.params.userId,
+    getDescription: (req) => `Deleted user: ${req.params.userId}`,
+    logRequestBody: false
+}), async (req, res) => {
+    try {
+        const user = await User.delete(req.params.userId);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        res.json({ message: 'User deleted successfully' });
+    } catch (error) {
+        console.error('Delete user error:', error);
+        res.status(500).json({ error: 'Failed to delete user' });
+    }
+});
+
+// Reset password (super admin only) - resets to Retail$2025
+router.post('/:userId/reset-password', authorize('super_admin'), async (req, res) => {
+    try {
+        const targetUser = await User.findById(req.params.userId);
+        if (!targetUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        const defaultPassword = 'Retail$2025';
+        await User.changePassword(req.params.userId, defaultPassword);
+        
+        res.json({ 
+            message: 'Password reset successfully',
+            new_password: defaultPassword
+        });
+    } catch (error) {
+        console.error('Reset password error:', error);
+        res.status(500).json({ error: 'Failed to reset password' });
+    }
+});
+
+// Change password (super admin only) - can set any password
+router.post('/:userId/change-password', authorize('super_admin'), async (req, res) => {
+    try {
+        const { new_password } = req.body;
+        
+        if (!new_password || new_password.length < 6) {
+            return res.status(400).json({ error: 'New password must be at least 6 characters' });
+        }
+        
+        const targetUser = await User.findById(req.params.userId);
+        if (!targetUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        await User.changePassword(req.params.userId, new_password);
+        
+        res.json({ message: 'Password changed successfully' });
+    } catch (error) {
+        console.error('Change password error:', error);
+        res.status(500).json({ error: 'Failed to change password' });
     }
 });
 

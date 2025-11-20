@@ -35,8 +35,8 @@ const Settings = () => {
     return () => window.removeEventListener('setSettingsTab', handleSetTab);
   }, []);
 
-  // Only Admin and Super Admin can access settings
-  if (user?.role !== 'admin' && user?.role !== 'super_admin') {
+  // Admin, Super Admin, and Manager can access settings
+  if (user?.role !== 'admin' && user?.role !== 'super_admin' && user?.role !== 'manager') {
     return (
       <div className="bg-white rounded-lg shadow p-12 text-center">
         <p className="text-gray-500">You do not have permission to access settings.</p>
@@ -44,7 +44,7 @@ const Settings = () => {
     );
   }
 
-  const handheldTabEnabled = user?.role === 'super_admin' || isFeatureEnabled('handheld_devices');
+  const handheldTabEnabled = user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'manager' || isFeatureEnabled('handheld_devices');
 
   const tabs = [
     { id: 'store-profile', label: 'Store Profile' },

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useStore } from '../../contexts/StoreContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { mobileDevicesAPI, storeSubscriptionsAPI } from '../../services/api';
+import DeviceUsers from '../../pages/DeviceUsers';
 
 const HandheldDevices = ({
   storeIdOverride = null,
@@ -50,6 +51,9 @@ const HandheldDevices = ({
       can_receive_inventory: true
     }
   });
+  
+  // Tab state for switching between Devices and Device Users
+  const [activeSubTab, setActiveSubTab] = useState('devices');
 
   useEffect(() => {
     if (!activeStoreId) {
@@ -450,6 +454,40 @@ const HandheldDevices = ({
           )}
         </div>
       )}
+
+      {/* Sub-tabs for Devices and Device Users */}
+      {!embedded && (user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'manager') && (
+        <div className="mb-6 border-b border-gray-200">
+          <nav className="flex -mb-px">
+            <button
+              onClick={() => setActiveSubTab('devices')}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeSubTab === 'devices'
+                  ? 'border-[#2d8659] text-[#2d8659]'
+                  : 'border-transparent text-gray-600 hover:text-[#2d8659] hover:border-[#2d8659]'
+              }`}
+            >
+              Devices
+            </button>
+            <button
+              onClick={() => setActiveSubTab('users')}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeSubTab === 'users'
+                  ? 'border-[#2d8659] text-[#2d8659]'
+                  : 'border-transparent text-gray-600 hover:text-[#2d8659] hover:border-[#2d8659]'
+              }`}
+            >
+              Device Users
+            </button>
+          </nav>
+        </div>
+      )}
+
+      {/* Show Device Users tab content */}
+      {activeSubTab === 'users' && (user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'manager') ? (
+        <DeviceUsers embedded={true} />
+      ) : (
+        <>
 
       {isSuperAdmin && (
         <>
@@ -1132,6 +1170,8 @@ const HandheldDevices = ({
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );
