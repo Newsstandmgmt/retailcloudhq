@@ -10,27 +10,99 @@ interface AgeCheckScreenProps {
   };
 }
 
-// Basic AAMVA PDF417 parser for DOB (DA B), Expiry ( D B), fallback patterns
+// Enhanced AAMVA PDF417 parser for DOB and Expiry
 function parsePDF417(raw: string) {
-  const clean = raw.replace(/\r/g, '\n');
+  console.log('[AgeCheck] Raw barcode data:', raw.substring(0, 200)); // Log first 200 chars for debugging
+  
+  const clean = raw.replace(/\r/g, '\n').replace(/\0/g, ''); // Remove null bytes
+  const lines = clean.split('\n').filter(l => l.trim().length > 0);
+  
   const get = (re: RegExp) => {
     const m = clean.match(re);
     return m ? m[1] : null;
   };
-  // AAMVA: D B = DOB, D A I = Expiry (varies by version)
-  const dobAamva = get(/D?B?B(\d{8})/); // DBBYYYYMMDD or D BB
-  const dobLabel = get(/DBB(\d{8})/);
-  const dob = dobLabel || dobAamva;
-  const exp = get(/D[A|E]D?(\d{8})/) || get(/DBA(\d{8})/);
+  
+  // Try multiple patterns for DOB (Date of Birth)
+  // AAMVA format variations:
+  // - DBB = DOB (most common)
+  // - DAA = DOB (some states)
+  // - DAQ = DOB (some versions)
+  // Format: DBBYYYYMMDD or DBB YYYYMMDD
+  let dob: string | null = null;
+  
+  // Try various DOB patterns
+  dob = get(/DBB(\d{8})/) ||           // DBBYYYYMMDD
+        get(/DAA(\d{8})/) ||           // DAAYYYYMMDD
+        get(/DAQ(\d{8})/) ||           // DAQYYYYMMDD
+        get(/DBB\s*(\d{8})/) ||        // DBB YYYYMMDD (with space)
+        get(/DOB[:\s]*(\d{8})/i) ||    // DOB: YYYYMMDD or DOB YYYYMMDD
+        get(/DATE\s+OF\s+BIRTH[:\s]*(\d{8})/i) || // DATE OF BIRTH: YYYYMMDD
+        get(/BIRTH[:\s]*(\d{8})/i) ||  // BIRTH: YYYYMMDD
+        null;
+  
+  // If no DOB found, try to find any 8-digit date pattern that looks like YYYYMMDD
+  if (!dob) {
+    // Look for 8-digit sequences that could be dates (1900-2100 range)
+    const datePattern = /(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/;
+    const dateMatch = clean.match(datePattern);
+    if (dateMatch) {
+      dob = dateMatch[0];
+      console.log('[AgeCheck] Found date pattern:', dob);
+    }
+  }
+  
+  // Try multiple patterns for Expiry
+  // DBA = Expiry (most common)
+  // DCS = Expiry (some states)
+  // DCD = Expiry (some versions)
+  let exp: string | null = null;
+  
+  exp = get(/DBA(\d{8})/) ||           // DBAYYYYMMDD
+        get(/DCS(\d{8})/) ||           // DCSYYYYMMDD
+        get(/DCD(\d{8})/) ||           // DCDYYYYMMDD
+        get(/DBA\s*(\d{8})/) ||        // DBA YYYYMMDD (with space)
+        get(/EXP[:\s]*(\d{8})/i) ||    // EXP: YYYYMMDD
+        get(/EXPIR[:\s]*(\d{8})/i) ||  // EXPIR: YYYYMMDD
+        get(/EXPIRY[:\s]*(\d{8})/i) || // EXPIRY: YYYYMMDD
+        null;
+  
+  // If no expiry found, try to find another 8-digit date pattern
+  if (!exp && dob) {
+    const allDates = clean.match(/(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/g);
+    if (allDates && allDates.length > 1) {
+      // Use the second date as expiry (first is DOB)
+      exp = allDates[1];
+      console.log('[AgeCheck] Found expiry pattern:', exp);
+    }
+  }
+  
   const toDate = (yyyymmdd: string | null) => {
     if (!yyyymmdd || yyyymmdd.length !== 8) return null;
     const y = Number(yyyymmdd.slice(0, 4));
     const m = Number(yyyymmdd.slice(4, 6)) - 1;
     const d = Number(yyyymmdd.slice(6, 8));
+    
+    // Validate date
+    if (y < 1900 || y > 2100 || m < 0 || m > 11 || d < 1 || d > 31) {
+      console.warn('[AgeCheck] Invalid date values:', { y, m: m + 1, d });
+      return null;
+    }
+    
     const dt = new Date(Date.UTC(y, m, d));
-    return isNaN(dt.getTime()) ? null : dt;
+    if (isNaN(dt.getTime())) {
+      console.warn('[AgeCheck] Invalid date:', yyyymmdd);
+      return null;
+    }
+    return dt;
   };
-  return { dob: toDate(dob), expiry: toDate(exp) };
+  
+  const dobDate = toDate(dob);
+  const expDate = toDate(exp);
+  
+  console.log('[AgeCheck] Parsed DOB:', dob, '->', dobDate);
+  console.log('[AgeCheck] Parsed Expiry:', exp, '->', expDate);
+  
+  return { dob: dobDate, expiry: expDate };
 }
 
 function calcAge(dob: Date | null) {
@@ -48,6 +120,8 @@ export default function AgeCheckScreen({ navigation }: AgeCheckScreenProps) {
   const [expiry, setExpiry] = useState<Date | null>(null);
   const [age, setAge] = useState<number | null>(null);
   const [result, setResult] = useState<'pass' | 'fail' | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [lastScanData, setLastScanData] = useState<string | null>(null);
 
   const handleLog = async () => {
     if (!result || !dob) return; // Don't log if no result or DOB
@@ -80,6 +154,8 @@ export default function AgeCheckScreen({ navigation }: AgeCheckScreenProps) {
     setExpiry(null);
     setAge(null);
     setResult(null);
+    setParseError(null);
+    setLastScanData(null);
   };
 
   return (
@@ -106,26 +182,64 @@ export default function AgeCheckScreen({ navigation }: AgeCheckScreenProps) {
         value={raw}
         onChangeText={(text) => {
           setRaw(text);
-          // Auto-parse when scanner finishes (typically ends with newline or Enter)
-          if (text.length > 50 && (text.endsWith('\n') || text.endsWith('\r'))) {
+          // Auto-parse when scanner finishes (typically ends with newline, Enter, or Tab)
+          // Also trigger if we have enough data (barcodes are usually 100+ characters)
+          // Most scanners send data all at once or end with newline/return
+          const shouldParse = text.length > 50 && (
+            text.endsWith('\n') || 
+            text.endsWith('\r') || 
+            text.endsWith('\t') ||
+            text.endsWith('\0') || // Null terminator
+            (text.length > 100) // Long enough to be a complete barcode
+          );
+          
+          if (shouldParse) {
+            console.log('[AgeCheck] Triggering parse, text length:', text.length);
+            setLastScanData(text.substring(0, 500)); // Store first 500 chars for debugging
             setTimeout(() => {
-              const { dob: d, expiry: e } = parsePDF417(text.trim());
+              const trimmed = text.trim();
+              const { dob: d, expiry: e } = parsePDF417(trimmed);
               setDob(d);
               setExpiry(e);
               const a = calcAge(d);
               setAge(a);
-              const pass = (a ?? 0) >= 21 && !(e && e.getTime() < Date.now());
-              setResult(pass ? 'pass' : 'fail');
-              // Auto-log after successful scan
-              if (pass || !pass) {
-                handleLog().catch(() => {});
+              
+              console.log('[AgeCheck] Parse result:', { dob: d, expiry: e, age: a });
+              
+              // Determine result
+              let pass = false;
+              let errorMsg: string | null = null;
+              
+              if (a !== null) {
+                pass = a >= 21;
+                // Also check expiry if available
+                if (e && e.getTime() < Date.now()) {
+                  pass = false; // Expired ID
+                  errorMsg = 'ID expired';
+                }
+              } else {
+                // If we can't parse DOB, fail
+                pass = false;
+                errorMsg = 'Could not parse date of birth from ID';
               }
-            }, 100);
+              
+              setResult(pass ? 'pass' : 'fail');
+              setParseError(errorMsg);
+              
+              // Auto-log after successful scan
+              if (d) { // Only log if we got a DOB
+                handleLog().catch(() => {});
+              } else {
+                console.warn('[AgeCheck] Could not parse DOB from barcode, not logging');
+              }
+            }, 150); // Slightly longer delay to ensure scanner is done
           }
         }}
         autoFocus
         autoCorrect={false}
         autoCapitalize="none"
+        keyboardType="default"
+        returnKeyType="done"
       />
 
       {/* Main Display */}
@@ -146,9 +260,21 @@ export default function AgeCheckScreen({ navigation }: AgeCheckScreenProps) {
             <Text style={styles.resultSubtext}>Customer is 21 or older</Text>
           )}
           {result === 'fail' && (
-            <Text style={styles.resultSubtext}>
-              {age !== null && age < 21 ? `Age: ${age} (Under 21)` : 'ID expired or invalid'}
-            </Text>
+            <>
+              <Text style={styles.resultSubtext}>
+                {age !== null && age < 21 
+                  ? `Age: ${age} (Under 21)` 
+                  : parseError || 'ID expired or invalid'}
+              </Text>
+              {parseError && lastScanData && (
+                <View style={styles.debugContainer}>
+                  <Text style={styles.debugLabel}>Debug Info (first 200 chars):</Text>
+                  <Text style={styles.debugText} selectable>
+                    {lastScanData.substring(0, 200)}
+                  </Text>
+                </View>
+              )}
+            </>
           )}
           <TouchableOpacity 
             style={[styles.button, styles.clearButton]} 
@@ -268,6 +394,24 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  debugContainer: {
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    maxWidth: '90%',
+  },
+  debugLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 4,
+  },
+  debugText: {
+    fontSize: 10,
+    color: '#6b7280',
+    fontFamily: 'monospace',
   },
 });
 

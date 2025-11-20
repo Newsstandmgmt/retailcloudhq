@@ -80,6 +80,7 @@ export default function InventoryOrderingScreen({ navigation, route }: any) {
   const [selectedVariantGroup, setSelectedVariantGroup] = useState<VariantGroup | null>(null);
   const [variantQuantities, setVariantQuantities] = useState<Record<string, number>>({});
   const [variantPending, setVariantPending] = useState<Record<string, number>>({});
+  const [scannerInput, setScannerInput] = useState(''); // Hidden input for barcode scanner
 
   useEffect(() => {
     loadData();
@@ -426,10 +427,93 @@ export default function InventoryOrderingScreen({ navigation, route }: any) {
     setFilteredGroups(filtered);
   };
 
+  // Find product by UPC (checks base products and variants)
+  const findProductByUPC = (upc: string): Product | null => {
+    if (!upc || upc.trim().length === 0) return null;
+    
+    const normalizedUPC = upc.trim();
+    
+    // First, check all products (including variants) for exact UPC match
+    for (const group of variantGroups) {
+      // Check base product
+      if (group.baseProduct.upc && group.baseProduct.upc.trim() === normalizedUPC) {
+        return group.baseProduct;
+      }
+      
+      // Check variants
+      for (const variant of group.variants) {
+        if (variant.upc && variant.upc.trim() === normalizedUPC) {
+          return variant;
+        }
+      }
+    }
+    
+    // Also check all products array (fallback)
+    const found = products.find(p => p.upc && p.upc.trim() === normalizedUPC);
+    if (found) return found;
+    
+    return null;
+  };
+
+  // Handle UPC scan - auto-add to cart
+  const handleUPCScan = async (upc: string) => {
+    if (!upc || upc.trim().length === 0) return;
+    
+    const trimmedUPC = upc.trim();
+    console.log('[InventoryOrdering] Scanning UPC:', trimmedUPC);
+    
+    const product = findProductByUPC(trimmedUPC);
+    
+    if (!product) {
+      Alert.alert(
+        'Product Not Found',
+        `No product found with UPC: ${trimmedUPC}`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    console.log('[InventoryOrdering] Found product:', product.product_name, product.variant || '');
+    
+    // If the product has a variant field, it means we found a specific variant
+    // Add it directly to cart without opening variant modal
+    if (product.variant) {
+      console.log('[InventoryOrdering] Adding variant to cart directly:', product.variant);
+      // Skip pending order check for scanned items - just add directly
+      addToCartConfirmed(product);
+      return;
+    }
+    
+    // Check if this product has variants enabled
+    const normalizedName = (product.product_name || '').trim().toLowerCase();
+    const normalizedBrand = (product.brand || '').trim().toLowerCase();
+    const normalizedCategory = (product.category || '').trim().toLowerCase();
+    
+    const group = variantGroups.find(
+      (g) => {
+        const gName = (g.baseProduct.product_name || '').trim().toLowerCase();
+        const gBrand = (g.baseProduct.brand || '').trim().toLowerCase();
+        const gCategory = (g.baseProduct.category || '').trim().toLowerCase();
+        return gName === normalizedName && gBrand === normalizedBrand && gCategory === normalizedCategory;
+      }
+    );
+    
+    // If product has variants but UPC matched base product, open variant modal
+    if (group && group.hasVariants) {
+      // Base product with variants - open variant modal
+      await openVariantModal(group);
+    } else {
+      // Single product - add directly (skip pending order check for scanned items)
+      addToCartConfirmed(product);
+    }
+  };
+
   const handleScanUPC = () => {
+    // This button is now just for visual - actual scanning happens via hidden input
+    // But we can show a message that scanning is active
     Alert.alert(
-      'Scan UPC',
-      'Barcode scanner will be implemented. For now, enter UPC in search.',
+      'UPC Scanner Active',
+      'Point your barcode scanner at a product UPC. The scanner will automatically add the product to your cart.',
       [{ text: 'OK' }]
     );
   };
@@ -675,16 +759,35 @@ export default function InventoryOrderingScreen({ navigation, route }: any) {
   };
 
   const addToCartConfirmed = (product: Product) => {
-    const existingItem = cart.find((item) => item.product.id === product.id);
+    // Find existing item - match by product id and variant name (if variant exists)
+    const existingItem = cart.find((item) => {
+      if (product.variant) {
+        // For variants, match by both id and variant name
+        return item.product.id === product.id && item.product.variant === product.variant;
+      } else {
+        // For base products, match by id and ensure no variant
+        return item.product.id === product.id && !item.product.variant;
+      }
+    });
+    
     if (existingItem) {
+      // Update quantity of existing item
       setCart(
-        cart.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        )
+        cart.map((item) => {
+          if (product.variant) {
+            if (item.product.id === product.id && item.product.variant === product.variant) {
+              return { ...item, quantity: item.quantity + 1 };
+            }
+          } else {
+            if (item.product.id === product.id && !item.product.variant) {
+              return { ...item, quantity: item.quantity + 1 };
+            }
+          }
+          return item;
+        })
       );
     } else {
+      // Add new item to cart
       setCart([...cart, { product, quantity: 1 }]);
     }
   };
@@ -988,6 +1091,38 @@ export default function InventoryOrderingScreen({ navigation, route }: any) {
         <Text style={styles.headerTitle}>Inventory Ordering</Text>
         <View style={styles.placeholder} />
       </View>
+
+      {/* Hidden Scanner Input - Auto-focused for barcode scanner */}
+      <TextInput
+        style={styles.hiddenScannerInput}
+        value={scannerInput}
+        onChangeText={(text) => {
+          setScannerInput(text);
+          // Auto-process when scanner finishes (typically ends with newline, Enter, or Tab)
+          // Also trigger if we have a reasonable UPC length (8-14 digits is typical)
+          const trimmed = text.trim();
+          const isUPC = /^\d{8,14}$/.test(trimmed); // UPC codes are typically 8-14 digits
+          
+          if (trimmed.length > 0 && (
+            text.endsWith('\n') || 
+            text.endsWith('\r') || 
+            text.endsWith('\t') ||
+            (isUPC && trimmed.length >= 8) // Valid UPC format
+          )) {
+            console.log('[InventoryOrdering] Scanner input detected:', trimmed);
+            setTimeout(() => {
+              handleUPCScan(trimmed);
+              setScannerInput(''); // Clear after processing
+            }, 100);
+          }
+        }}
+        autoFocus={false} // Don't auto-focus to avoid keyboard, but scanner will still work
+        autoCorrect={false}
+        autoCapitalize="none"
+        keyboardType="numeric"
+        returnKeyType="done"
+        placeholder=""
+      />
 
       {/* Search and Filters */}
       <View style={styles.searchSection}>
@@ -1297,6 +1432,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#ddd',
+  },
+  hiddenScannerInput: {
+    position: 'absolute',
+    opacity: 0,
+    height: 0,
+    width: 0,
   },
   scanButton: {
     backgroundColor: '#2d8659',

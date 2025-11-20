@@ -51,6 +51,22 @@ CREATE TABLE IF NOT EXISTS store_managers (
 CREATE INDEX IF NOT EXISTS idx_store_managers_store ON store_managers(store_id);
 CREATE INDEX IF NOT EXISTS idx_store_managers_manager ON store_managers(manager_id);
 
+-- Store-Employee relationship (many-to-many)
+CREATE TABLE IF NOT EXISTS store_employees (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    store_id UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+    employee_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    assigned_by UUID REFERENCES users(id),
+    
+    UNIQUE(store_id, employee_id)
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_store_employees_store ON store_employees(store_id);
+CREATE INDEX IF NOT EXISTS idx_store_employees_employee ON store_employees(employee_id);
+
 -- Function to check if user can access store
 CREATE OR REPLACE FUNCTION can_user_access_store(
     p_user_id UUID,

@@ -124,7 +124,7 @@ router.get('/device/store/:storeId', async (req, res) => {
              LEFT JOIN store_employees se ON se.employee_id = u.id AND se.store_id = $1
              LEFT JOIN store_managers sm ON sm.manager_id = u.id AND sm.store_id = $1
              LEFT JOIN stores s ON (s.manager_id = u.id OR s.admin_id = u.id) AND s.id = $1
-             WHERE (se.employee_id IS NOT NULL OR sm.manager_id IS NOT NULL OR s.id IS NOT NULL)
+             WHERE (se.employee_id IS NOT NULL OR sm.manager_id IS NOT NULL OR (s.id IS NOT NULL AND s.deleted_at IS NULL))
              ORDER BY u.role, u.first_name, u.last_name`,
             [storeId]
         );
@@ -132,7 +132,16 @@ router.get('/device/store/:storeId', async (req, res) => {
         res.json({ users: usersResult.rows });
     } catch (error) {
         console.error('Get device users error:', error);
-        res.status(500).json({ error: 'Failed to fetch device users' });
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack,
+            code: error.code,
+            detail: error.detail
+        });
+        res.status(500).json({ 
+            error: 'Failed to fetch device users',
+            message: error.message || 'Unknown error'
+        });
     }
 });
 
