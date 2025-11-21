@@ -6,15 +6,15 @@ A comprehensive REST API for managing retail operations, built with Node.js, Exp
 
 - **User Authentication & Authorization**: JWT-based authentication with role-based access control (Super Admin, Admin, Manager, Employee)
 - **Multi-Store Management**: Hierarchical store management with user assignments
-- **Financial Tracking**: Complete tracking of all revenue, expenses, lottery, cash flow, and more
-- **Customer Management**: Store-specific customer database
-- **RESTful API**: Clean, well-structured API endpoints
+- **Financial & Compliance Tracking**: Revenue, expenses, lottery, cash flow, COGS, payroll, utilities, licenses, and audit history
+- **Customer & Device Management**: Store-specific customer database plus handheld device registration, assignment, remote wipe, debug logs, and permissions
+- **RESTful API**: Clean, well-structured API endpoints including `/api/mobile-devices`, `/api/mobile-logs`, and `/api/age-checks` for the handheld app
 
 ## Prerequisites
 
-- Node.js (v14 or higher)
-- PostgreSQL (v12 or higher)
-- npm or yarn
+- Node.js (v18 or higher)
+- PostgreSQL (v14 or higher)
+- npm or yarn (npm is used in this repo)
 
 ## Installation
 
@@ -132,6 +132,20 @@ A comprehensive REST API for managing retail operations, built with Node.js, Exp
 - `PUT /api/users/:userId` - Update user (Admin+ only)
 - `DELETE /api/users/:userId` - Delete user (Super Admin only)
 - `GET /api/users/store/:storeId` - Get users assigned to store
+
+### Mobile Devices & Logs
+- `POST /api/mobile-devices/register` - Register a handheld device using admin-generated codes
+- `PUT /api/mobile-devices/device/:deviceId` - Update metadata, last seen, or assigned user
+- `POST /api/mobile-devices/:deviceId/reassign` - Super Admin reassigns device to a new store and flags wipe
+- `POST /api/mobile-devices/:deviceId/mark-wipe` - Mark device for remote wipe
+- `GET /api/mobile-devices/device/:deviceId` - Fetch device status, lock state, and permissions
+- `POST /api/mobile-logs` - Ingest device log batches from the React Native app
+- `GET /api/mobile-logs/device/:deviceId` - Super Admin views debug logs for troubleshooting
+
+### Age Checks
+- `POST /api/age-checks/log` - Log a handheld age verification (DOB, expiry, pass/fail, hashed ID)
+- `GET /api/age-checks/store/:storeId` - Admin/Manager fetch store age-check history
+- `GET /api/age-checks/device/:deviceId` - Super Admin/Auditors fetch age checks by device
 
 ## User Roles & Permissions
 

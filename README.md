@@ -38,8 +38,10 @@ RetailCloudHQ/
 - **Financial operations:** Daily revenue, lottery (instant/draw), cash-on-hand, bank deposits, payroll, utilities, operating expenses, COGS, and journal entries.
 - **Inventory & purchasing:** Product catalog, inventory orders, vendor invoices, barcode-ready handheld workflows, customer tabs, credit cards, and bank management.
 - **Billing & subscriptions:** Store subscriptions, feature pricing, invoices, payment history, notifications, and license tracking with document uploads.
+- **Device governance:** Super Admins and Admins can lock/wipe devices, reassign stores, stream device logs, and audit recent handheld activity from the Device Details page. Managers have scoped access to Device Users and permitted age-check history.
+- **Age verification suite:** Handheld Age Checker parses PDF417/driver-license swipes, logs the result to `/api/age-checks`, and the web portal exposes searchable history (role-gated) with pass/fail filters.
 - **Automation:** Gmail parsing for lottery results, scheduled recurring expenses, notification digests, audit logging and reporting exports.
-- **Observability:** Structured JSON error logging to `backend/logs/errors.json`, `/health` endpoint, and admin UI dashboards.
+- **Observability:** Structured JSON error logging to `backend/logs/errors.json`, `/health` endpoint, and admin UI dashboards plus mobile log ingestion via `/api/mobile-logs` for troubleshooting devices in production.
 
 ## Prerequisites
 
@@ -135,7 +137,42 @@ RetailCloudHQ/
    npm start        # Metro bundler
    npm run android  # requires emulator or device + USB debugging
    ```
-   The app supports device registration (paired with admin-generated codes), live permission sync, locking, and inventory workflows. See `docs/ANDROID_APP_SETUP.md` for deeper instructions.
+   The app supports device registration (paired with admin-generated codes), live permission sync, locking, UPC-based ordering, age checks, and inventory workflows. Age Checker reads USB/Bluetooth scanner input (PDF417) and auto-logs pass/fail to the backend.
+
+### 3.1 Generating a Release APK (manual bundle + build)
+
+When Watchman or Metro causes `:app:createBundleReleaseJsAndAssets` to hang, you can pre-build the JS bundle and skip the Gradle task:
+
+```bash
+cd RetailCloudHQApp
+export JAVA_HOME="$(/usr/libexec/java_home -v 17)"
+export PATH="$JAVA_HOME/bin:$PATH"
+
+# Optional: kill old packagers and clear caches
+pkill -f "react-native start" 2>/dev/null || true
+watchman watch-del "$(pwd)" 2>/dev/null || true
+rm -rf $TMPDIR/metro-* ~/Library/Caches/MetroCache
+
+# Bundle JS without Watchman
+USE_WATCHMAN=false NODE_OPTIONS="--max_old_space_size=4096" \
+npx react-native bundle \
+  --platform android \
+  --dev false \
+  --entry-file index.js \
+  --bundle-output android/app/src/main/assets/index.android.bundle \
+  --assets-dest android/app/src/main/res/ \
+  --reset-cache \
+  --verbose
+
+cd android
+./gradlew assembleRelease -x createBundleReleaseJsAndAssets
+
+# Copy artifact to the Netlify downloads folder used by the Update button in-app
+cd ..
+cp android/app/build/outputs/apk/release/app-release.apk ../frontend/public/downloads/RetailCloudHQApp-latest.apk
+```
+
+> **Tip:** building with the “Check for Update” feature requires uploading the APK to Netlify (`frontend/public/downloads`), then redeploying the frontend so handheld devices can download the new binary.
 
 ## Data & Integrations
 
