@@ -76,7 +76,7 @@ class User {
     
     // Update user
     static async update(id, updateData) {
-        const allowedFields = ['first_name', 'last_name', 'phone', 'role', 'is_active'];
+        const allowedFields = ['first_name', 'last_name', 'phone', 'role', 'is_active', 'email'];
         const updates = [];
         const values = [];
         let paramCount = 1;
@@ -84,7 +84,11 @@ class User {
         for (const field of allowedFields) {
             if (updateData[field] !== undefined) {
                 updates.push(`${field} = $${paramCount}`);
-                values.push(updateData[field]);
+                if (field === 'email' && updateData[field]) {
+                    values.push(updateData[field].toLowerCase());
+                } else {
+                    values.push(updateData[field]);
+                }
                 paramCount++;
             }
         }

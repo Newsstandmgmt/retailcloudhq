@@ -19,6 +19,7 @@ interface ParsedFields {
   state?: string | null;
   postalCode?: string | null;
   licenseNumber?: string | null;
+  genderCode?: string | null;
 }
 
 // Enhanced AAMVA PDF417 parser returning dates and extra fields
@@ -105,6 +106,7 @@ function parsePDF417(raw: string) {
   const state = readField(['DAJ']);
   const postal = readField(['DAK', 'DAZ']);
   const licenseNumber = readField(['DAQ', 'DBJ', 'DBK']);
+  const genderCode = readField(['DBC']);
 
   console.log('[AgeCheck] Parsed DOB:', dob, '->', dobDate);
   console.log('[AgeCheck] Parsed Expiry:', exp, '->', expDate);
@@ -121,6 +123,7 @@ function parsePDF417(raw: string) {
       state,
       postalCode: postal,
       licenseNumber,
+      genderCode,
     } as ParsedFields,
   };
 }
@@ -199,19 +202,40 @@ export default function AgeCheckScreen({ navigation }: AgeCheckScreenProps) {
     return date.toLocaleDateString();
   };
 
+  const getGenderLabel = (code?: string | null) => {
+    if (!code) return '—';
+    switch (code) {
+      case '1':
+        return 'M';
+      case '2':
+        return 'F';
+      case '7':
+        return 'X';
+      default:
+        return code.toUpperCase();
+    }
+  };
+
   const fullName = personFields
     ? [personFields.firstName, personFields.middleName, personFields.lastName].filter(Boolean).join(' ').trim()
     : '';
 
-  const addressLine = personFields?.address ?? '';
+  const addressLine = personFields?.address || '—';
   const cityLine = personFields?.city || personFields?.state
     ? `${personFields?.city ?? ''}${personFields?.city && personFields?.state ? ', ' : ''}${personFields?.state ?? ''} ${personFields?.postalCode ?? ''}`.trim()
-    : '';
+    : '—';
 
-  const statusText = result === 'pass'
-    ? 'ID Verified'
-    : (parseError || (age !== null && age < 21 ? 'Under 21' : 'Additional check required'));
-  const statusStyle = result === 'pass' ? styles.statusPass : styles.statusFail;
+  const genderLabel = getGenderLabel(personFields?.genderCode);
+  const idNumber = personFields?.licenseNumber || '—';
+
+  const isPass = result === 'pass';
+  const statusText = isPass ? 'OVER 21' : parseError === 'ID expired' ? 'ID EXPIRED' : 'UNDER 21';
+  const statusDescription = parseError
+    ? parseError
+    : isPass
+    ? 'Customer meets the 21+ requirement'
+    : 'Unable to verify ID. Please check manually.';
+  const statusStyle = isPass ? styles.statusPass : styles.statusFail;
 
   return (
     <TouchableWithoutFeedback onPress={ensureFocus}>
@@ -268,6 +292,9 @@ export default function AgeCheckScreen({ navigation }: AgeCheckScreenProps) {
 
               if (d && a !== null) {
                 pass = a >= 21;
+                if (!pass) {
+                  errorMsg = 'Customer under 21';
+                }
                 if (e && e.getTime() < Date.now()) {
                   pass = false;
                   errorMsg = 'ID expired';
@@ -310,43 +337,65 @@ export default function AgeCheckScreen({ navigation }: AgeCheckScreenProps) {
         <View style={styles.resultContainer}>
           <View style={[styles.statusBanner, statusStyle]}>
             <Text style={styles.statusText}>{statusText}</Text>
-            {age !== null && (
-              <View style={styles.ageBadge}>
-                <Text style={styles.ageLabel}>AGE</Text>
-                <Text style={styles.ageValue}>{age}</Text>
-              </View>
-            )}
+            <Text style={styles.statusSubtext}>{statusDescription}</Text>
           </View>
 
-          <View style={styles.detailsCard}>
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Name</Text>
-              <Text style={styles.detailValue}>{fullName || '—'}</Text>
-            </View>
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>DOB</Text>
-              <Text style={styles.detailValue}>{formatDateDisplay(dob)}</Text>
-            </View>
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Expires</Text>
-              <Text style={styles.detailValue}>{formatDateDisplay(expiry)}</Text>
-            </View>
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>License #</Text>
-              <Text style={styles.detailValue}>{personFields?.licenseNumber || '—'}</Text>
-            </View>
-            {addressLine ? (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Address</Text>
-                <Text style={styles.detailValue}>{addressLine}</Text>
+          <View style={styles.infoCard}>
+            <View style={styles.infoRow}>
+              <View style={styles.infoCell}>
+                <Text style={styles.infoLabel}>F:</Text>
+                <Text style={styles.infoValue}>{personFields?.firstName || '—'}</Text>
               </View>
-            ) : null}
-            {cityLine ? (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>City/State</Text>
-                <Text style={styles.detailValue}>{cityLine}</Text>
+              <View style={styles.infoCell}>
+                <Text style={styles.infoLabel}>S:</Text>
+                <Text style={styles.infoValue}>{genderLabel}</Text>
               </View>
-            ) : null}
+            </View>
+            <View style={styles.infoRow}>
+              <View style={styles.infoCell}>
+                <Text style={styles.infoLabel}>L:</Text>
+                <Text style={styles.infoValue}>{personFields?.lastName || '—'}</Text>
+              </View>
+              <View style={styles.infoCell}>
+                <Text style={styles.infoLabel}>ID:</Text>
+                <Text style={styles.infoValue}>{idNumber}</Text>
+              </View>
+            </View>
+            <View style={styles.infoRow}>
+              <View style={styles.infoCellWide}>
+                <Text style={styles.infoLabel}>A:</Text>
+                <Text style={styles.infoValue}>{addressLine}</Text>
+              </View>
+            </View>
+            <View style={styles.infoRow}>
+              <View style={styles.infoCellWide}>
+                <Text style={styles.infoLabel}>C/S/Z:</Text>
+                <Text style={styles.infoValue}>{cityLine}</Text>
+              </View>
+            </View>
+            <View style={styles.infoRow}>
+              <View style={styles.infoCell}>
+                <Text style={styles.infoLabel}>DOB:</Text>
+                <Text style={styles.infoValue}>{formatDateDisplay(dob)}</Text>
+              </View>
+              <View style={styles.infoCell}>
+                <Text style={styles.infoLabel}>Exp:</Text>
+                <Text style={styles.infoValue}>{formatDateDisplay(expiry)}</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.ageCard}>
+            <Text style={[styles.ageTitle, isPass ? styles.ageTitlePass : styles.ageTitleFail]}>
+              {isPass ? 'AGE VERIFIED' : 'CHECK REQUIRED'}
+            </Text>
+            <View style={styles.ageDisplay}>
+              <Text style={styles.ageNumber}>{age ?? '--'}</Text>
+              <Text style={styles.ageCaption}>YEARS OLD</Text>
+            </View>
+            <Text style={styles.over21Text}>
+              {isPass ? 'OVER 21' : 'UNDER 21'}
+            </Text>
           </View>
 
           {parseError && lastScanData && (
@@ -439,66 +488,111 @@ const styles = StyleSheet.create({
   statusBanner: {
     width: '100%',
     borderRadius: 18,
-    padding: 20,
-    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
     marginBottom: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
   },
   statusPass: {
-    backgroundColor: '#22c55e',
+    backgroundColor: '#16a34a',
   },
   statusFail: {
-    backgroundColor: '#f97316',
+    backgroundColor: '#dc2626',
   },
   statusText: {
     color: '#fff',
-    fontSize: 20,
-    fontWeight: '700',
-    flex: 1,
+    fontSize: 24,
+    fontWeight: '800',
+    textAlign: 'center',
   },
-  ageBadge: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  ageLabel: {
+  statusSubtext: {
     color: '#fff',
-    fontSize: 12,
-    letterSpacing: 1,
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 4,
   },
-  ageValue: {
-    color: '#fff',
-    fontSize: 28,
-    fontWeight: '700',
-  },
-  detailsCard: {
+  infoCard: {
     width: '100%',
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 20,
+    padding: 16,
     marginBottom: 16,
     shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  detailRow: {
+  infoRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     marginBottom: 10,
   },
-  detailLabel: {
-    fontWeight: '600',
-    color: '#6b7280',
+  infoCell: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  detailValue: {
-    fontWeight: '600',
+  infoCellWide: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  infoLabel: {
+    fontWeight: '700',
     color: '#111827',
+    marginRight: 6,
+  },
+  infoValue: {
+    fontWeight: '600',
+    color: '#1f2937',
     flexShrink: 1,
-    textAlign: 'right',
+  },
+  ageCard: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  ageTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  ageTitlePass: {
+    color: '#16a34a',
+  },
+  ageTitleFail: {
+    color: '#dc2626',
+  },
+  ageDisplay: {
+    borderWidth: 2,
+    borderColor: '#d1d5db',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    minWidth: 180,
+  },
+  ageNumber: {
+    fontSize: 48,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  ageCaption: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginTop: 4,
+    letterSpacing: 1,
+  },
+  over21Text: {
+    marginTop: 10,
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
   },
   button: {
     backgroundColor: '#2d8659',

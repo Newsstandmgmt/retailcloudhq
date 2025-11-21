@@ -2,6 +2,7 @@ const express = require('express');
 const EmployeePayroll = require('../models/EmployeePayroll');
 const User = require('../models/User');
 const { authenticate, canAccessStore, authorize } = require('../middleware/auth');
+const { query } = require('../config/database');
 
 const router = express.Router();
 
@@ -116,22 +117,43 @@ router.get('/store/:storeId/employees', canAccessStore, canManagePayroll, async 
 // Add employee to payroll (create payroll config)
 router.post('/store/:storeId/employees', canAccessStore, canManagePayroll, async (req, res) => {
     try {
-        const { user_id, first_name, last_name, phone, email, hire_date, pay_rate, pay_schedule, pay_type, default_hours_per_week, employee_pin } = req.body;
+        const {
+            user_id,
+            first_name,
+            last_name,
+            phone,
+            email,
+            hire_date,
+            pay_rate,
+            pay_schedule,
+            pay_type,
+            default_hours_per_week,
+            employee_pin,
+            payroll_type,
+            pay_schedule_start_day,
+            pay_schedule_end_day,
+            pay_day
+        } = req.body;
+        const storeId = req.params.storeId;
         
         let userId = user_id;
         
         // If creating new employee (no user_id provided)
         if (!user_id && first_name && last_name) {
-            const User = require('../models/User');
-            // Create new user as employee
+            const slug = (value, fallback) => (value || fallback).toLowerCase().replace(/[^a-z0-9]/g, '');
+            const uniqueSuffix = Date.now();
+            const placeholderEmail = email || `${slug(first_name, 'team')}.${slug(last_name, 'member')}.${uniqueSuffix}@employee.com`;
+            
             const newUser = await User.create({
-                email: email || `${first_name.toLowerCase()}.${last_name.toLowerCase()}@employee.com`,
+                email: placeholderEmail,
                 password: 'Temp123!', // Temporary password, should be changed
                 first_name,
                 last_name,
                 phone: phone || null,
                 role: 'employee',
-                created_by: req.user.id
+                created_by: req.user.id,
+                must_change_password: true,
+                employee_pin
             });
             userId = newUser.id;
         }
@@ -146,7 +168,7 @@ router.post('/store/:storeId/employees', canAccessStore, canManagePayroll, async
 
         const { pay_schedule_start_day, pay_schedule_end_day, pay_day, payroll_type } = req.body;
         
-        const payroll = await EmployeePayroll.upsert(userId, req.params.storeId, {
+        const payroll = await EmployeePayroll.upsert(userId, storeId, {
             pay_rate,
             pay_schedule,
             pay_type,
@@ -159,6 +181,14 @@ router.post('/store/:storeId/employees', canAccessStore, canManagePayroll, async
             pay_day: pay_day || null,
             changed_by: req.user.id
         });
+
+        // Ensure existing users are also tracked in store_employees for device access
+        await query(
+            `INSERT INTO store_employees (store_id, employee_id, assigned_by, assigned_at)
+             VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+             ON CONFLICT (store_id, employee_id) DO NOTHING`,
+            [storeId, userId, req.user.id]
+        );
 
         res.status(201).json({
             message: 'Employee added to payroll successfully',

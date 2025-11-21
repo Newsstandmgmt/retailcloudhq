@@ -14,6 +14,7 @@ const DeviceUsers = ({ embedded = false }) => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
+  const [setupMode, setSetupMode] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [formData, setFormData] = useState({
@@ -25,6 +26,10 @@ const DeviceUsers = ({ embedded = false }) => {
     phone: '',
     employee_pin: '',
   });
+  const canManageUsers = user?.role === 'super_admin' || user?.role === 'admin';
+  const canCreateManager = canManageUsers;
+  const canDeleteManager = canManageUsers;
+  const canDeleteEmployee = canManageUsers || user?.role === 'manager';
 
   useEffect(() => {
     if (selectedStore && (user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'manager')) {
@@ -37,7 +42,11 @@ const DeviceUsers = ({ embedded = false }) => {
     try {
       setLoading(true);
       const response = await usersAPI.getDeviceUsers(selectedStore.id);
-      setUsers(response.data.users || []);
+      const deviceUsers = (response.data.users || []).map((u) => ({
+        ...u,
+        needs_setup: u.needs_setup || u.must_change_password || (!u.email || u.email.endsWith('@employee.com')),
+      }));
+      setUsers(deviceUsers);
     } catch (error) {
       console.error('Error loading device users:', error);
       alert('Error loading device users: ' + (error.response?.data?.error || error.message));
@@ -69,38 +78,60 @@ const DeviceUsers = ({ embedded = false }) => {
     }
   };
 
-  const handleEdit = (userToEdit) => {
+  const openEditModal = (userToEdit, setup = false) => {
     setEditingUser(userToEdit);
+    setSetupMode(setup);
     setFormData({
-      email: userToEdit.email,
-      password: '', // Don't pre-fill password
-      first_name: userToEdit.first_name,
-      last_name: userToEdit.last_name,
-      role: userToEdit.role,
+      email: userToEdit.email || '',
+      password: '', // Only used for setup / reset
+      first_name: userToEdit.first_name || '',
+      last_name: userToEdit.last_name || '',
+      role: userToEdit.role || 'employee',
       phone: userToEdit.phone || '',
-      employee_pin: '', // Don't show existing PIN
+      employee_pin: '',
     });
     setShowEditModal(true);
+  };
+
+  const handleEdit = (userToEdit) => openEditModal(userToEdit, false);
+  const handleSetupUser = (userToEdit) => {
+    if (!canManageUsers) return;
+    openEditModal(userToEdit, true);
   };
 
   const handleUpdate = async (e) => {
     e.preventDefault();
     if (!editingUser) return;
+
+    if (setupMode) {
+      if (!formData.email) {
+        alert('Email is required to complete setup.');
+        return;
+      }
+      if (!formData.password || formData.password.length < 6) {
+        alert('Password must be at least 6 characters to complete setup.');
+        return;
+      }
+    }
     
     try {
       const updateData = {
         first_name: formData.first_name,
         last_name: formData.last_name,
         phone: formData.phone,
+        role: formData.role,
       };
-      
-      // Only update password if provided
-      if (formData.password) {
-        updateData.password = formData.password;
+
+      if (setupMode && formData.email) {
+        updateData.email = formData.email;
       }
       
       await usersAPI.update(editingUser.id, updateData);
-      
+
+      if (formData.password) {
+        await usersAPI.changePassword(editingUser.id, formData.password);
+      }
+
       // Update PIN if provided and user is employee
       if (formData.employee_pin && editingUser.role === 'employee') {
         await usersAPI.updateDeviceUserPin(editingUser.id, formData.employee_pin);
@@ -111,6 +142,7 @@ const DeviceUsers = ({ embedded = false }) => {
       alert('User updated successfully!');
       setShowEditModal(false);
       setEditingUser(null);
+      setSetupMode(false);
       loadUsers();
     } catch (error) {
       alert('Error updating user: ' + (error.response?.data?.error || error.message));
@@ -159,10 +191,6 @@ const DeviceUsers = ({ embedded = false }) => {
     (currentPage - 1) * pageSize,
     currentPage * pageSize
   );
-
-  const canCreateManager = user?.role === 'super_admin' || user?.role === 'admin';
-  const canDeleteManager = user?.role === 'super_admin' || user?.role === 'admin';
-  const canDeleteEmployee = user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'manager';
 
   if (!selectedStore) {
     return (
@@ -233,9 +261,9 @@ const DeviceUsers = ({ embedded = false }) => {
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer Name</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User Group</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email Address</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Website Password</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone #</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Setup Status</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Handheld PIN</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Display Name</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Delete</th>
             </tr>
           </thead>
@@ -256,12 +284,16 @@ const DeviceUsers = ({ embedded = false }) => {
               paginatedUsers.map((u) => (
                 <tr key={u.id} className={u.is_active === false ? 'bg-gray-50 opacity-75' : ''}>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <button
-                      onClick={() => handleEdit(u)}
-                      className="text-blue-600 hover:text-blue-800"
-                    >
-                      ✏️
-                    </button>
+                    {canManageUsers ? (
+                      <button
+                        onClick={() => handleEdit(u)}
+                        className="text-blue-600 hover:text-blue-800"
+                      >
+                        ✏️
+                      </button>
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
                     {u.first_name} {u.last_name}
@@ -272,8 +304,20 @@ const DeviceUsers = ({ embedded = false }) => {
                      u.role === 'manager' ? 'Manager' : 'Employee'}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{u.email}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {u.password_hash ? '••••••••' : ''}
+                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{u.phone || '—'}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm">
+                    {u.needs_setup && canManageUsers ? (
+                      <button
+                        onClick={() => handleSetupUser(u)}
+                        className="px-3 py-1 text-xs bg-amber-100 text-amber-900 rounded hover:bg-amber-200"
+                      >
+                        Setup User
+                      </button>
+                    ) : u.needs_setup ? (
+                      <span className="text-amber-600 font-semibold">Needs setup</span>
+                    ) : (
+                      <span className="text-green-600 font-semibold">Ready</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
                     {u.has_employee_pin ? (
@@ -281,9 +325,6 @@ const DeviceUsers = ({ embedded = false }) => {
                     ) : (
                       <span className="text-gray-400">Not set</span>
                     )}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                    {u.first_name} {u.last_name}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     {(u.id !== user?.id) && (
@@ -475,7 +516,12 @@ const DeviceUsers = ({ embedded = false }) => {
       {showEditModal && editingUser && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h2 className="text-xl font-bold mb-4">Edit User</h2>
+            <h2 className="text-xl font-bold mb-2">{setupMode ? 'Set Up Device User' : 'Edit User'}</h2>
+            {setupMode && (
+              <p className="text-sm text-gray-600 mb-2">
+                Set the employee&rsquo;s login email, password, phone number, and role so they can access handheld devices.
+              </p>
+            )}
             <form onSubmit={handleUpdate} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
@@ -498,24 +544,42 @@ const DeviceUsers = ({ embedded = false }) => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email {setupMode && '*'}</label>
                 <input
                   type="email"
                   value={formData.email}
-                  disabled
-                  className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100"
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  disabled={!setupMode && !canManageUsers}
+                  required={setupMode}
+                  className={`w-full px-3 py-2 border border-gray-300 rounded ${(!setupMode && !canManageUsers) ? 'bg-gray-100' : 'focus:outline-none focus:ring-2 focus:ring-blue-500'}`}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">New Password (leave blank to keep current)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {setupMode ? 'Set Password *' : 'New Password (leave blank to keep current)'}
+                </label>
                 <input
                   type="password"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Leave blank to keep current password"
+                  placeholder={setupMode ? 'Enter a temporary password' : 'Leave blank to keep current password'}
+                  required={setupMode}
                 />
               </div>
+              {canManageUsers && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
+                  <select
+                    value={formData.role}
+                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {user?.role === 'super_admin' && <option value="manager">Manager</option>}
+                    <option value="employee">Employee</option>
+                  </select>
+                </div>
+              )}
               {editingUser.role === 'employee' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Handheld PIN (4-6 digits, leave blank to clear)</label>
@@ -550,6 +614,7 @@ const DeviceUsers = ({ embedded = false }) => {
                   onClick={() => {
                     setShowEditModal(false);
                     setEditingUser(null);
+                    setSetupMode(false);
                   }}
                   className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
                 >

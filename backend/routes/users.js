@@ -117,9 +117,19 @@ router.get('/device/store/:storeId', async (req, res) => {
         
         // Get users assigned to this store
         const usersResult = await query(
-            `SELECT DISTINCT u.id, u.email, u.first_name, u.last_name, u.role, u.phone, 
-                    u.is_active, u.created_at, u.updated_at,
-                    (u.employee_pin_hash IS NOT NULL) AS has_employee_pin
+            `SELECT DISTINCT u.id,
+                    u.email,
+                    u.first_name,
+                    u.last_name,
+                    u.role,
+                    u.phone,
+                    u.is_active,
+                    u.created_at,
+                    u.updated_at,
+                    u.must_change_password,
+                    (u.employee_pin_hash IS NOT NULL) AS has_employee_pin,
+                    (u.password_hash IS NOT NULL) AS has_web_password,
+                    (u.must_change_password OR u.email ILIKE '%@employee.com') AS needs_setup
              FROM users u
              LEFT JOIN store_employees se ON se.employee_id = u.id AND se.store_id = $1
              LEFT JOIN store_managers sm ON sm.manager_id = u.id AND sm.store_id = $1
@@ -447,7 +457,7 @@ router.post('/:userId/reset-password', authorize('super_admin'), async (req, res
 });
 
 // Change password (super admin only) - can set any password
-router.post('/:userId/change-password', authorize('super_admin'), async (req, res) => {
+router.post('/:userId/change-password', authorize('super_admin', 'admin'), async (req, res) => {
     try {
         const { new_password } = req.body;
         
@@ -459,8 +469,12 @@ router.post('/:userId/change-password', authorize('super_admin'), async (req, re
         if (!targetUser) {
             return res.status(404).json({ error: 'User not found' });
         }
+
+        if (req.user.role === 'admin' && (targetUser.role === 'super_admin' || targetUser.role === 'admin')) {
+            return res.status(403).json({ error: 'Insufficient permissions' });
+        }
         
-        await User.changePassword(req.params.userId, new_password);
+        await User.changePassword(req.params.userId, new_password, true);
         
         res.json({ message: 'Password changed successfully' });
     } catch (error) {

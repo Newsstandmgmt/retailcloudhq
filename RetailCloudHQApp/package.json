@@ -1,6 +1,6 @@
 {
   "name": "retailcloudhq-app",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Android handheld app for RetailCloudHQ",
   "main": "index.js",
   "scripts": {
@@ -8,7 +8,8 @@
     "ios": "react-native run-ios",
     "start": "react-native start",
     "test": "jest",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "build:android:bundle": "./scripts/build-android-bundle.sh"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^1.24.0",
@@ -21,6 +22,7 @@
     "react-native-sqlite-storage": "^6.0.1"
   },
   "devDependencies": {
+    "@react-native-community/cli": "latest",
     "@babel/core": "^7.20.0",
     "@babel/preset-env": "^7.20.0",
     "@babel/runtime": "^7.20.0",
