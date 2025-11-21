@@ -72,15 +72,32 @@ class SquareDailySales {
         return result.rows[0]?.sales_date || null;
     }
 
+    static normalizeDate(value) {
+        if (!value) return null;
+        if (value instanceof Date) return new Date(value.getTime());
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+            return null;
+        }
+        return parsed;
+    }
+
     static async getNextSyncDate(storeId, fallbackStartDate) {
         const latest = await this.getLatestSyncDate(storeId);
-        if (!latest) {
-            return fallbackStartDate;
+        const fallbackDateString = fallbackStartDate ? `${fallbackStartDate}T00:00:00Z` : null;
+        const baseDate = this.normalizeDate(latest) || this.normalizeDate(fallbackDateString);
+
+        if (!baseDate) {
+            console.warn('SquareDailySales.getNextSyncDate unable to determine base date', {
+                storeId,
+                latest,
+                fallbackStartDate,
+            });
+            return null;
         }
 
-        const next = new Date(`${latest}T00:00:00Z`);
-        next.setUTCDate(next.getUTCDate() + 1);
-        return next.toISOString().slice(0, 10);
+        baseDate.setUTCDate(baseDate.getUTCDate() + 1);
+        return baseDate.toISOString().slice(0, 10);
     }
 }
 
