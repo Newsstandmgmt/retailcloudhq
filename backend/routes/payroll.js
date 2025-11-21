@@ -166,8 +166,6 @@ router.post('/store/:storeId/employees', canAccessStore, canManagePayroll, async
             await User.setEmployeePin(userId, employee_pin);
         }
 
-        const { pay_schedule_start_day, pay_schedule_end_day, pay_day, payroll_type } = req.body;
-        
         const payroll = await EmployeePayroll.upsert(userId, storeId, {
             pay_rate,
             pay_schedule,
