@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, TouchableWithoutFeedback } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { getApiBaseUrl } from '../config/api';
@@ -10,99 +10,119 @@ interface AgeCheckScreenProps {
   };
 }
 
-// Enhanced AAMVA PDF417 parser for DOB and Expiry
+interface ParsedFields {
+  firstName?: string | null;
+  middleName?: string | null;
+  lastName?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  licenseNumber?: string | null;
+}
+
+// Enhanced AAMVA PDF417 parser returning dates and extra fields
 function parsePDF417(raw: string) {
-  console.log('[AgeCheck] Raw barcode data:', raw.substring(0, 200)); // Log first 200 chars for debugging
-  
-  const clean = raw.replace(/\r/g, '\n').replace(/\0/g, ''); // Remove null bytes
-  const lines = clean.split('\n').filter(l => l.trim().length > 0);
-  
+  console.log('[AgeCheck] Raw barcode data:', raw.substring(0, 200));
+
+  const clean = raw.replace(/\r/g, '\n').replace(/\0/g, '');
+
   const get = (re: RegExp) => {
-    const m = clean.match(re);
-    return m ? m[1] : null;
+    const match = clean.match(re);
+    return match ? match[1] : null;
   };
-  
-  // Try multiple patterns for DOB (Date of Birth)
-  // AAMVA format variations:
-  // - DBB = DOB (most common)
-  // - DAA = DOB (some states)
-  // - DAQ = DOB (some versions)
-  // Format: DBBYYYYMMDD or DBB YYYYMMDD
-  let dob: string | null = null;
-  
-  // Try various DOB patterns
-  dob = get(/DBB(\d{8})/) ||           // DBBYYYYMMDD
-        get(/DAA(\d{8})/) ||           // DAAYYYYMMDD
-        get(/DAQ(\d{8})/) ||           // DAQYYYYMMDD
-        get(/DBB\s*(\d{8})/) ||        // DBB YYYYMMDD (with space)
-        get(/DOB[:\s]*(\d{8})/i) ||    // DOB: YYYYMMDD or DOB YYYYMMDD
-        get(/DATE\s+OF\s+BIRTH[:\s]*(\d{8})/i) || // DATE OF BIRTH: YYYYMMDD
-        get(/BIRTH[:\s]*(\d{8})/i) ||  // BIRTH: YYYYMMDD
-        null;
-  
-  // If no DOB found, try to find any 8-digit date pattern that looks like YYYYMMDD
+
+  const readField = (codes: string[]): string | null => {
+    for (const code of codes) {
+      const pattern = new RegExp(`${code}([^\\r\\n]+)`);
+      const match = clean.match(pattern);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+    return null;
+  };
+
+  let dob = get(/DBB(\d{8})/)
+    || get(/DAA(\d{8})/)
+    || get(/DAQ(\d{8})/)
+    || get(/DBB\s*(\d{8})/)
+    || get(/DOB[:\s]*(\d{8})/i)
+    || get(/DATE\s+OF\s+BIRTH[:\s]*(\d{8})/i)
+    || get(/BIRTH[:\s]*(\d{8})/i)
+    || null;
+
+  let exp = get(/DBA(\d{8})/)
+    || get(/DCS(\d{8})/)
+    || get(/DCD(\d{8})/)
+    || get(/DBA\s*(\d{8})/)
+    || get(/EXP[:\s]*(\d{8})/i)
+    || get(/EXPIR[:\s]*(\d{8})/i)
+    || get(/EXPIRY[:\s]*(\d{8})/i)
+    || null;
+
   if (!dob) {
-    // Look for 8-digit sequences that could be dates (1900-2100 range)
-    const datePattern = /(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/;
-    const dateMatch = clean.match(datePattern);
-    if (dateMatch) {
-      dob = dateMatch[0];
-      console.log('[AgeCheck] Found date pattern:', dob);
+    const fallback = clean.match(/(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/);
+    if (fallback) {
+      dob = fallback[0];
     }
   }
-  
-  // Try multiple patterns for Expiry
-  // DBA = Expiry (most common)
-  // DCS = Expiry (some states)
-  // DCD = Expiry (some versions)
-  let exp: string | null = null;
-  
-  exp = get(/DBA(\d{8})/) ||           // DBAYYYYMMDD
-        get(/DCS(\d{8})/) ||           // DCSYYYYMMDD
-        get(/DCD(\d{8})/) ||           // DCDYYYYMMDD
-        get(/DBA\s*(\d{8})/) ||        // DBA YYYYMMDD (with space)
-        get(/EXP[:\s]*(\d{8})/i) ||    // EXP: YYYYMMDD
-        get(/EXPIR[:\s]*(\d{8})/i) ||  // EXPIR: YYYYMMDD
-        get(/EXPIRY[:\s]*(\d{8})/i) || // EXPIRY: YYYYMMDD
-        null;
-  
-  // If no expiry found, try to find another 8-digit date pattern
+
   if (!exp && dob) {
-    const allDates = clean.match(/(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/g);
-    if (allDates && allDates.length > 1) {
-      // Use the second date as expiry (first is DOB)
-      exp = allDates[1];
-      console.log('[AgeCheck] Found expiry pattern:', exp);
+    const dates = clean.match(/(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/g);
+    if (dates && dates.length > 1) {
+      exp = dates[1];
     }
   }
-  
+
   const toDate = (yyyymmdd: string | null) => {
     if (!yyyymmdd || yyyymmdd.length !== 8) return null;
-    const y = Number(yyyymmdd.slice(0, 4));
-    const m = Number(yyyymmdd.slice(4, 6)) - 1;
-    const d = Number(yyyymmdd.slice(6, 8));
-    
-    // Validate date
-    if (y < 1900 || y > 2100 || m < 0 || m > 11 || d < 1 || d > 31) {
-      console.warn('[AgeCheck] Invalid date values:', { y, m: m + 1, d });
-      return null;
-    }
-    
-    const dt = new Date(Date.UTC(y, m, d));
-    if (isNaN(dt.getTime())) {
-      console.warn('[AgeCheck] Invalid date:', yyyymmdd);
-      return null;
-    }
-    return dt;
+    const year = Number(yyyymmdd.slice(0, 4));
+    const month = Number(yyyymmdd.slice(4, 6)) - 1;
+    const day = Number(yyyymmdd.slice(6, 8));
+    if (year < 1900 || year > 2100 || month < 0 || month > 11 || day < 1 || day > 31) return null;
+    const date = new Date(Date.UTC(year, month, day));
+    return isNaN(date.getTime()) ? null : date;
   };
-  
+
   const dobDate = toDate(dob);
   const expDate = toDate(exp);
-  
+
+  const fullName = readField(['DAA']);
+  let firstName = readField(['DAC', 'DAF']);
+  let lastName = readField(['DCS']);
+  let middleName = readField(['DAD']);
+
+  if (fullName && (!firstName || !lastName)) {
+    const parts = fullName.split(',');
+    if (!lastName && parts.length > 0) lastName = parts[0]?.trim();
+    if (!firstName && parts.length > 1) firstName = parts[1]?.trim();
+    if (!middleName && parts.length > 2) middleName = parts[2]?.trim();
+  }
+
+  const address = readField(['DAG']);
+  const city = readField(['DAI']);
+  const state = readField(['DAJ']);
+  const postal = readField(['DAK', 'DAZ']);
+  const licenseNumber = readField(['DAQ', 'DBJ', 'DBK']);
+
   console.log('[AgeCheck] Parsed DOB:', dob, '->', dobDate);
   console.log('[AgeCheck] Parsed Expiry:', exp, '->', expDate);
-  
-  return { dob: dobDate, expiry: expDate };
+
+  return {
+    dob: dobDate,
+    expiry: expDate,
+    fields: {
+      firstName,
+      middleName,
+      lastName,
+      address,
+      city,
+      state,
+      postalCode: postal,
+      licenseNumber,
+    } as ParsedFields,
+  };
 }
 
 function calcAge(dob: Date | null) {
@@ -122,6 +142,21 @@ export default function AgeCheckScreen({ navigation }: AgeCheckScreenProps) {
   const [result, setResult] = useState<'pass' | 'fail' | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [lastScanData, setLastScanData] = useState<string | null>(null);
+  const [personFields, setPersonFields] = useState<ParsedFields | null>(null);
+  const inputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      inputRef.current?.focus();
+    }, 200);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const ensureFocus = () => {
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  };
 
   const handleLog = async () => {
     if (!result || !dob) return; // Don't log if no result or DOB
@@ -156,10 +191,31 @@ export default function AgeCheckScreen({ navigation }: AgeCheckScreenProps) {
     setResult(null);
     setParseError(null);
     setLastScanData(null);
+    setPersonFields(null);
   };
 
+  const formatDateDisplay = (date: Date | null) => {
+    if (!date) return '—';
+    return date.toLocaleDateString();
+  };
+
+  const fullName = personFields
+    ? [personFields.firstName, personFields.middleName, personFields.lastName].filter(Boolean).join(' ').trim()
+    : '';
+
+  const addressLine = personFields?.address ?? '';
+  const cityLine = personFields?.city || personFields?.state
+    ? `${personFields?.city ?? ''}${personFields?.city && personFields?.state ? ', ' : ''}${personFields?.state ?? ''} ${personFields?.postalCode ?? ''}`.trim()
+    : '';
+
+  const statusText = result === 'pass'
+    ? 'ID Verified'
+    : (parseError || (age !== null && age < 21 ? 'Under 21' : 'Additional check required'));
+  const statusStyle = result === 'pass' ? styles.statusPass : styles.statusFail;
+
   return (
-    <View style={styles.container}>
+    <TouchableWithoutFeedback onPress={ensureFocus}>
+      <View style={styles.container}>
       {/* Header with Back Button */}
       <View style={styles.header}>
         <TouchableOpacity 
@@ -176,63 +232,61 @@ export default function AgeCheckScreen({ navigation }: AgeCheckScreenProps) {
         <View style={styles.headerSpacer} />
       </View>
 
-      {/* Scan Input - Hidden but auto-focused for scanner */}
+      {/* Keep a hidden input focused so the scanner can type into it */}
       <TextInput
+        ref={inputRef}
         style={styles.hiddenInput}
         value={raw}
         onChangeText={(text) => {
           setRaw(text);
-          // Auto-parse when scanner finishes (typically ends with newline, Enter, or Tab)
-          // Also trigger if we have enough data (barcodes are usually 100+ characters)
-          // Most scanners send data all at once or end with newline/return
-          const shouldParse = text.length > 50 && (
-            text.endsWith('\n') || 
-            text.endsWith('\r') || 
+          const shouldParse = text.length > 30 && (
+            text.endsWith('\n') ||
+            text.endsWith('\r') ||
             text.endsWith('\t') ||
-            text.endsWith('\0') || // Null terminator
-            (text.length > 100) // Long enough to be a complete barcode
+            text.endsWith('\0') ||
+            text.length > 80
           );
-          
+
           if (shouldParse) {
             console.log('[AgeCheck] Triggering parse, text length:', text.length);
-            setLastScanData(text.substring(0, 500)); // Store first 500 chars for debugging
+            setLastScanData(text.substring(0, 500));
             setTimeout(() => {
               const trimmed = text.trim();
-              const { dob: d, expiry: e } = parsePDF417(trimmed);
+              const parsed = parsePDF417(trimmed);
+              const d = parsed.dob || null;
+              const e = parsed.expiry || null;
               setDob(d);
               setExpiry(e);
+              setPersonFields(parsed.fields || null);
               const a = calcAge(d);
               setAge(a);
-              
-              console.log('[AgeCheck] Parse result:', { dob: d, expiry: e, age: a });
-              
-              // Determine result
+
+              console.log('[AgeCheck] Parse result:', { dob: d, expiry: e, age: a, fields: parsed.fields });
+
               let pass = false;
               let errorMsg: string | null = null;
-              
-              if (a !== null) {
+
+              if (d && a !== null) {
                 pass = a >= 21;
-                // Also check expiry if available
                 if (e && e.getTime() < Date.now()) {
-                  pass = false; // Expired ID
+                  pass = false;
                   errorMsg = 'ID expired';
                 }
               } else {
-                // If we can't parse DOB, fail
                 pass = false;
                 errorMsg = 'Could not parse date of birth from ID';
               }
-              
+
               setResult(pass ? 'pass' : 'fail');
               setParseError(errorMsg);
-              
-              // Auto-log after successful scan
-              if (d) { // Only log if we got a DOB
+
+              if (d) {
                 handleLog().catch(() => {});
               } else {
                 console.warn('[AgeCheck] Could not parse DOB from barcode, not logging');
               }
-            }, 150); // Slightly longer delay to ensure scanner is done
+              setRaw('');
+            }, 150);
           }
         }}
         autoFocus
@@ -240,6 +294,9 @@ export default function AgeCheckScreen({ navigation }: AgeCheckScreenProps) {
         autoCapitalize="none"
         keyboardType="default"
         returnKeyType="done"
+        showSoftInputOnFocus={false}
+        blurOnSubmit={false}
+        onBlur={ensureFocus}
       />
 
       {/* Main Display */}
@@ -251,40 +308,66 @@ export default function AgeCheckScreen({ navigation }: AgeCheckScreenProps) {
         </View>
       ) : (
         <View style={styles.resultContainer}>
-          <View style={[styles.resultBadge, result === 'pass' ? styles.resultPass : styles.resultFail]}>
-            <Text style={styles.resultBadgeText}>
-              {result === 'pass' ? '✓ ALLOWED' : '✗ NOT ALLOWED'}
-            </Text>
+          <View style={[styles.statusBanner, statusStyle]}>
+            <Text style={styles.statusText}>{statusText}</Text>
+            {age !== null && (
+              <View style={styles.ageBadge}>
+                <Text style={styles.ageLabel}>AGE</Text>
+                <Text style={styles.ageValue}>{age}</Text>
+              </View>
+            )}
           </View>
-          {result === 'pass' && (
-            <Text style={styles.resultSubtext}>Customer is 21 or older</Text>
-          )}
-          {result === 'fail' && (
-            <>
-              <Text style={styles.resultSubtext}>
-                {age !== null && age < 21 
-                  ? `Age: ${age} (Under 21)` 
-                  : parseError || 'ID expired or invalid'}
+
+          <View style={styles.detailsCard}>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Name</Text>
+              <Text style={styles.detailValue}>{fullName || '—'}</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>DOB</Text>
+              <Text style={styles.detailValue}>{formatDateDisplay(dob)}</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Expires</Text>
+              <Text style={styles.detailValue}>{formatDateDisplay(expiry)}</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>License #</Text>
+              <Text style={styles.detailValue}>{personFields?.licenseNumber || '—'}</Text>
+            </View>
+            {addressLine ? (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Address</Text>
+                <Text style={styles.detailValue}>{addressLine}</Text>
+              </View>
+            ) : null}
+            {cityLine ? (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>City/State</Text>
+                <Text style={styles.detailValue}>{cityLine}</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {parseError && lastScanData && (
+            <View style={styles.debugContainer}>
+              <Text style={styles.debugLabel}>Debug Info (first 200 chars):</Text>
+              <Text style={styles.debugText} selectable>
+                {lastScanData.substring(0, 200)}
               </Text>
-              {parseError && lastScanData && (
-                <View style={styles.debugContainer}>
-                  <Text style={styles.debugLabel}>Debug Info (first 200 chars):</Text>
-                  <Text style={styles.debugText} selectable>
-                    {lastScanData.substring(0, 200)}
-                  </Text>
-                </View>
-              )}
-            </>
+            </View>
           )}
-          <TouchableOpacity 
-            style={[styles.button, styles.clearButton]} 
+
+          <TouchableOpacity
+            style={[styles.button, styles.clearButton]}
             onPress={handleClear}
           >
             <Text style={styles.buttonText}>Scan Another</Text>
           </TouchableOpacity>
         </View>
       )}
-    </View>
+      </View>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -353,31 +436,69 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 40,
   },
-  resultBadge: {
-    paddingVertical: 24,
-    paddingHorizontal: 48,
-    borderRadius: 16,
-    marginBottom: 16,
-    minWidth: 280,
+  statusBanner: {
+    width: '100%',
+    borderRadius: 18,
+    padding: 20,
+    alignItems: 'center',
+    marginBottom: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statusPass: {
+    backgroundColor: '#22c55e',
+  },
+  statusFail: {
+    backgroundColor: '#f97316',
+  },
+  statusText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '700',
+    flex: 1,
+  },
+  ageBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     alignItems: 'center',
   },
-  resultPass: {
-    backgroundColor: '#059669',
-  },
-  resultFail: {
-    backgroundColor: '#b91c1c',
-  },
-  resultBadgeText: {
+  ageLabel: {
     color: '#fff',
-    fontSize: 32,
-    fontWeight: 'bold',
-    letterSpacing: 2,
+    fontSize: 12,
+    letterSpacing: 1,
   },
-  resultSubtext: {
-    fontSize: 18,
-    color: '#666',
-    marginBottom: 32,
-    textAlign: 'center',
+  ageValue: {
+    color: '#fff',
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  detailsCard: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  detailLabel: {
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  detailValue: {
+    fontWeight: '600',
+    color: '#111827',
+    flexShrink: 1,
+    textAlign: 'right',
   },
   button: {
     backgroundColor: '#2d8659',
